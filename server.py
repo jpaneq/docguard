@@ -23,6 +23,7 @@ from PIL import Image
 
 import core
 import editor
+import idfields
 import protect
 import signing
 
@@ -43,6 +44,7 @@ class Doc:
         self.undo = []
         self.ocr = {}
         self.lines = {}
+        self.idf = {}
         if self.ext == ".pdf":
             self.kind = "pdf"
         elif self.ext in core.IMAGE_EXTS:
@@ -166,7 +168,8 @@ def wm_qr(p, ref):
     q = p.get("qr") or {}
     if not q.get("enabled"):
         return None
-    data = protect.qr_text(q.get("recipient", "").strip(), q.get("purpose", "").strip(), ref)
+    data = protect.qr_payload(q.get("mode", "vcard"), q.get("recipient", "").strip(), q.get("purpose", "").strip(),
+                              ref, q.get("base_url", "").strip())
     return {"data": data, "size": float(q.get("size", 22)), "pos": q.get("pos", "abajo-derecha")}
 
 
@@ -176,6 +179,28 @@ def wm_basic(p):
                 opacity=float(p.get("opacity", 35)) / 100, color=tuple(int(p.get("color", "#c80000")[i:i + 2], 16)
                                                                         for i in (1, 3, 5)),
                 hardened=bool(p.get("hardened", True)))
+
+
+def doc_image(d, n, maxside=2200):
+    """Imagen de una página (o de la imagen original) para analizarla."""
+    if d.kind == "image" and not d.edited:
+        from PIL import ImageOps
+        return ImageOps.exif_transpose(Image.open(io.BytesIO(d.orig))).convert("RGB")
+    page = need_pdf(d)[n]
+    zoom = min(4.0, maxside / max(page.rect.width, page.rect.height))
+    pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+    return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+
+
+def id_fields(d, n):
+    if n not in d.idf:
+        d.idf[n] = idfields.detect(doc_image(d, n))
+    return d.idf[n]
+
+
+def op_idfields(req):
+    d = get_doc(req)
+    return id_fields(d, int(req.get("n", 0)))
 
 
 def op_wm_preview(req):
@@ -196,7 +221,7 @@ def op_wm_preview(req):
     if params["strike"] and params["level"] != "basica" and n not in d.lines:
         d.lines[n] = protect.detect_lines(img)
     out = protect.watermark(img, seed=1000 + n, lines=d.lines.get(n), qr=wm_qr(req["params"], "(al guardar)"),
-                            **params)
+                            hide=req["params"].get("hide_page"), **params)
     buf = io.BytesIO()
     out.save(buf, "JPEG", quality=85)
     return ("image/jpeg", buf.getvalue())
@@ -218,10 +243,21 @@ def op_wm_export(req):
                                    core.expand_placeholders(params["text"]), d.name)
             refs.append(ref)
         extra = dict(params, qr=wm_qr(p, ref), mark=ref if p.get("mark", True) else None)
+        hide_doc = (p.get("hide") or {}).get(did)
+
+        def painter(img, seed, _d=d, _h=hide_doc, **kw):
+            page_no = seed - 1000
+            if _h is not None and str(page_no) in _h:
+                hide = _h[str(page_no)]
+            elif p.get("autohide"):
+                hide = [r for it in idfields.detect(img)["items"] for r in it["rects"]]
+            else:
+                hide = None
+            return protect.watermark(img, seed=seed, hide=hide, **kw)
         with as_file(d) as (path, tmp):
             dst = os.path.join(tmp, "out", f"{d.base}_marca.{fmt}")
             os.makedirs(os.path.dirname(dst))
-            core.export_watermarked(path, dst, extra, w, h, painter=protect.watermark)
+            core.export_watermarked(path, dst, extra, w, h, painter=painter)
             files += read_outputs(os.path.dirname(dst))
     res = store_result(files)
     if refs:
@@ -298,6 +334,15 @@ def op_detect(req):
                 text = " ".join(t for r, t in page_words(d, n) if any(r == q for q in g))
                 found.setdefault(kind, []).append({"n": n, "rects": [editor.to_view(page, r) for r in g],
                                                    "text": text})
+    # Datos de DNI / pasaporte (en documentos cortos, que es donde suelen estar)
+    if len(d.doc) <= 6:
+        for n in range(len(d.doc)):
+            res = id_fields(d, n)
+            W, H = d.doc[n].rect.width, d.doc[n].rect.height
+            for it in res["items"]:
+                key = "DNI/pasaporte · " + it["label"]
+                found.setdefault(key, []).append({"n": n, "text": it["text"] or it["label"],
+                                                  "rects": [[r[0] * W, r[1] * H, r[2] * W, r[3] * H] for r in it["rects"]]})
     return {"found": found}
 
 
@@ -473,6 +518,13 @@ EDIT_OPS = {
                                                      r.get("color", "#ffd400"), float(r.get("size", 12))),
     "add_ink": lambda doc, r: editor.add_ink(doc, r["n"], r["strokes"], r.get("color", "#1a4fd6"),
                                             float(r.get("width", 2))),
+    "move_spans": lambda doc, r: editor.move_spans(doc, r["n"], r["indices"], float(r["dx"]), float(r["dy"])),
+    "delete_spans": lambda doc, r: editor.delete_spans(doc, r["n"], r["indices"]),
+    "add_shape": lambda doc, r: editor.add_shape(doc, r["n"], r["kind"], r.get("rect"), r.get("stroke", "#d62828"),
+                                                r.get("fill"), float(r.get("width", 2)), r.get("points")),
+    "move_annot": lambda doc, r: editor.move_annotation(doc, r["n"], r["xref"], r["rect"]),
+    "paste": lambda doc, r: editor.paste_region(doc, r["n"], CLIPBOARD["clip"], float(r["x"]), float(r["y"])),
+    "ocr": lambda doc, r: f"{sum(editor.ocr_page(doc, p, r.get('mode', 'editable')) for p in r['pages'])} líneas",
     "delete_annot": lambda doc, r: editor.delete_annotation(doc, r["n"], r["xref"]),
     "add_widget": lambda doc, r: editor.add_widget(doc, r["n"], r["type"], r["rect"], r["name"], r.get("value"),
                                                   r.get("options")),
@@ -491,17 +543,46 @@ def op_edit(req, name):
     d.undo.append(snapshot)
     del d.undo[:-MAX_UNDO]
     d.edited = True
-    d.lines, d.ocr = {}, {}  # el texto puede haber cambiado
+    d.lines, d.ocr, d.idf = {}, {}, {}  # el texto puede haber cambiado
     # Recargar tras cada cambio mantiene coherentes las listas de texto/imágenes/campos.
     d.doc = fitz.open("pdf", doc.tobytes())
     return {"message": result if isinstance(result, str) else ""}
+
+
+CLIPBOARD = {}
+
+
+def op_copy(req):
+    d = get_doc(req)
+    clip, text, png = editor.copy_region(need_pdf(d), int(req["n"]), req["rect"])
+    CLIPBOARD["clip"] = clip
+    return {"text": text, "png": base64.b64encode(png).decode(), "size": clip["size"]}
+
+
+def op_sign_margin(req):
+    d = get_doc(req)
+    doc = need_pdf(d)
+    png = sigimg_bytes(req["sig"])
+    img = Image.open(io.BytesIO(png))
+    pages = None
+    if req.get("ranges"):
+        pages = sorted({p for g in core.parse_ranges(req["ranges"], len(doc)) for p in g})
+    req = dict(req, n=0)
+
+    def do(doc_, r):
+        return f"{editor.sign_margin(doc_, png, r.get('side', 'derecha'), float(r.get('length', 22)), pages, img.width / img.height)} páginas firmadas"
+    EDIT_OPS["_margin"] = do
+    try:
+        return op_edit(req, "_margin")
+    finally:
+        EDIT_OPS.pop("_margin", None)
 
 
 def op_undo(req):
     d = get_doc(req)
     if d.undo:
         d.doc = fitz.open("pdf", d.undo.pop())
-        d.lines, d.ocr = {}, {}
+        d.lines, d.ocr, d.idf = {}, {}, {}
         d.edited = bool(d.undo) or d.kind != "pdf"
     return {"can_undo": bool(d.undo)}
 
@@ -614,14 +695,14 @@ OPS = {
     "presets": op_presets, "presets/save": op_presets_save,
     "open_result": op_open_result, "close": op_close, "info": op_info,
     "wm/preview": op_wm_preview, "wm/export": op_wm_export, "wm/check": op_wm_check,
-    "wm/registry": op_wm_registry,
+    "wm/registry": op_wm_registry, "idfields": op_idfields,
     "words": op_words, "pages_without_text": op_pages_without_text, "ocr": op_ocr, "detect": op_detect,
     "search": op_search, "redact": op_redact,
     "pages/save": op_pages_save, "encrypt": op_encrypt, "decrypt": op_decrypt,
     "compress": op_compress, "toimages": op_toimages, "topdf": op_topdf, "sanitize": op_sanitize, "merge": op_merge,
     "edit/state": op_edit_state, "fonts": op_fonts, "edit/undo": op_undo, "edit/export": op_edit_export,
     "sigimgs": op_sigimgs, "sigimg/save": op_sigimg_save, "sigimg/delete": op_sigimg_delete,
-    "sigimg/place": op_place_sigimg, "certinfo": op_certinfo, "sign": op_sign,
+    "sigimg/place": op_place_sigimg, "sigimg/margin": op_sign_margin, "edit/copy": op_copy, "certinfo": op_certinfo, "sign": op_sign,
     "p11/modules": op_p11_modules, "p11/list": op_p11_list, "p11/login": op_p11_login, "verify": op_verify,
 }
 for _name in EDIT_OPS:
@@ -694,6 +775,8 @@ class Handler(BaseHTTPRequestHandler):
                         return self.page(q)
                     if url.path == "/api/result":
                         return self.result(q)
+                    if url.path == "/api/font":
+                        return self.font(q)
             except Exception as ex:
                 return self.send(400, {"error": str(ex)})
             return self.send(404, {"error": "no encontrado"})
@@ -711,6 +794,16 @@ class Handler(BaseHTTPRequestHandler):
         zoom = max(0.05, min(float(q.get("zoom", ["1"])[0]), 6))
         pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False, annots=True)
         self.send(200, pix.tobytes("png"), "image/png")
+
+    def font(self, q):
+        if "key" in q:
+            data, ext = editor.font_file(q["key"][0])
+        else:
+            d = DOCS[q["id"][0]]
+            data, ext = editor.font_data(need_pdf(d), int(q["n"][0]), q["name"][0])
+        if not data:
+            return self.send(404, {"error": "fuente no disponible"})
+        self.send(200, data, "font/otf" if ext == "otf" else "font/ttf", {"Cache-Control": "max-age=3600"})
 
     def result(self, q):
         files = RESULTS[q["rid"][0]]

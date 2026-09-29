@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Documento de uso restringido</title>
+<style>
+  :root { --bg: #f4f5f8; --card: #fff; --text: #1b2130; --muted: #6b7385; --red: #c62828; --line: #e3e6ee; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #12161f; --card: #1c2230; --text: #e8ebf2; --muted: #9aa3b6; --line: #2e3647; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px;
+         background: var(--bg); color: var(--text); font: 16px/1.45 -apple-system, "Segoe UI", system-ui, sans-serif; }
+  .card { background: var(--card); border-radius: 18px; max-width: 460px; width: 100%; overflow: hidden;
+          box-shadow: 0 6px 30px rgba(0, 0, 0, .12); }
+  .head { background: var(--red); color: #fff; padding: 22px 22px 18px; }
+  .head .tag { font-size: 12px; letter-spacing: .12em; opacity: .9; }
+  .head h1 { margin: 4px 0 0; font-size: 24px; line-height: 1.2; }
+  dl { margin: 0; padding: 8px 22px 4px; }
+  dt { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-top: 14px; }
+  dd { margin: 2px 0 0; font-size: 18px; font-weight: 600; word-break: break-word; }
+  .warn { margin: 18px 22px 22px; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); font-size: 14px; }
+  .foot { font-size: 12px; color: var(--muted); padding: 0 22px 20px; }
+  .err { padding: 26px; text-align: center; }
+</style>
+</head>
+<body>
+<main class="card" id="card"><div class="err">Cargando…</div></main>
+<script>
+  // Los datos van en el propio enlace (después de #): el navegador no los envía a ningún servidor.
+  (function () {
+    const card = document.getElementById('card');
+    const esc = s => String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    try {
+      let b = location.hash.slice(1).replace(/-/g, '+').replace(/_/g, '/');
+      while (b.length % 4) b += '=';
+      const bytes = Uint8Array.from(atob(b), c => c.charCodeAt(0));
+      const d = JSON.parse(new TextDecoder().decode(bytes));
+      const row = (k, v) => v ? `<dt>${k}</dt><dd>${esc(v)}</dd>` : '';
+      card.innerHTML = `
+        <div class="head"><div class="tag">DOCUMENTO DE IDENTIDAD</div><h1>Uso restringido</h1></div>
+        <dl>${row('Autorizado a', d.p)}${row('Finalidad', d.f)}${row('Fecha', d.d)}${row('Referencia', d.r)}</dl>
+        <div class="warn">Esta copia solo puede usarse para la finalidad indicada. <b>Cualquier otro uso no está autorizado.</b></div>
+        <div class="foot">Generado con DocGuard. Los datos de esta página están en el propio código QR.</div>`;
+    } catch (e) {
+      card.innerHTML = '<div class="err">Este enlace no contiene datos válidos de un documento.</div>';
+    }
+  })();
+</script>
+</body>
+</html>

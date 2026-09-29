@@ -34,10 +34,13 @@
         <button data-mode="text" class="on" title="Haz clic en un texto para cambiarlo">Editar texto</button>
         <button data-mode="addtext" title="Haz clic donde quieras escribir">Añadir texto</button>
         <button data-mode="image">Imágenes</button>
+        <button data-mode="shapes">Formas</button>
         <button data-mode="annot">Anotar</button>
         <button data-mode="forms">Formularios</button>
         <button data-mode="handsign">Firma manuscrita</button>
+        <button data-mode="select" title="Selecciona una zona para copiarla y pegarla">Seleccionar</button>
       </div>
+      <button data-act="ocr" title="Reconocer el texto de páginas escaneadas">OCR…</button>
       <span class="grow"></span>
       <button data-act="undo" disabled>↶ Deshacer</button>
       <button class="primary" data-act="export" disabled>Guardar PDF…</button>
@@ -80,11 +83,25 @@
         <small>Atraviesa cada línea de texto (nombre, número…) con microtexto del color de la tinta: para quitarlo hay que reescribir los datos.</small>
         <label class="inline"><input type="checkbox" data-k="mark" checked> Marca invisible de rastreo</label>
         <small>Oculta una referencia en la imagen. Si alguien borra la marca visible, DocGuard puede identificar a quién se entregó.</small>
+        <h3>Ocultar datos (DNI / pasaporte)</h3>
+        <label class="inline"><input type="checkbox" data-k="autohide" checked> Detectar y ocultar datos innecesarios</label>
+        <small>Firma, nº de soporte (IDESP), CAN, MRZ, domicilio, progenitores, lugar de nacimiento, datos de expedición… En la vista previa: clic en un recuadro y ✕ (o Supr) para quitarlo; arrastra para tapar otra zona.</small>
+        <div data-role="hidelist" class="check-list"></div>
         <h3>Código QR</h3>
         <label class="inline"><input type="checkbox" data-k="qr"> Añadir QR con el uso autorizado</label>
         <div data-role="qr" hidden>
           <label>Autorizado a <input data-k="qr_recipient" placeholder="Inmobiliaria Sol S.L."></label>
           <label>Finalidad <input data-k="qr_purpose" placeholder="Alquiler piso C/ Mayor 3"></label>
+          <label>Al escanearlo, mostrar
+            <select data-k="qr_mode">
+              <option value="vcard">Ficha (tarjeta en el móvil, sin internet)</option>
+              <option value="web">Página web de verificación</option>
+              <option value="texto">Texto plano</option>
+            </select></label>
+          <div data-role="qrweb" hidden>
+            <label>Dirección de tu página de verificación <input data-k="qr_base" placeholder="https://tuusuario.github.io/docguard/verificar.html"></label>
+            <small>Publica gratis el archivo <b>docs/verificar.html</b> del proyecto (p. ej. en GitHub Pages). Los datos viajan dentro del enlace, tras «#», y el servidor nunca los recibe.</small>
+          </div>
           <label>Tamaño <output></output><input type="range" data-k="qr_size" min="12" max="40" value="22"></label>
           <label>Posición <select data-k="qr_pos">
             <option value="abajo-derecha">Abajo a la derecha</option><option value="abajo-izquierda">Abajo a la izquierda</option>
@@ -106,7 +123,7 @@
         </div>
       </div>
       <div class="preview">
-        <div class="preview-img"><img alt=""><div class="empty">Abre o arrastra aquí un documento (PDF, JPG, PNG…)</div></div>
+        <div class="preview-img"><div class="hide-ov"></div><img alt=""><div class="empty">Abre o arrastra aquí un documento (PDF, JPG, PNG…)</div></div>
         <div class="pager"><button data-act="prev">◀</button><span></span><button data-act="next">▶</button></div>
       </div>
     </div>

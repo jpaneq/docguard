@@ -301,6 +301,38 @@ def _ocr_at(page, zoom):
     return words
 
 
+def ocr_page_lines(page):
+    """OCR por líneas: [(Rect, texto, [(Rect, palabra)])] en coordenadas de página, sin margen."""
+    global _ocr_engine
+    if _ocr_engine is None:
+        from rapidocr import RapidOCR
+        _ocr_engine = RapidOCR()
+    best = []
+    for i, side in enumerate((2200, 1600, 1100, 3000)):
+        zoom = side / max(page.rect.width, page.rect.height)
+        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+        res = _ocr_engine(pix.tobytes("png"), return_word_box=True)
+        lines = []
+        for words in res.word_results or ():
+            ws = []
+            for item in words:
+                if not isinstance(item, (tuple, list)) or len(item) != 3 or item[2] is None:
+                    continue
+                t, _sc, box = item
+                xs, ys = [q[0] for q in box], [q[1] for q in box]
+                ws.append((fitz.Rect(min(xs), min(ys), max(xs), max(ys)) * (1 / zoom) * page.derotation_matrix, t))
+            if ws:
+                r = fitz.Rect(ws[0][0])
+                for w, _ in ws[1:]:
+                    r |= w
+                lines.append((r, " ".join(t for _, t in ws), ws))
+        if sum(len(l[1]) for l in lines) > sum(len(l[1]) for l in best):
+            best = lines
+        if best and i >= 1:
+            break
+    return best
+
+
 def native_words(page):
     return [(fitz.Rect(w[:4]), w[4]) for w in page.get_text("words", sort=True)]
 

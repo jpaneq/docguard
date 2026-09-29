@@ -108,6 +108,17 @@ def selftest():
     out = protect.watermark(card, "Solo para prueba", level="maxima",
                             qr={"data": protect.qr_text("A", "B", "0000ABCD")}, mark="0000ABCD")
     checks["protección reforzada + QR + marca invisible"] = protect.detect_mark(out)[0] == "0000ABCD"
+    import idfields
+    from PIL import ImageDraw
+    back = Image.new("RGB", (1600, 1010), (225, 232, 228))
+    dr = ImageDraw.Draw(back)
+    import core as _core
+    dr.text((80, 60), "DOMICILIO", font=_core.get_font(28), fill=(80, 80, 90))
+    dr.text((80, 100), "C. EJEMPLO 12", font=_core.get_font(44), fill=(20, 20, 30))
+    for i, l in enumerate(["IDESPCAA123456499999999R<<<<<<", "9003141F3107229ESP<<<<<<<<<<<6"]):
+        dr.text((80, 700 + i * 90), l, font=_core.get_font(56), fill=(20, 20, 30))
+    kinds = {it["kind"] for it in idfields.detect(back)["items"]}
+    checks["detección DNI/pasaporte"] = {"mrz", "domicilio"} <= kinds
     try:
         import pkcs11  # noqa: F401
         import signing

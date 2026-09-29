@@ -174,3 +174,22 @@ details summary { cursor: pointer; color: var(--accent); }
 table.reg { border-collapse: collapse; width: 100%; font-size: 12px; }
 table.reg td, table.reg th { border-bottom: 1px solid var(--line); padding: 5px 6px; text-align: left; vertical-align: top; }
 .side-panel small { display: block; margin-bottom: 4px; }
+
+.inline-edit { position: absolute; white-space: pre; outline: 2px solid var(--accent); outline-offset: 1px; padding: 0 1px; z-index: 5; cursor: text; user-select: text; }
+.inline-edit.new { background: rgba(255, 255, 255, .0); outline-style: dashed; min-height: 1em; }
+.sel-text { background: var(--panel2); border-radius: 6px; padding: 6px 8px; font-size: 13px; word-break: break-word; }
+.bx.span.sel { cursor: move; }
+
+.bx.region { border: 2px dashed var(--ok); background: rgba(31, 157, 85, .08); pointer-events: none; }
+.bx.annot .handle { display: none; } .bx.annot.sel .handle { display: block; }
+.bx.annot.sel { border-style: solid; border-color: var(--accent); }
+.bx.mark { cursor: pointer; } .bx.mark.sel { outline: 3px solid var(--accent); }
+.bx.mark .x { position: absolute; top: -9px; right: -9px; width: 18px; height: 18px; line-height: 16px; text-align: center; font-size: 11px; border-radius: 50%; background: var(--danger); color: #fff; cursor: pointer; }
+
+.preview-img { position: relative; }
+.hide-ov { position: absolute; display: none; cursor: crosshair; z-index: 2; }
+.preview-img.has .hide-ov { display: block; }
+.hbox { position: absolute; border: 2px dashed rgba(255, 200, 0, .9); cursor: pointer; }
+.hbox.sel { border: 2px solid var(--accent); box-shadow: 0 0 0 2px rgba(37, 99, 217, .35); }
+.hbox .x { position: absolute; top: -10px; right: -10px; width: 20px; height: 20px; line-height: 18px; text-align: center; font-size: 12px; border-radius: 50%; background: var(--danger); color: #fff; }
+.hide-ov .drag-box { position: absolute; border: 2px dashed var(--accent); background: rgba(37, 99, 217, .1); }

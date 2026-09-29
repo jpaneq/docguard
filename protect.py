@@ -225,6 +225,27 @@ def qr_text(recipient, purpose, ref, date=None):
     return "\n".join(lines)
 
 
+def qr_payload(mode, recipient, purpose, ref, base_url="", date=None):
+    """Contenido del QR.
+    - 'vcard': ficha de contacto; el móvil la muestra como tarjeta, sin internet.
+    - 'web': enlace a la página de verificación con los datos en el propio enlace (#).
+    - 'texto': texto plano (algunos móviles lo buscan en Google)."""
+    import base64
+    date = date or datetime.date.today().strftime("%d/%m/%Y")
+    if mode == "web" and base_url:
+        data = json.dumps({"p": recipient, "f": purpose, "d": date, "r": ref}, ensure_ascii=False, separators=(",", ":"))
+        return base_url.split("#")[0] + "#" + base64.urlsafe_b64encode(data.encode()).decode().rstrip("=")
+    if mode == "vcard":
+        e = lambda t: (t or "").replace("\\", "\\\\").replace(",", "\\,").replace(";", "\\;").replace("\n", " ")
+        note = (f"Copia de documento de identidad de USO RESTRINGIDO. Autorizado a: {recipient or '-'}. "
+                f"Finalidad: {purpose or '-'}. Fecha: {date}. Ref.: {ref}. Cualquier otro uso NO está autorizado.")
+        return "\n".join(["BEGIN:VCARD", "VERSION:3.0", "N:;USO RESTRINGIDO;;;",
+                          f"FN:USO RESTRINGIDO – {e(recipient) or 'copia autorizada'}",
+                          f"ORG:{e(recipient)}", f"TITLE:{e('Finalidad: ' + (purpose or '-'))}",
+                          f"NOTE:{e(note)}", "END:VCARD"])
+    return qr_text(recipient, purpose, ref, date)
+
+
 def _qr_image(data, px):
     import qrcode
     from qrcode.constants import ERROR_CORRECT_Q
@@ -386,10 +407,20 @@ def lookup(ref):
 # --------------------------------------------------------------------------
 
 def watermark(img, text, angle=35, size=40, gap_x=60, gap_y=80, opacity=0.35, color=(200, 0, 0),
-              hardened=True, level="reforzada", strike=True, lines=None, qr=None, mark=None, seed=1, **_):
-    """Aplica todas las capas activadas. `qr` = {"data", "size", "pos"}; `mark` = referencia hex."""
+              hardened=True, level="reforzada", strike=True, lines=None, qr=None, mark=None, seed=1, hide=None, **_):
+    """Aplica todas las capas activadas. `qr` = {"data", "size", "pos"}; `mark` = referencia hex;
+    `hide` = zonas a tapar en negro (0..1) antes de todo lo demás."""
     text = core.expand_placeholders(text or "")
     img = img.convert("RGB")
+    if hide:
+        img = img.copy()
+        W0, H0 = img.size
+        dr = ImageDraw.Draw(img)
+        for x0, y0, x1, y1 in hide:
+            dr.rectangle((x0 * W0, y0 * H0, x1 * W0, y1 * H0), fill=(0, 0, 0))
+        if lines:
+            inside = lambda l: any(h[0] <= (l[0] + l[2]) / 2 <= h[2] and h[1] <= (l[1] + l[3]) / 2 <= h[3] for h in hide)
+            lines = [l for l in lines if not inside(l)]
     if level == "basica":
         out = core.apply_watermark(img, text, angle, size, gap_x, gap_y, opacity, color, hardened, seed)
     else:

@@ -211,23 +211,81 @@ def _erase_text(page, rect):
                           text=fitz.PDF_REDACT_TEXT_REMOVE)
 
 
-def replace_span(doc, pno, index, new_text, font="auto", size=None, color=None, bold=None, italic=None):
-    page = doc[pno]
-    s = spans(page)[index]
+def _span_flags(s, bold=None, italic=None):
     flags = s["flags"]
     if bold is not None:
         flags = (flags | 16) if bold else (flags & ~16)
     if italic is not None:
         flags = (flags | 2) if italic else (flags & ~2)
-    rect = fitz.Rect(from_view(page, s["bbox"]))
-    h = rect.height
-    _erase_text(page, fitz.Rect(rect.x0, rect.y0 + h * 0.2, rect.x1, rect.y1 - h * 0.2))
+    return flags
+
+
+def _erase_spans(page, sel):
+    """Borra el texto de varios fragmentos de una vez (solo texto)."""
+    for s in sel:
+        r = fitz.Rect(from_view(page, s["bbox"]))
+        h = r.height
+        page.add_redact_annot(fitz.Rect(r.x0, r.y0 + h * 0.2, r.x1, r.y1 - h * 0.2))
+    page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE,
+                          graphics=fitz.PDF_REDACT_LINE_ART_NONE,
+                          text=fitz.PDF_REDACT_TEXT_REMOVE)
+
+
+def replace_span(doc, pno, index, new_text, font="auto", size=None, color=None, bold=None, italic=None):
+    page = doc[pno]
+    s = spans(page)[index]
+    flags = _span_flags(s, bold, italic)
+    # La fuente se resuelve ANTES de borrar: después puede dejar de estar en la página.
+    kw, label = resolve_font(doc, page, s["rawfont"], flags, new_text, font) if new_text else ({}, "")
+    _erase_spans(page, [s])
     if not new_text:
         return "texto eliminado"
-    kw, label = resolve_font(doc, page, s["rawfont"], flags, new_text, font)
     page.insert_text(fitz.Point(s["origin"]), new_text, fontsize=size or s["size"],
                      color=rgb(color or s["color"]), rotate=page.rotation, **kw)
     return label
+
+
+def move_spans(doc, pno, indices, dx, dy):
+    """Mueve los fragmentos indicados dx, dy puntos (en coordenadas de pantalla)."""
+    page = doc[pno]
+    all_spans = spans(page)
+    sel = [all_spans[i] for i in sorted(set(indices))]
+    fonts = [resolve_font(doc, page, s["rawfont"], s["flags"], s["text"])[0] for s in sel]
+    shift = point_from_view(page, dx, dy) - point_from_view(page, 0, 0)
+    _erase_spans(page, sel)
+    for s, kw in zip(sel, fonts):
+        page.insert_text(fitz.Point(s["origin"]) + shift, s["text"], fontsize=s["size"],
+                         color=rgb(s["color"]), rotate=page.rotation, **kw)
+
+
+def delete_spans(doc, pno, indices):
+    page = doc[pno]
+    all_spans = spans(page)
+    _erase_spans(page, [all_spans[i] for i in sorted(set(indices))])
+
+
+def font_data(doc, pno, rawfont):
+    """Bytes de la fuente incrustada (TTF/OTF) para mostrarla en el navegador."""
+    page = doc[pno]
+    for xref, ext, _type, basefont, *_ in page.get_fonts(full=True):
+        if basefont == rawfont or norm_font(basefont) == norm_font(rawfont):
+            if ext in ("ttf", "otf"):
+                buf = doc.extract_font(xref)[3]
+                if buf:
+                    return buf, ext
+    path = _system_match(rawfont, False, False)
+    if path:
+        with open(path, "rb") as f:
+            return f.read(), os.path.splitext(path)[1].lstrip(".").lower()
+    return None, None
+
+
+def font_file(key):
+    """Bytes de una fuente elegida por el usuario (clave 'sys:ruta')."""
+    if key.startswith("sys:") and key[4:] in system_fonts().values():
+        with open(key[4:], "rb") as f:
+            return f.read(), os.path.splitext(key)[1].lstrip(".").lower()
+    return None, None
 
 
 def add_text(doc, pno, x, y, text, font="base:helv", size=12, color="#000000", bold=False, italic=False):
@@ -436,3 +494,168 @@ def delete_widget(doc, pno, xref):
 def flatten_forms(doc):
     """Convierte campos de formulario y anotaciones en contenido fijo (ya no editable)."""
     doc.bake(annots=True, widgets=True)
+
+
+# --------------------------------------------------------------------------
+# Formas (como anotaciones, igual que en Acrobat: se pueden mover y borrar)
+# --------------------------------------------------------------------------
+
+def add_shape(doc, pno, kind, rect, stroke="#d62828", fill=None, width=2, points=None):
+    page = doc[pno]
+    col = rgb(stroke)
+    fcol = rgb(fill) if fill else None
+    if kind in ("rect", "ellipse"):
+        r = from_view(page, rect)
+        a = page.add_rect_annot(r) if kind == "rect" else page.add_circle_annot(r)
+        a.set_colors(stroke=col, fill=fcol)
+    elif kind in ("line", "arrow"):
+        p1 = point_from_view(page, *points[0])
+        p2 = point_from_view(page, *points[1])
+        a = page.add_line_annot(p1, p2)
+        a.set_colors(stroke=col, fill=col)
+        if kind == "arrow":
+            a.set_line_ends(fitz.PDF_ANNOT_LE_NONE, fitz.PDF_ANNOT_LE_CLOSED_ARROW)
+    else:
+        raise ValueError(f"Forma desconocida: {kind}")
+    a.set_border(width=width)
+    a.set_info(title="DocGuard", subject="Forma")
+    a.update()
+
+
+def _find_annot(page, xref):
+    for a in page.annots() or ():
+        if a.xref == xref:
+            return a
+    raise ValueError("Anotación no encontrada.")
+
+
+def move_annotation(doc, pno, xref, rect):
+    """Mueve o redimensiona una anotación al rectángulo indicado (pantalla)."""
+    page = doc[pno]
+    a = _find_annot(page, xref)
+    old = fitz.Rect(a.rect)
+    new = from_view(page, rect)
+    t = a.type[1]
+    if t in ("Highlight", "Underline", "StrikeOut", "Squiggly"):
+        raise ValueError("Los resaltados van unidos al texto y no se pueden mover.")
+    if t in ("Line", "Ink", "PolyLine", "Polygon"):
+        sx = new.width / old.width if old.width else 1
+        sy = new.height / old.height if old.height else 1
+        f = lambda p: fitz.Point(new.x0 + (p[0] - old.x0) * sx, new.y0 + (p[1] - old.y0) * sy)
+        colors, width = a.colors, (a.border or {}).get("width", 2)
+        if t == "Line":
+            v = a.vertices
+            ends = a.line_ends
+            b = page.add_line_annot(f(v[0]), f(v[1]))
+            b.set_line_ends(*ends)
+        elif t == "Ink":
+            b = page.add_ink_annot([[f(p) for p in stroke] for stroke in a.vertices])
+        else:
+            pts = [f(p) for p in a.vertices]
+            b = page.add_polyline_annot(pts) if t == "PolyLine" else page.add_polygon_annot(pts)
+        b.set_colors(stroke=colors.get("stroke"), fill=colors.get("fill"))
+        b.set_border(width=width)
+        b.set_info(a.info)
+        b.update()
+        page.delete_annot(a)
+        return
+    a.set_rect(new)
+    a.update()
+
+
+# --------------------------------------------------------------------------
+# Copiar y pegar zonas del documento
+# --------------------------------------------------------------------------
+
+def copy_region(doc, pno, rect):
+    """Devuelve (datos para pegar, texto, png) de una zona de la página."""
+    page = doc[pno]
+    r = from_view(page, rect)
+    text = page.get_textbox(r).strip()
+    pix = page.get_pixmap(matrix=fitz.Matrix(3, 3), clip=r * page.rotation_matrix if page.rotation else r, alpha=False)
+    clip = {"pdf": doc.tobytes(), "pno": pno, "rect": tuple(r),
+            "size": (rect[2] - rect[0], rect[3] - rect[1])}
+    return clip, text, pix.tobytes("png")
+
+
+def paste_region(doc, pno, clip, x, y):
+    """Pega la zona copiada (vectorial: texto, dibujos e imágenes) con su esquina en x, y."""
+    page = doc[pno]
+    w, h = clip["size"]
+    target = from_view(page, [x, y, x + w, y + h])
+    with fitz.open("pdf", clip["pdf"]) as src:
+        page.show_pdf_page(target, src, clip["pno"], clip=fitz.Rect(clip["rect"]))
+
+
+# --------------------------------------------------------------------------
+# OCR: hacer seleccionable o editable el texto de un escaneo
+# --------------------------------------------------------------------------
+
+def _fit_size(text, width, height, font="helv"):
+    fs = height * 0.82
+    tl = fitz.get_text_length(text, fontname=font, fontsize=fs)
+    return fs * min(1.0, width / tl) if tl > 0 else fs
+
+
+def ocr_page(doc, pno, mode="editable"):
+    """mode='invisible': añade una capa de texto invisible (se puede buscar y copiar).
+    mode='editable': sustituye la imagen del texto por texto real editable."""
+    import core
+    page = doc[pno]
+    lines = core.ocr_page_lines(page)
+    if not lines:
+        return 0
+    if mode == "invisible":
+        for _r, _t, words in lines:
+            for r, w in words:
+                page.insert_text(fitz.Point(r.x0, r.y1 - r.height * 0.2), w,
+                                 fontsize=_fit_size(w, r.width, r.height), render_mode=3)
+        return len(lines)
+    zoom = 2
+    pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+    import numpy as np
+    arr = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)[..., :3]
+    for r, text, _w in lines:
+        vr = r * page.rotation_matrix * zoom
+        x0, y0 = max(0, int(vr.x0)), max(0, int(vr.y0))
+        x1, y1 = min(pix.width, int(vr.x1) + 1), min(pix.height, int(vr.y1) + 1)
+        if x1 - x0 < 2 or y1 - y0 < 2:
+            continue
+        box = arr[y0:y1, x0:x1].reshape(-1, 3)
+        lum = box.mean(axis=1)
+        ink = box[lum <= np.percentile(lum, 15)].mean(axis=0) / 255
+        ring = np.concatenate([arr[max(0, y0 - 2):y0, x0:x1].reshape(-1, 3), arr[y1:y1 + 2, x0:x1].reshape(-1, 3),
+                               arr[y0:y1, max(0, x0 - 2):x0].reshape(-1, 3), arr[y0:y1, x1:x1 + 2].reshape(-1, 3)])
+        bg = (np.median(ring, axis=0) if len(ring) else np.array([255, 255, 255])) / 255
+        pad = r.height * 0.12
+        page.draw_rect(fitz.Rect(r.x0 - pad, r.y0 - pad, r.x1 + pad, r.y1 + pad), color=None, fill=tuple(bg), overlay=True)
+        page.insert_text(fitz.Point(r.x0, r.y1 - r.height * 0.2), text, fontsize=_fit_size(text, r.width, r.height),
+                         fontname="helv", color=tuple(ink), rotate=page.rotation)
+    return len(lines)
+
+
+# --------------------------------------------------------------------------
+# Firma manuscrita al margen de varias páginas
+# --------------------------------------------------------------------------
+
+def sign_margin(doc, png, side="derecha", length_pct=22, pages=None, ratio=3.0):
+    """Coloca la firma en el margen de cada página. En los laterales va en vertical."""
+    count = 0
+    for pno in (pages if pages is not None else range(len(doc))):
+        page = doc[pno]
+        W, H = page.rect.width, page.rect.height
+        m = min(W, H) * 0.025
+        if side in ("derecha", "izquierda"):
+            length = H * length_pct / 100
+            thick = length / ratio
+            x0 = W - m - thick if side == "derecha" else m
+            y0 = (H - length) / 2
+            rect, rot = [x0, y0, x0 + thick, y0 + length], 90
+        else:
+            length = W * length_pct / 100
+            thick = length / ratio
+            x0 = {"pie-derecha": W - m - length, "pie-izquierda": m}.get(side, (W - length) / 2)
+            rect, rot = [x0, H - m - thick, x0 + length, H - m], 0
+        page.insert_image(from_view(page, rect), stream=png, keep_proportion=True, rotate=rot)
+        count += 1
+    return count

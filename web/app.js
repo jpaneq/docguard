@@ -345,6 +345,62 @@ class Viewer {
 }
 
 /* ======================================================================
+   Fuentes y color para la edición directa
+   ====================================================================== */
+
+const FONT_CACHE = {};
+
+function fallbackFamily(name, flags = 0) {
+  const n = (name || '').toLowerCase();
+  if (/cour|mono/.test(n)) return '"Courier New", Courier, monospace';
+  if (/times|roman|tiro/.test(n)) return '"Times New Roman", Times, serif';
+  if (/georgia/.test(n)) return 'Georgia, serif';
+  if (/garamond/.test(n)) return 'Garamond, "Times New Roman", serif';
+  if (/cambria/.test(n)) return 'Cambria, Georgia, serif';
+  if (/calibri/.test(n)) return 'Calibri, Carlito, Arial, sans-serif';
+  if (/verdana/.test(n)) return 'Verdana, sans-serif';
+  if (/tahoma/.test(n)) return 'Tahoma, sans-serif';
+  if (/trebuchet/.test(n)) return '"Trebuchet MS", sans-serif';
+  if (/arial|helv|helvetica/.test(n)) return 'Arial, Helvetica, sans-serif';
+  return flags & 4 ? '"Times New Roman", serif' : 'Arial, Helvetica, sans-serif';
+}
+
+/** Carga (una vez) una fuente del servidor y devuelve la pila CSS a usar. */
+async function cssFont(url, name, flags) {
+  const fb = fallbackFamily(name, flags);
+  if (!url) return fb;
+  if (!(url in FONT_CACHE)) {
+    const fam = 'dg' + Object.keys(FONT_CACHE).length;
+    FONT_CACHE[url] = new FontFace(fam, `url(${url})`).load()
+      .then(f => { document.fonts.add(f); return fam; }).catch(() => null);
+  }
+  const fam = await FONT_CACHE[url];
+  return fam ? `"${fam}", ${fb}` : fb;
+}
+
+function fontForKey(key) {
+  if (key.startsWith('sys:')) return cssFont(`/api/font?key=${encodeURIComponent(key)}&t=${TOKEN}`, key, 0);
+  return Promise.resolve(fallbackFamily(key.slice(5)));
+}
+
+/** Color de la página junto a un punto (para tapar el texto original mientras se edita). */
+function pageColorAt(viewer, x, y) {
+  try {
+    const img = viewer.img;
+    if (!viewer._cv || viewer._cvSrc !== img.src) {
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth; c.height = img.naturalHeight;
+      c.getContext('2d').drawImage(img, 0, 0);
+      viewer._cv = c; viewer._cvSrc = img.src;
+    }
+    const k = img.naturalWidth / viewer.size[0];
+    const d = viewer._cv.getContext('2d').getImageData(clamp(Math.round(x * k), 0, img.naturalWidth - 1),
+      clamp(Math.round(y * k), 0, img.naturalHeight - 1), 1, 1).data;
+    return `rgb(${d[0]},${d[1]},${d[2]})`;
+  } catch (e) { return '#fff'; }
+}
+
+/* ======================================================================
    Listas de archivos
    ====================================================================== */
 
@@ -524,15 +580,29 @@ const Edit = {
     dropTarget(this.viewer.el, f => this.openFile(f[0]));
     $('[data-act=open]', this.root).onclick = async () => { const [f] = await pickFiles(ACCEPT_DOCS); if (f) this.openFile(f); };
     $('[data-act=undo]', this.root).onclick = () => this.undo();
+    $('[data-act=ocr]', this.root).onclick = () => this.ocrDialog();
+    this.shape = { kind: 'rect', stroke: '#d62828', fill: '#ffe066', filled: false, width: 2 };
+    document.addEventListener('paste', e => this.onPaste(e));
+    document.addEventListener('copy', e => { if (this.root.classList.contains('active') && this.mode === 'select' && this.region && !document.activeElement.isContentEditable && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); this.copyRegion(); } });
     $('[data-act=export]', this.root).onclick = async () => saveResult(await run('Preparando…', () => api('edit/export', { id: this.info.id })));
     $$('[data-mode]', this.root).forEach(b => b.onclick = () => {
       $$('[data-mode]', this.root).forEach(x => x.classList.toggle('on', x === b));
-      this.mode = b.dataset.mode; this.sel = null; this.point = null; this.draw();
+      if (this.inline) this.commitInline();
+      this.mode = b.dataset.mode; this.sel = null; this.point = null; this.selSpans = new Set(); this.draw();
     });
     document.addEventListener('keydown', e => {
-      if (!this.root.classList.contains('active') || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+      if (!this.root.classList.contains('active') || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)
+        || document.activeElement.isContentEditable) return;
       if ((e.metaKey || e.ctrlKey) && e.key === 'z') { e.preventDefault(); this.undo(); }
-      if ((e.key === 'Delete' || e.key === 'Backspace') && this.sel != null) { e.preventDefault(); this.deleteSel(); }
+      const hasSel = this.mode === 'text' ? this.selSpans?.size > 0 : this.sel != null;
+      if ((e.key === 'Delete' || e.key === 'Backspace') && hasSel) { e.preventDefault(); this.deleteSel(); }
+      if (e.key === 'Escape' && this.mode === 'text' && hasSel) { this.selSpans = new Set(); this.draw(); }
+      const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+      if (this.mode === 'text' && hasSel && arrows[e.key]) {
+        e.preventDefault();
+        const k = e.shiftKey ? 10 : 1;
+        this.moveSel(arrows[e.key][0] * k, arrows[e.key][1] * k);
+      }
     });
     document.addEventListener('sigs-changed', () => { if (this.mode === 'handsign') this.draw(); });
     api('fonts').then(r => { this.fonts = r.fonts; }).catch(() => {});
@@ -560,11 +630,13 @@ const Edit = {
     $('[data-act=undo]', this.root).disabled = !this.st.can_undo;
     if (rerender) this.viewer.refresh(); else this.draw();
   },
-  async op(name, payload, busyMsg = 'Aplicando…') {
+  async op(name, payload, busyMsg = 'Aplicando…', keepSel = false) {
+    if (keepSel) this.lastSel = (this.st?.spans || []).filter(s => this.selSpans?.has(s.i)).map(s => s.bbox);
     const r = await run(busyMsg, () => api('edit/' + name, { id: this.info.id, n: this.viewer.n, ...payload }));
     if (r === undefined) return false;
-    if (r.message) toast('Fuente usada: ' + r.message, 'ok', [], 3500);
+    if (r.message && /sustituta/.test(r.message)) toast('No se encontró la fuente original; se ha usado ' + r.message.replace(' (sustituta)', '') + '.', '', [], 4000);
     this.sel = null;
+    if (!keepSel) this.selSpans = new Set();
     await this.refresh(true);
     return true;
   },
@@ -575,8 +647,9 @@ const Edit = {
     this.refresh(true);
   },
   deleteSel() {
+    if (this.mode === 'text') { const indices = [...this.selSpans]; this.selSpans = new Set(); return this.op('delete_spans', { indices }); }
     if (this.mode === 'image') this.op('delete_image', { xref: this.sel });
-    else if (this.mode === 'annot') this.op('delete_annot', { xref: this.sel });
+    else if (this.mode === 'annot' || this.mode === 'shapes') this.op('delete_annot', { xref: this.sel });
     else if (this.mode === 'forms') this.op('delete_widget', { xref: this.sel });
   },
 
@@ -584,7 +657,7 @@ const Edit = {
   draw() {
     const v = this.viewer;
     v.clear();
-    v.ov.classList.toggle('draw', ['addtext', 'annot', 'forms', 'handsign'].includes(this.mode) || (this.mode === 'image' && this.pendingImage));
+    v.ov.classList.toggle('draw', ['addtext', 'annot', 'forms', 'handsign', 'shapes', 'select'].includes(this.mode) || (this.mode === 'image' && this.pendingImage));
     this.props.innerHTML = '';
     if (!this.info) {
       this.props.append(h('p', { class: 'muted' }, 'Abre un PDF para editarlo: cambiar textos respetando la fuente, añadir texto, mover o borrar imágenes, anotar, crear y rellenar formularios y firmar a mano.'));
@@ -606,67 +679,189 @@ const Edit = {
 
   draw_text(st) {
     const v = this.viewer;
+    this.selSpans = this.selSpans || new Set();
     for (const s of st.spans) {
-      const d = v.box(s.bbox, 'span' + (this.sel === s.i ? ' sel' : ''));
-      d.title = `${s.font} · ${s.size} pt`;
-      d.onmousedown = e => e.stopPropagation();
-      d.onclick = () => { this.sel = s.i; this.draw(); $('textarea', this.props)?.focus(); };
+      const d = v.box(s.bbox, 'span' + (this.selSpans.has(s.i) ? ' sel' : ''));
+      d.dataset.i = s.i;
+      d.title = `${s.font} · ${s.size} pt — doble clic para escribir`;
+      d.addEventListener('mousedown', e => this.spanDown(e, s));
+      d.addEventListener('dblclick', e => { e.stopPropagation(); this.startInline(s, e); });
     }
-    const s = st.spans.find(x => x.i === this.sel);
-    if (!s) {
+    const sel = st.spans.filter(x => this.selSpans.has(x.i));
+    if (!sel.length) {
       this.props.append(h('h3', {}, 'Editar texto'),
-        h('p', { class: 'muted' }, st.spans.length
-          ? 'Haz clic en cualquier texto de la página para cambiarlo. Se intenta usar la misma fuente del PDF.'
-          : 'Esta página no tiene texto editable (puede ser un escaneo). Usa «Añadir texto» o «Censurar» con OCR.'),
-        h('small', {}, 'Consejo: para párrafos largos es mejor borrar el texto y añadir uno nuevo.'));
+        h('p', { class: 'muted' }, st.spans.length ? 'Escribe directamente sobre el PDF:' : 'Esta página no tiene texto editable (puede ser un escaneo). Usa «Añadir texto» o «Censurar» con OCR.'),
+        st.spans.length && h('ul', { class: 'help' },
+          h('li', {}, h('b', {}, 'Doble clic'), ' en un texto para escribir en él (Intro guarda, Esc cancela).'),
+          h('li', {}, h('b', {}, 'Clic'), ' para seleccionar; ', h('b', {}, 'arrastra'), ' para moverlo.'),
+          h('li', {}, h('b', {}, 'Arrastra en una zona vacía'), ' para seleccionar varios textos; Mayús+clic añade o quita.'),
+          h('li', {}, h('b', {}, 'Supr'), ' borra la selección; las ', h('b', {}, 'flechas'), ' la desplazan (Mayús = 10 pt).')));
       return;
     }
-    const ta = h('textarea', { rows: 3 }, s.text);
+    if (sel.length > 1) {
+      this.props.append(h('h3', {}, `${sel.length} textos seleccionados`),
+        h('p', { class: 'muted' }, 'Arrástralos para moverlos juntos o pulsa Supr para borrarlos.'),
+        h('button', { class: 'wide danger', onclick: () => this.deleteSel() }, 'Borrar selección'));
+      return;
+    }
+    const s = sel[0];
     const font = this.fontSelect('auto', s.font);
     const size = h('input', { type: 'number', value: s.size, step: 0.5, min: 3, class: 'num' });
     const color = h('input', { type: 'color', value: s.color });
     const bold = h('input', { type: 'checkbox', checked: s.bold });
     const italic = h('input', { type: 'checkbox', checked: s.italic });
-    const apply = () => this.op('replace_text', {
-      i: s.i, text: ta.value.replace(/\n/g, ' '), font: font.value, size: +size.value, color: color.value,
-      bold: bold.checked, italic: italic.checked,
-    });
-    ta.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); apply(); } });
-    this.props.append(h('h3', {}, 'Texto seleccionado'), ta,
+    this.props.append(h('h3', {}, 'Texto seleccionado'),
+      h('p', { class: 'sel-text' }, s.text),
+      h('button', { class: 'primary wide', onclick: () => this.startInline(s) }, 'Escribir en el PDF'),
+      h('h3', {}, 'Formato'),
       h('label', {}, 'Fuente', font),
       h('div', { class: 'row' }, 'Tamaño', size, 'Color', color),
       h('div', { class: 'row' }, h('label', { class: 'inline' }, bold, 'Negrita'), h('label', { class: 'inline' }, italic, 'Cursiva')),
       h('small', {}, `Original: ${s.font}, ${s.size} pt`),
-      h('button', { class: 'primary wide', onclick: apply }, 'Aplicar cambio'),
-      h('button', { class: 'wide danger', onclick: () => this.op('replace_text', { i: s.i, text: '' }) }, 'Borrar este texto'));
+      h('button', {
+        class: 'wide', onclick: () => this.op('replace_text', {
+          i: s.i, text: s.text, font: font.value, size: +size.value, color: color.value, bold: bold.checked, italic: italic.checked,
+        }),
+      }, 'Aplicar formato'),
+      h('button', { class: 'wide danger', onclick: () => this.deleteSel() }, 'Borrar texto'));
+  },
+
+  /* ---- selección, movimiento y escritura directa ---- */
+  spanDown(e, s) {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    if (this.inline) { this.commitInline(); return; }
+    const wasOnly = this.selSpans.has(s.i) && this.selSpans.size === 1;
+    if (e.shiftKey) { this.selSpans.has(s.i) ? this.selSpans.delete(s.i) : this.selSpans.add(s.i); }
+    else if (!this.selSpans.has(s.i)) this.selSpans = new Set([s.i]);
+    this.draw();
+    if (!this.selSpans.has(s.i)) return;
+    const v = this.viewer, p0 = v.pt(e);
+    const boxes = $$('.bx.span.sel', v.ov);
+    let dx = 0, dy = 0, moved = false;
+    const mv = ev => {
+      const p = v.pt(ev);
+      dx = p[0] - p0[0]; dy = p[1] - p0[1];
+      if (Math.abs(dx) + Math.abs(dy) > 2 / v.zoom * 2) moved = true;
+      if (moved) boxes.forEach(b => { b.style.transform = `translate(${dx * v.zoom}px, ${dy * v.zoom}px)`; });
+    };
+    window.addEventListener('mousemove', mv);
+    window.addEventListener('mouseup', ev => {
+      window.removeEventListener('mousemove', mv);
+      if (moved) this.moveSel(dx, dy);
+      else if (wasOnly && !e.shiftKey) this.startInline(s, ev);
+    }, { once: true });
+  },
+  async moveSel(dx, dy) {
+    const indices = [...this.selSpans];
+    const ok = await this.op('move_spans', { indices, dx: Math.round(dx * 100) / 100, dy: Math.round(dy * 100) / 100 }, 'Moviendo…', true);
+    if (ok) this.reselectMoved(indices.length, dx, dy);
+  },
+  /** Tras mover, vuelve a seleccionar los textos en su nueva posición. */
+  reselectMoved(count, dx, dy) {
+    const prev = this.lastSel || [];
+    const moved = prev.map(b => [b[0] + dx, b[1] + dy, b[2] + dx, b[3] + dy]);
+    const found = new Set();
+    for (const r of moved) {
+      let best = null, bd = 1e9;
+      for (const s of this.st.spans) {
+        const d = Math.abs(s.bbox[0] - r[0]) + Math.abs(s.bbox[1] - r[1]);
+        if (d < bd) { bd = d; best = s; }
+      }
+      if (best && bd < 6) found.add(best.i);
+    }
+    this.selSpans = found;
+    this.draw();
+  },
+  async startInline(s, ev) {
+    if (this.inline) this.commitInline();
+    const v = this.viewer, z = v.zoom;
+    const [x0, y0, x1, y1] = s.bbox;
+    const fam = await cssFont(`/api/font?id=${this.info.id}&n=${v.n}&name=${encodeURIComponent(s.rawfont)}&t=${TOKEN}`, s.font, s.flags);
+    const el = h('div', { class: 'inline-edit', contentEditable: 'true', spellcheck: false });
+    el.textContent = s.text;
+    Object.assign(el.style, {
+      left: x0 * z + 'px', top: y0 * z + 'px', minWidth: (x1 - x0) * z + 'px', height: (y1 - y0) * z + 'px',
+      lineHeight: (y1 - y0) * z + 'px', fontSize: s.size * z + 'px', fontFamily: fam, color: s.color,
+      fontWeight: s.bold ? 'bold' : 'normal', fontStyle: s.italic ? 'italic' : 'normal',
+      background: pageColorAt(v, x0 - 1.5, y0 + (y1 - y0) / 2),
+    });
+    v.ov.append(el);
+    this.inline = { el, s };
+    el.focus();
+    const r = ev && document.caretRangeFromPoint ? document.caretRangeFromPoint(ev.clientX, ev.clientY) : null;
+    const sel = window.getSelection();
+    if (r && el.contains(r.startContainer)) { sel.removeAllRanges(); sel.addRange(r); }
+    else { const rg = document.createRange(); rg.selectNodeContents(el); rg.collapse(false); sel.removeAllRanges(); sel.addRange(rg); }
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); this.commitInline(); }
+      if (e.key === 'Escape') { e.preventDefault(); this.cancelInline(); }
+      e.stopPropagation();
+    });
+    el.addEventListener('mousedown', e => e.stopPropagation());
+  },
+  cancelInline() {
+    this.inline?.el.remove();
+    this.inline = null;
+  },
+  commitInline() {
+    const it = this.inline;
+    if (!it) return;
+    this.inline = null;
+    const text = it.el.innerText.replace(/\n+/g, it.isNew ? '\n' : ' ').replace(/\u00a0/g, ' ');
+    if (it.isNew) {
+      it.el.remove();
+      if (text.trim()) this.op('add_text', { x: it.x, y: it.y, text: text.replace(/\n$/, ''), ...this.textOpts });
+      return;
+    }
+    if (text === it.s.text) { it.el.remove(); return; }
+    this.op('replace_text', { i: it.s.i, text: text.trim() ? text : '' }).then(() => it.el.remove());
   },
 
   draw_addtext() {
-    const v = this.viewer, o = this.textOpts;
-    if (this.point) v.box([this.point[0], this.point[1], this.point[0], this.point[1]], 'point');
-    const ta = h('textarea', { rows: 4, placeholder: 'Escribe aquí el texto…' });
+    const o = this.textOpts;
     const font = this.fontSelect(o.font);
     const size = h('input', { type: 'number', value: o.size, min: 3, step: 0.5, class: 'num' });
     const color = h('input', { type: 'color', value: o.color });
     const bold = h('input', { type: 'checkbox', checked: o.bold });
     const italic = h('input', { type: 'checkbox', checked: o.italic });
-    const save = () => Object.assign(o, { font: font.value, size: +size.value, color: color.value, bold: bold.checked, italic: italic.checked });
+    const save = async () => {
+      Object.assign(o, { font: font.value, size: +size.value, color: color.value, bold: bold.checked, italic: italic.checked });
+      if (this.inline?.isNew) { await this.styleNew(this.inline.el); this.inline.el.focus(); }
+    };
     [font, size, color, bold, italic].forEach(el => el.addEventListener('change', save));
     this.props.append(h('h3', {}, 'Añadir texto'),
-      h('p', { class: 'muted' }, this.point ? 'Escribe el texto y pulsa «Insertar».' : 'Haz clic en la página donde quieras empezar a escribir.'),
-      ta, h('label', {}, 'Fuente', font),
+      h('p', { class: 'muted' }, 'Haz clic en la página y escribe directamente. Intro = nueva línea; haz clic fuera o pulsa Ctrl/⌘+Intro para fijarlo; Esc cancela.'),
+      h('label', {}, 'Fuente', font),
       h('div', { class: 'row' }, 'Tamaño', size, 'Color', color),
       h('div', { class: 'row' }, h('label', { class: 'inline' }, bold, 'Negrita'), h('label', { class: 'inline' }, italic, 'Cursiva')),
-      h('button', {
-        class: 'primary wide', disabled: !this.point, onclick: async () => {
-          if (!ta.value.trim()) return toast('Escribe algún texto.', 'err');
-          save();
-          const [x, y] = this.point;
-          if (await this.op('add_text', { x, y, text: ta.value, ...o })) this.point = null;
-        },
-      }, 'Insertar'));
-    if (this.point) ta.focus();
+      this.inline?.isNew && h('button', { class: 'primary wide', onclick: () => this.commitInline() }, 'Fijar texto'));
   },
+  async styleNew(el) {
+    const o = this.textOpts, z = this.viewer.zoom;
+    Object.assign(el.style, {
+      fontSize: o.size * z + 'px', lineHeight: '1.2', color: o.color, fontFamily: await fontForKey(o.font),
+      fontWeight: o.bold ? 'bold' : 'normal', fontStyle: o.italic ? 'italic' : 'normal',
+    });
+  },
+  async newInline(x, y) {
+    const v = this.viewer, z = v.zoom;
+    const el = h('div', { class: 'inline-edit new', contentEditable: 'true', spellcheck: false });
+    Object.assign(el.style, { left: x * z + 'px', top: (y - this.textOpts.size * 0.1) * z + 'px', minWidth: '20px' });
+    await this.styleNew(el);
+    v.ov.append(el);
+    this.inline = { el, isNew: true, x, y };
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); this.commitInline(); }
+      if (e.key === 'Escape') { e.preventDefault(); this.cancelInline(); this.draw(); }
+      e.stopPropagation();
+    });
+    el.addEventListener('mousedown', e => e.stopPropagation());
+    el.focus();
+    this.draw_addtext_refresh();
+  },
+  draw_addtext_refresh() { this.props.innerHTML = ''; this.draw_addtext(); },
 
   draw_image(st) {
     const v = this.viewer;
@@ -693,14 +888,20 @@ const Edit = {
     if (!st.images.length) this.props.append(h('small', {}, 'Esta página no tiene imágenes.'));
   },
 
-  draw_annot(st) {
+  annotBoxes(st, onlyShapes = false) {
     const v = this.viewer;
+    const fixed = ['Highlight', 'Underline', 'StrikeOut', 'Squiggly'];
     for (const a of st.annots) {
+      if (onlyShapes && !['Square', 'Circle', 'Line', 'Ink', 'Polygon', 'PolyLine'].includes(a.type)) continue;
       const d = v.box(a.bbox, 'annot' + (this.sel === a.xref ? ' sel' : ''));
-      d.title = a.label + (a.content ? ': ' + a.content : '');
-      d.onmousedown = e => e.stopPropagation();
-      d.onclick = () => { this.sel = a.xref; this.draw(); };
+      d.title = a.label + (a.content ? ': ' + a.content : '') + (fixed.includes(a.type) ? '' : ' — arrastra para mover');
+      d.addEventListener('mousedown', e => { e.stopPropagation(); if (this.sel !== a.xref) { this.sel = a.xref; this.draw(); } });
+      if (!fixed.includes(a.type)) v.transformable(d, a.bbox, r => this.op('move_annot', { xref: a.xref, rect: r }, 'Moviendo…'));
     }
+  },
+
+  draw_annot(st) {
+    this.annotBoxes(st);
     const kinds = { highlight: 'Resaltar texto', underline: 'Subrayar texto', strikeout: 'Tachar texto', note: 'Nota adhesiva',
       freetext: 'Cuadro de texto', rect: 'Rectángulo', circle: 'Elipse', ink: 'Dibujo a mano alzada' };
     const kind = h('select', { onchange: () => { this.annotKind = kind.value; this.draw(); } },
@@ -717,6 +918,110 @@ const Edit = {
     if (a) this.props.append(h('h3', {}, 'Seleccionada'), h('p', {}, a.label + (a.content ? ` — ${a.content}` : '')),
       h('button', { class: 'wide danger', onclick: () => this.deleteSel() }, 'Eliminar anotación'));
     if (st.annots.length) this.props.append(h('small', {}, 'Haz clic en una anotación (recuadro naranja) para seleccionarla.'));
+  },
+
+  draw_shapes(st) {
+    this.annotBoxes(st, true);
+    const sh = this.shape;
+    const kinds = { rect: 'Rectángulo', ellipse: 'Elipse', line: 'Línea', arrow: 'Flecha' };
+    const kind = h('select', { onchange: () => { sh.kind = kind.value; } }, Object.entries(kinds).map(([k, l]) => h('option', { value: k }, l)));
+    kind.value = sh.kind;
+    const stroke = h('input', { type: 'color', value: sh.stroke, onchange: () => { sh.stroke = stroke.value; } });
+    const filled = h('input', { type: 'checkbox', checked: sh.filled, onchange: () => { sh.filled = filled.checked; } });
+    const fill = h('input', { type: 'color', value: sh.fill, onchange: () => { sh.fill = fill.value; } });
+    const width = h('input', { type: 'number', value: sh.width, min: 0.5, max: 20, step: 0.5, class: 'num', onchange: () => { sh.width = +width.value; } });
+    this.props.append(h('h3', {}, 'Formas'),
+      h('p', { class: 'muted' }, 'Elige la forma y arrástrala sobre la página. Después puedes moverla, cambiar su tamaño (esquina) o borrarla (Supr).'),
+      h('label', {}, 'Forma', kind),
+      h('div', { class: 'row' }, 'Borde', stroke, 'Grosor', width),
+      h('div', { class: 'row' }, h('label', { class: 'inline' }, filled, 'Relleno'), fill));
+    const a = st.annots.find(x => x.xref === this.sel);
+    if (a) this.props.append(h('button', { class: 'wide danger', onclick: () => this.deleteSel() }, 'Eliminar forma seleccionada'));
+  },
+
+  draw_select() {
+    const v = this.viewer;
+    if (this.region && this.region.n === v.n) v.box(this.region.r, 'region');
+    const c = this.clip;
+    this.props.append(h('h3', {}, 'Seleccionar, copiar y pegar'),
+      h('p', { class: 'muted' }, 'Arrastra para seleccionar una zona. «Copiar» la guarda (también en el portapapeles del sistema como imagen y texto). Para pegarla, haz clic donde quieras y pulsa «Pegar» o ⌘/Ctrl+V: se pega tal cual, con su texto y calidad originales, en esta u otra página.'),
+      h('button', { class: 'primary wide', disabled: !this.region, onclick: () => this.copyRegion() }, 'Copiar zona seleccionada'),
+      h('button', { class: 'wide', disabled: !c, onclick: () => this.pasteHere() }, c ? 'Pegar' + (this.point ? ' en el punto marcado' : ' (haz clic donde pegar)') : 'Pegar (primero copia una zona)'),
+      h('small', {}, 'También puedes pegar aquí imágenes o texto copiados de otras aplicaciones.'));
+    if (this.point && this.point.n === v.n) v.box([this.point.p[0], this.point.p[1], this.point.p[0], this.point.p[1]], 'point');
+  },
+  async copyRegion() {
+    if (!this.region) return;
+    const r = await run('Copiando…', () => api('edit/copy', { id: this.info.id, n: this.region.n, rect: this.region.r }));
+    if (!r) return;
+    this.clip = r;
+    try {
+      const blob = await (await fetch('data:image/png;base64,' + r.png)).blob();
+      const items = { 'image/png': blob };
+      if (r.text) items['text/plain'] = new Blob([r.text], { type: 'text/plain' });
+      await navigator.clipboard.write([new ClipboardItem(items)]);
+      toast('Zona copiada (también en el portapapeles del sistema).', 'ok', [], 3000);
+    } catch (e) {
+      toast('Zona copiada para pegar en DocGuard.', 'ok', [], 3000);
+    }
+    this.draw();
+  },
+  async pasteHere() {
+    if (!this.clip) return;
+    const p = this.point && this.point.n === this.viewer.n ? this.point.p : [this.region?.r[0] + 20 || 40, this.region?.r[1] + 20 || 40];
+    await this.op('paste', { x: p[0], y: p[1] }, 'Pegando…');
+    this.point = null;
+  },
+  async onPaste(e) {
+    if (!this.root.classList.contains('active') || !this.info) return;
+    if (document.activeElement.isContentEditable || /INPUT|TEXTAREA/.test(document.activeElement.tagName)) return;
+    const items = [...(e.clipboardData?.items || [])];
+    const img = items.find(i => i.type.startsWith('image/'));
+    const p = this.point && this.point.n === this.viewer.n ? this.point.p : null;
+    e.preventDefault();
+    if (this.mode === 'select' && this.clip && (!img || this.clipFresh())) return this.pasteHere();
+    const [W, H] = this.viewer.size;
+    if (img) {
+      const file = img.getAsFile();
+      const data = await fileToB64(file);
+      const dim = await new Promise(res => { const im = new Image(); im.onload = () => res([im.width, im.height]); im.src = URL.createObjectURL(file); });
+      const w = Math.min(W * 0.5, dim[0] * 0.75), hh = w * dim[1] / dim[0];
+      const [x, y] = p || [(W - w) / 2, (H - hh) / 2];
+      return this.op('insert_image', { rect: [x, y, x + w, y + hh], data });
+    }
+    const text = e.clipboardData.getData('text/plain');
+    if (text) {
+      const [x, y] = p || [W * 0.1, H * 0.1];
+      return this.op('add_text', { x, y, text, ...this.textOpts });
+    }
+  },
+  clipFresh() { return true; },
+
+  async ocrDialog() {
+    if (!this.info) return toast('Abre primero un documento.', 'err');
+    const mode = h('select', {}, h('option', { value: 'editable' }, 'Convertir en texto editable'),
+      h('option', { value: 'invisible' }, 'Solo hacerlo seleccionable (mantiene el aspecto)'));
+    const scope = h('select', {}, h('option', { value: 'page' }, 'Esta página'), h('option', { value: 'all' }, 'Todas las páginas'));
+    modal({
+      title: 'Reconocer texto (OCR)',
+      body: h('div', {}, h('p', { class: 'muted' }, 'Para documentos escaneados o fotos. «Editable» sustituye la imagen del texto por texto real que puedes cambiar (con una fuente estándar). «Seleccionable» añade una capa invisible para buscar y copiar sin cambiar el aspecto.'),
+        h('label', {}, 'Qué hacer', mode), h('label', {}, 'Páginas', scope)),
+      actions: [{ label: 'Cancelar' }, {
+        label: 'Reconocer', primary: true, fn: async () => {
+          const pages = scope.value === 'all' ? this.info.pages.map((_, i) => i) : [this.viewer.n];
+          busy(true, 'Reconociendo texto…');
+          try {
+            for (let k = 0; k < pages.length; k++) {
+              busyText(`Reconociendo texto… página ${pages[k] + 1} (${k + 1} de ${pages.length})`);
+              await api('edit/ocr', { id: this.info.id, n: pages[k], pages: [pages[k]], mode: mode.value });
+            }
+            toast('Texto reconocido. ' + (mode.value === 'editable' ? 'Ya puedes editarlo con «Editar texto».' : 'Ya se puede seleccionar y buscar.'), 'ok');
+          } catch (e) { toast(e.message, 'err'); } finally { busy(false); }
+          document.querySelector('#tool-edit [data-mode=text]').click();
+          this.refresh(true);
+        },
+      }],
+    });
   },
 
   draw_forms(st) {
@@ -779,20 +1084,49 @@ const Edit = {
       h('p', { class: 'muted' }, 'Elige una firma y arrastra en la página el recuadro donde colocarla. Es una firma visual; para una firma con validez legal usa «Firma digital».'),
       Sigs.gallery(this.sig, id => { this.sig = id; this.draw(); }),
       h('button', { class: 'wide', onclick: async () => { const id = await Sigs.create(); if (id) { this.sig = id; this.draw(); } } }, 'Nueva firma…'));
+    const side = h('select', {},
+      h('option', { value: 'derecha' }, 'Margen derecho (vertical)'), h('option', { value: 'izquierda' }, 'Margen izquierdo (vertical)'),
+      h('option', { value: 'pie-derecha' }, 'Pie de página, a la derecha'), h('option', { value: 'pie-centro' }, 'Pie de página, centrada'),
+      h('option', { value: 'pie-izquierda' }, 'Pie de página, a la izquierda'));
+    const length = h('input', { type: 'range', min: 10, max: 45, value: 22 });
+    const pages = h('select', { onchange: () => { ranges.hidden = pages.value !== 'ranges'; } },
+      h('option', { value: 'all' }, 'Todas las páginas'), h('option', { value: 'ranges' }, 'Solo algunas…'));
+    const ranges = h('input', { placeholder: 'Ej.: 1-3, 5', hidden: true });
+    this.props.append(h('h3', {}, 'Firmar al margen'),
+      h('p', { class: 'muted' }, 'Firma todas las páginas de una vez en el margen, como se hace con los contratos.'),
+      h('label', {}, 'Posición', side), h('label', {}, 'Tamaño', length), h('label', {}, 'Páginas', pages), ranges,
+      h('button', {
+        class: 'primary wide', onclick: async () => {
+          if (!this.sig) return toast('Elige o crea primero una firma.', 'err');
+          const r = await run('Firmando las páginas…', () => api('sigimg/margin', {
+            id: this.info.id, sig: this.sig, side: side.value, length: +length.value, ranges: pages.value === 'ranges' ? ranges.value : '',
+          }));
+          if (r) { toast(r.message, 'ok'); this.refresh(true); }
+        },
+      }, 'Firmar al margen'));
   },
 
   /* ---- ratón sobre la página ---- */
   async down(e) {
     if (e.button !== 0 || e.target !== this.viewer.ov || !this.info) return;
     const v = this.viewer, m = this.mode;
-    if (m === 'text' || (m === 'image' && !this.pendingImage)) { if (this.sel != null) { this.sel = null; this.draw(); } return; }
-    if (m === 'addtext') { this.point = v.pt(e); this.draw(); return; }
+    if (this.inline) { this.commitInline(); return; }
+    if (m === 'text') {
+      const d = await v.drag(e);
+      if (!d.moved) { if (this.selSpans?.size) { this.selSpans = new Set(); this.draw(); } return; }
+      const hit = this.st.spans.filter(s => inter(s.bbox, d.rect)).map(s => s.i);
+      this.selSpans = new Set(e.shiftKey ? [...this.selSpans, ...hit] : hit);
+      this.draw();
+      return;
+    }
+    if (m === 'image' && !this.pendingImage) { if (this.sel != null) { this.sel = null; this.draw(); } return; }
+    if (m === 'addtext') { const [x, y] = v.pt(e); this.newInline(x, y); return; }
     if (m === 'annot' && this.annotKind === 'note') {
       const [x, y] = v.pt(e);
       return this.op('add_annot', { kind: 'note', rect: [x, y, x + 20, y + 20], text: this.annotText || 'Nota', color: this.color });
     }
     const d = await v.drag(e, { ink: m === 'annot' && this.annotKind === 'ink' });
-    if (!d.moved) { if (this.sel != null) { this.sel = null; this.draw(); } return; }
+    if (!d.moved && m !== 'select') { if (this.sel != null) { this.sel = null; this.draw(); } return; }
     if (m === 'image') {
       const data = this.pendingImage;
       this.pendingImage = null;
@@ -801,6 +1135,18 @@ const Edit = {
     if (m === 'annot') {
       if (this.annotKind === 'ink') return this.op('add_ink', { strokes: [d.points], color: this.color });
       return this.op('add_annot', { kind: this.annotKind, rect: d.rect, text: this.annotText, color: this.color });
+    }
+    if (m === 'select') {
+      if (!d.moved) { this.point = { n: v.n, p: d.rect.slice(0, 2) }; this.draw(); return; }
+      this.region = { n: v.n, r: d.rect };
+      this.point = null;
+      this.draw();
+      return;
+    }
+    if (m === 'shapes') {
+      const sh = this.shape;
+      const pts = [d.points[0], d.points[d.points.length - 1]];
+      return this.op('add_shape', { kind: sh.kind, rect: d.rect, points: pts, stroke: sh.stroke, fill: sh.filled ? sh.fill : null, width: sh.width });
     }
     if (m === 'forms') {
       const t = this.widgetType;
@@ -849,6 +1195,27 @@ const Wm = {
     $('[data-act=preset-save]', this.root).onclick = () => this.savePreset();
     $('[data-act=preset-del]', this.root).onclick = () => this.deletePreset();
     this.k('qr').addEventListener('change', () => { $('[data-role=qr]', this.root).hidden = !this.k('qr').checked; });
+    this.hideData = {};
+    this.hov = $('.hide-ov', this.root);
+    this.img.addEventListener('load', () => this.placeOverlay());
+    new ResizeObserver(() => this.placeOverlay()).observe($('.preview-img', this.root));
+    this.hov.addEventListener('mousedown', e => this.hideDown(e));
+    this.k('autohide').addEventListener('change', () => { this.ensureHide(); this.renderHide(); this.schedule(); });
+    document.addEventListener('keydown', e => {
+      if (!this.root.classList.contains('active') || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+      if ((e.key === 'Delete' || e.key === 'Backspace') && this.hsel) { e.preventDefault(); this.removeHide(this.hsel); }
+    });
+    const qrMode = () => {
+      $('[data-role=qrweb]', this.root).hidden = this.k('qr_mode').value !== 'web';
+      try { localStorage.setItem('dg_qr_base', this.k('qr_base').value); localStorage.setItem('dg_qr_mode', this.k('qr_mode').value); } catch (e) { /* sin almacenamiento */ }
+    };
+    try {
+      this.k('qr_base').value = localStorage.getItem('dg_qr_base') || '';
+      this.k('qr_mode').value = localStorage.getItem('dg_qr_mode') || 'vcard';
+    } catch (e) { /* sin almacenamiento */ }
+    this.k('qr_mode').addEventListener('change', qrMode);
+    this.k('qr_base').addEventListener('change', qrMode);
+    qrMode();
     this.k('level').addEventListener('change', () => { this.k('strike').disabled = this.k('level').value === 'basica'; });
     $('[data-act=check]', this.root).onclick = () => this.check();
     $('[data-act=registry]', this.root).onclick = () => this.registry();
@@ -864,8 +1231,16 @@ const Wm = {
     const p = {};
     for (const k of ['text', 'angle', 'size', 'gap_x', 'gap_y', 'opacity', 'color', 'level']) p[k] = this.k(k).value;
     for (const k of ['hardened', 'strike', 'mark']) p[k] = this.k(k).checked;
+    p.autohide = this.k('autohide').checked;
+    const cur = this.files.current;
+    p.hide_page = cur ? this.activeRects(cur.id, this.n).map(x => x.r) : [];
+    p.hide = {};
+    for (const [id, pages] of Object.entries(this.hideData)) {
+      p.hide[id] = {};
+      for (const n of Object.keys(pages)) p.hide[id][n] = this.activeRects(id, +n).map(x => x.r);
+    }
     p.qr = { enabled: this.k('qr').checked, recipient: this.k('qr_recipient').value, purpose: this.k('qr_purpose').value,
-      size: +this.k('qr_size').value, pos: this.k('qr_pos').value };
+      size: +this.k('qr_size').value, pos: this.k('qr_pos').value, mode: this.k('qr_mode').value, base_url: this.k('qr_base').value };
     return p;
   },
   schedule() { clearTimeout(this.t); this.t = setTimeout(() => this.preview(), 150); },
@@ -875,7 +1250,9 @@ const Wm = {
     box.classList.toggle('has', !!cur);
     $('.pager', this.root).style.visibility = cur && this.pages() > 1 ? '' : 'hidden';
     $('.pager span', this.root).textContent = `${this.n + 1} / ${this.pages()}`;
-    if (!cur) return;
+    if (!cur) { this.renderHide(); return; }
+    if (this.ensureHide()) return;  // se volverá a llamar al terminar la detección
+    this.renderHide();
     const maxw = Math.round(Math.min(1400, (box.clientWidth - 32) * (window.devicePixelRatio || 1)));
     const seq = (this.seq = (this.seq || 0) + 1);
     try {
@@ -896,6 +1273,96 @@ const Wm = {
     }));
     saveResult(res);
   },
+  /* ---- ocultar datos del documento de identidad ---- */
+  hidePage(id, n) { return this.hideData[id]?.[n]; },
+  ensureHide() {
+    const cur = this.files.current;
+    if (!cur || !this.k('autohide').checked) return false;
+    const pg = this.hidePage(cur.id, this.n);
+    if (pg) return false;
+    (this.hideData[cur.id] = this.hideData[cur.id] || {})[this.n] = { loading: true, items: [], manual: [] };
+    const n = this.n;
+    busy(true, 'Buscando datos que ocultar…');
+    api('idfields', { id: cur.id, n }).then(r => {
+      this.hideData[cur.id][n] = { doc: r.doc, items: r.items.map(it => ({ ...it, on: true })), manual: [] };
+      if (r.items.length) toast(`${r.doc === 'pasaporte' ? 'Pasaporte' : r.doc === 'dni' ? 'DNI' : 'Documento'}: ${r.items.length} dato(s) que conviene ocultar. Revísalos en la vista previa.`, 'ok', [], 5000);
+    }).catch(e => { toast(e.message, 'err'); this.hideData[cur.id][n] = { items: [], manual: [] }; })
+      .finally(() => { busy(false); this.preview(); });
+    return true;
+  },
+  activeRects(id, n) {
+    const pg = this.hidePage(id, n);
+    if (!pg || pg.loading) return [];
+    const out = [];
+    if (this.k('autohide').checked) pg.items.forEach((it, ii) => { if (it.on) it.rects.forEach((r, ri) => out.push({ r, key: [ii, ri] })); });
+    pg.manual.forEach((r, mi) => out.push({ r, key: ['m', mi] }));
+    return out;
+  },
+  renderHide() {
+    const list = $('[data-role=hidelist]', this.root);
+    list.innerHTML = '';
+    this.hov.innerHTML = '';
+    const cur = this.files.current;
+    const pg = cur && this.hidePage(cur.id, this.n);
+    if (pg && !pg.loading && this.k('autohide').checked) {
+      if (!pg.items.length) list.append(h('small', {}, 'No se han detectado datos de DNI/pasaporte en esta página.'));
+      pg.items.forEach(it => {
+        const cb = h('input', { type: 'checkbox', checked: it.on, onchange: () => { it.on = cb.checked; this.renderHide(); this.schedule(); } });
+        list.append(h('div', {}, h('label', { class: 'inline' }, cb, it.label), it.text ? h('div', { class: 'ex' }, it.text.slice(0, 60)) : null));
+      });
+    }
+    if (!cur) return;
+    for (const a of this.activeRects(cur.id, this.n)) {
+      const [x0, y0, x1, y1] = a.r;
+      const isSel = this.hsel && this.hsel.join() === a.key.join();
+      const d = h('div', { class: 'hbox' + (isSel ? ' sel' : ''), style: `left:${x0 * 100}%;top:${y0 * 100}%;width:${(x1 - x0) * 100}%;height:${(y1 - y0) * 100}%` });
+      d.addEventListener('mousedown', e => { e.stopPropagation(); this.hsel = a.key; this.renderHide(); });
+      if (isSel) d.append(h('div', { class: 'x', title: 'Quitar esta zona', onmousedown: e => { e.stopPropagation(); this.removeHide(a.key); } }, '✕'));
+      this.hov.append(d);
+    }
+  },
+  removeHide(key) {
+    const cur = this.files.current;
+    const pg = this.hidePage(cur.id, this.n);
+    if (key[0] === 'm') pg.manual.splice(key[1], 1);
+    else {
+      const it = pg.items[key[0]];
+      it.rects.splice(key[1], 1);
+      if (!it.rects.length) it.on = false;
+    }
+    this.hsel = null;
+    this.renderHide();
+    this.schedule();
+  },
+  placeOverlay() {
+    const box = $('.preview-img', this.root);
+    const b = box.getBoundingClientRect(), r = this.img.getBoundingClientRect();
+    Object.assign(this.hov.style, { left: r.left - b.left + box.scrollLeft + 'px', top: r.top - b.top + box.scrollTop + 'px', width: r.width + 'px', height: r.height + 'px' });
+  },
+  hideDown(e) {
+    const cur = this.files.current;
+    if (!cur || e.button !== 0) return;
+    this.hsel = null;
+    const R = this.hov.getBoundingClientRect();
+    const pt = ev => [clamp((ev.clientX - R.left) / R.width, 0, 1), clamp((ev.clientY - R.top) / R.height, 0, 1)];
+    const p0 = pt(e);
+    const box = h('div', { class: 'drag-box' });
+    this.hov.append(box);
+    const mv = ev => { const r = norm(p0, pt(ev)); Object.assign(box.style, { left: r[0] * 100 + '%', top: r[1] * 100 + '%', width: (r[2] - r[0]) * 100 + '%', height: (r[3] - r[1]) * 100 + '%' }); };
+    window.addEventListener('mousemove', mv);
+    window.addEventListener('mouseup', ev => {
+      window.removeEventListener('mousemove', mv);
+      box.remove();
+      const r = norm(p0, pt(ev));
+      if ((r[2] - r[0]) * R.width < 6 || (r[3] - r[1]) * R.height < 6) { this.renderHide(); return; }
+      const d = this.hideData[cur.id] = this.hideData[cur.id] || {};
+      d[this.n] = d[this.n] || { items: [], manual: [] };
+      d[this.n].manual.push(r);
+      this.renderHide();
+      this.schedule();
+    }, { once: true });
+  },
+
   async check() {
     const [f] = await pickFiles(ACCEPT_DOCS);
     if (!f) return;
@@ -952,6 +1419,8 @@ const Wm = {
       this.k('qr_purpose').value = p.qr.purpose || '';
       if (p.qr.size) this.k('qr_size').value = p.qr.size;
       if (p.qr.pos) this.k('qr_pos').value = p.qr.pos;
+      if (p.qr.mode) { this.k('qr_mode').value = p.qr.mode; this.k('qr_mode').dispatchEvent(new Event('change')); }
+      if (p.qr.base_url) this.k('qr_base').value = p.qr.base_url;
     }
     const f = $(`input[name=wmfmt][value=${(p.fmt || 'pdf').toLowerCase()}]`, this.root);
     if (f) f.checked = true;
@@ -995,7 +1464,12 @@ const Redact = {
     $('[data-k=term]', this.root).addEventListener('keydown', e => { if (e.key === 'Enter') this.search(); });
     act('detect', () => this.detect());
     act('ocr', () => this.ocrAll(true));
-    act('undo', () => { (this.marks[this.viewer.n] || []).pop(); this.draw(); });
+    act('undo', () => { (this.marks[this.viewer.n] || []).pop(); this.selMark = null; this.draw(); });
+    document.addEventListener('keydown', e => {
+      if (!this.root.classList.contains('active') || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+      if ((e.key === 'Delete' || e.key === 'Backspace') && this.selMark) { e.preventDefault(); this.removeMark(); }
+      if (e.key === 'Escape' && this.selMark) { this.selMark = null; this.draw(); }
+    });
     act('clear', () => { delete this.marks[this.viewer.n]; this.draw(); });
     act('save', () => this.save());
     $$('[data-mode]', this.root).forEach(b => b.onclick = () => {
@@ -1025,11 +1499,28 @@ const Redact = {
   draw() {
     const v = this.viewer;
     v.clear();
-    for (const g of this.marks[v.n] || []) for (const r of g) v.box(r, 'mark');
+    (this.marks[v.n] || []).forEach((g, gi) => g.forEach((r, ri) => {
+      const isSel = this.selMark && this.selMark.n === v.n && this.selMark.gi === gi && this.selMark.ri === ri;
+      const d = v.box(r, 'mark' + (isSel ? ' sel' : ''));
+      d.title = 'Clic para seleccionar; ✕ o Supr para quitar esta zona';
+      d.addEventListener('mousedown', e => { e.stopPropagation(); this.selMark = { n: v.n, gi, ri }; this.draw(); });
+      if (isSel) d.append(h('div', { class: 'x', title: 'Quitar esta zona', onmousedown: e => { e.stopPropagation(); this.removeMark(); } }, '✕'));
+    }));
+  },
+  removeMark() {
+    const m = this.selMark;
+    if (!m) return;
+    const groups = this.marks[m.n];
+    groups[m.gi].splice(m.ri, 1);
+    if (!groups[m.gi].length) groups.splice(m.gi, 1);
+    this.selMark = null;
+    this.draw();
+    this.ensureWords(this.viewer.n);
   },
   add(n, rects) { (this.marks[n] = this.marks[n] || []).push(rects); },
   async down(e) {
     if (e.button !== 0 || !this.info) return;
+    if (this.selMark) { this.selMark = null; this.draw(); }
     const d = await this.viewer.drag(e);
     if (!d.moved) return;
     const n = this.viewer.n;

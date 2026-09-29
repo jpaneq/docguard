@@ -3,14 +3,17 @@ on: [push, workflow_dispatch]
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: windows-latest
             icon: icon.ico
             sep: ";"
+            exe: dist/DocGuard/DocGuard.exe
           - os: macos-latest
             icon: icon.icns
             sep: ":"
+            exe: dist/DocGuard.app/Contents/MacOS/DocGuard
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -19,7 +22,11 @@ jobs:
       - run: pip install -r requirements.txt pyinstaller
       - run: python -c "from rapidocr import RapidOCR; RapidOCR()"
       - run: python make_icon.py
-      - run: pyinstaller --noconfirm --windowed --name DocGuard --icon ${{ matrix.icon }} --add-data "icon.png${{ matrix.sep }}." --collect-all tkinterdnd2 --collect-all rapidocr --collect-all onnxruntime docguard.py
+      - run: python -c "import shutil; shutil.copy('icon.png', 'web/icon.png')"
+      - run: pyinstaller --noconfirm --windowed --name DocGuard --icon ${{ matrix.icon }} --add-data "web${{ matrix.sep }}web" --collect-all rapidocr --collect-all onnxruntime --collect-all webview --collect-all pyhanko --collect-all pyhanko_certvalidator --hidden-import pkcs11 app.py
+      - name: Selftest
+        shell: bash
+        run: ${{ matrix.exe }} --selftest
       - uses: actions/upload-artifact@v4
         with:
           name: DocGuard-${{ runner.os }}

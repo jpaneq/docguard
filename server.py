@@ -1,0 +1,697 @@
+"""Servidor local de DocGuard: sirve la interfaz web y la API.
+
+Solo escucha en 127.0.0.1 y exige un token aleatorio en cada llamada a la API,
+así ninguna otra web ni otro usuario del equipo puede usarlo.
+"""
+
+import base64
+import contextlib
+import io
+import json
+import os
+import secrets
+import shutil
+import tempfile
+import threading
+import traceback
+import urllib.parse
+import zipfile
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+import pymupdf as fitz
+from PIL import Image
+
+import core
+import editor
+import signing
+
+TOKEN = secrets.token_urlsafe(18)
+LOCK = threading.RLock()  # PyMuPDF no es seguro entre hilos: una operación a la vez
+DOCS = {}
+RESULTS = {}
+WEB_DIR = core.resource_path("web")
+MAX_UNDO = 25
+
+
+class Doc:
+    def __init__(self, name, data):
+        self.name = name
+        self.ext = core.ext_of(name)
+        self.orig = data
+        self.edited = False
+        self.undo = []
+        self.ocr = {}
+        if self.ext == ".pdf":
+            self.kind = "pdf"
+        elif self.ext in core.IMAGE_EXTS:
+            self.kind = "image"
+        elif self.ext in core.OFFICE_EXTS:
+            self.kind = "office"
+        else:
+            self.kind = "other"
+        self.doc = None
+        if self.kind == "pdf":
+            self.doc = fitz.open("pdf", data)
+            self.encrypted = self.doc.needs_pass
+        elif self.kind == "image":
+            with fitz.open(stream=data, filetype=self.ext.lstrip(".")) as img:
+                self.doc = fitz.open("pdf", img.convert_to_pdf())
+            self.encrypted = False
+        else:
+            self.encrypted = False
+
+    @property
+    def base(self):
+        return os.path.splitext(self.name)[0]
+
+    def pdf_bytes(self):
+        if self.kind == "pdf" and not self.edited:
+            return self.orig
+        return self.doc.tobytes(garbage=3, deflate=True)
+
+    def info(self, did):
+        pages = []
+        if self.doc and not self.encrypted:
+            pages = [[round(p.rect.width, 2), round(p.rect.height, 2)] for p in self.doc]
+        return {"id": did, "name": self.name, "kind": self.kind, "pages": pages,
+                "encrypted": self.encrypted, "size": len(self.orig)}
+
+
+@contextlib.contextmanager
+def as_file(d):
+    """Guarda el documento (con las ediciones) en un archivo temporal."""
+    tmp = tempfile.mkdtemp(prefix="docguard_")
+    try:
+        if d.kind in ("pdf", "image") and (d.edited or d.kind == "pdf"):
+            path = os.path.join(tmp, d.base + ".pdf")
+            data = d.pdf_bytes()
+        else:
+            path = os.path.join(tmp, d.name)
+            data = d.orig
+        with open(path, "wb") as f:
+            f.write(data)
+        yield path, tmp
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def store_result(files):
+    """files = [(nombre, bytes)] -> id del resultado."""
+    rid = secrets.token_urlsafe(8)
+    RESULTS[rid] = files
+    return {"rid": rid, "files": [{"name": n, "size": len(b)} for n, b in files]}
+
+
+def read_outputs(folder, exclude=()):
+    out = []
+    for f in sorted(os.listdir(folder)):
+        p = os.path.join(folder, f)
+        if os.path.isfile(p) and p not in exclude:
+            with open(p, "rb") as fh:
+                out.append((f, fh.read()))
+    return out
+
+
+def get_doc(req):
+    d = DOCS.get(req.get("id"))
+    if not d:
+        raise ValueError("Documento no encontrado. Vuelve a abrirlo.")
+    return d
+
+
+def need_pdf(d):
+    if not d.doc:
+        raise ValueError(f"«{d.name}» no es un PDF ni una imagen.")
+    if d.encrypted:
+        raise ValueError(f"«{d.name}» está protegido con contraseña. Quítala primero.")
+    return d.doc
+
+
+def rects(lst):
+    return [fitz.Rect(r) for r in lst]
+
+
+# --------------------------------------------------------------------------
+# Operaciones
+# --------------------------------------------------------------------------
+
+def op_open_result(req):
+    name, data = RESULTS[req["rid"]][req.get("index", 0)]
+    did = secrets.token_urlsafe(8)
+    DOCS[did] = Doc(name, data)
+    return DOCS[did].info(did)
+
+
+def op_close(req):
+    DOCS.pop(req.get("id"), None)
+    return {}
+
+
+def op_info(req):
+    return get_doc(req).info(req["id"])
+
+
+# ---- marca de agua ----
+
+def wm_params(req):
+    p = req["params"]
+    return dict(text=p.get("text", ""), angle=float(p.get("angle", 35)), size=float(p.get("size", 40)),
+                gap_x=float(p.get("gap_x", 60)), gap_y=float(p.get("gap_y", 80)),
+                opacity=float(p.get("opacity", 35)) / 100, color=tuple(int(p.get("color", "#c80000")[i:i + 2], 16)
+                                                                        for i in (1, 3, 5)),
+                hardened=bool(p.get("hardened", True)))
+
+
+def op_wm_preview(req):
+    d = get_doc(req)
+    n = int(req.get("n", 0))
+    maxw = int(req.get("maxw", 900))
+    if d.kind == "image" and not d.edited:
+        img = Image.open(io.BytesIO(d.orig))
+        from PIL import ImageOps
+        img = ImageOps.exif_transpose(img).convert("RGB")
+    else:
+        page = need_pdf(d)[n]
+        zoom = min(3.0, maxw / page.rect.width)
+        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+        img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+    img.thumbnail((maxw, maxw * 3))
+    out = core.apply_watermark(img, seed=1000 + n, **wm_params(req))
+    buf = io.BytesIO()
+    out.save(buf, "JPEG", quality=85)
+    return ("image/jpeg", buf.getvalue())
+
+
+def op_wm_export(req):
+    params = wm_params(req)
+    fmt = req.get("fmt", "pdf").lower()
+    w = int(req["width"]) if req.get("width") else None
+    h = int(req["height"]) if req.get("height") else None
+    files = []
+    for did in req["ids"]:
+        d = DOCS[did]
+        with as_file(d) as (path, tmp):
+            dst = os.path.join(tmp, "out", f"{d.base}_marca.{fmt}")
+            os.makedirs(os.path.dirname(dst))
+            core.export_watermarked(path, dst, params, w, h)
+            files += read_outputs(os.path.dirname(dst))
+    return store_result(files)
+
+
+# ---- censura ----
+
+def page_words(d, n):
+    page = d.doc[n]
+    words = core.native_words(page)
+    return words if words else d.ocr.get(n, [])
+
+
+def op_words(req):
+    d = get_doc(req)
+    n = int(req["n"])
+    need_pdf(d)
+    native = core.native_words(d.doc[n])
+    words = native or d.ocr.get(n, [])
+    page = d.doc[n]
+    return {"words": [{"bbox": editor.to_view(page, r), "text": t} for r, t in words],
+            "source": "pdf" if native else ("ocr" if n in d.ocr else "none")}
+
+
+def op_pages_without_text(req):
+    d = get_doc(req)
+    need_pdf(d)
+    return {"pages": [i for i in range(len(d.doc)) if i not in d.ocr and not core.native_words(d.doc[i])],
+            "ocr_available": core.ocr_available()}
+
+
+def op_ocr(req):
+    d = get_doc(req)
+    need_pdf(d)
+    n = int(req["n"])
+    d.ocr[n] = core.ocr_page_words(d.doc[n])
+    return {"words": len(d.ocr[n])}
+
+
+def op_detect(req):
+    d = get_doc(req)
+    need_pdf(d)
+    found = {}
+    for n in range(len(d.doc)):
+        page = d.doc[n]
+        for kind, groups in core.detect_sensitive(page_words(d, n)).items():
+            for g in groups:
+                text = " ".join(t for r, t in page_words(d, n) if any(r == q for q in g))
+                found.setdefault(kind, []).append({"n": n, "rects": [editor.to_view(page, r) for r in g],
+                                                   "text": text})
+    return {"found": found}
+
+
+def op_search(req):
+    d = get_doc(req)
+    need_pdf(d)
+    term = req["term"].strip()
+    low = term.lower()
+    hits = []
+    for n, page in enumerate(d.doc):
+        rs = page.search_for(term) + [r for r, w in d.ocr.get(n, []) if low in w.lower()]
+        if rs:
+            hits.append({"n": n, "rects": [editor.to_view(page, r) for r in rs]})
+    return {"hits": hits}
+
+
+def op_redact(req):
+    d = get_doc(req)
+    doc = need_pdf(d)
+    marks = {}
+    for n, lst in req["marks"].items():
+        page = doc[int(n)]
+        marks[int(n)] = [editor.from_view(page, r) for r in lst]
+    with tempfile.TemporaryDirectory() as tmp:
+        dst = os.path.join(tmp, f"{d.base}_censurado.pdf")
+        core.redact_pdf(doc, marks, dst, core.REDACT_STYLES.get(req.get("style"), "black"))
+        return store_result(read_outputs(tmp))
+
+
+# ---- páginas ----
+
+def op_pages_save(req):
+    d = get_doc(req)
+    need_pdf(d)
+    items = [(int(i), int(r)) for i, r in req["items"]]
+    mode = req.get("mode", "one")
+    with as_file(d) as (path, tmp):
+        out = os.path.join(tmp, "out")
+        os.makedirs(out)
+        if mode == "one":
+            core.save_pages(path, items, os.path.join(out, f"{d.base}_{req.get('suffix', 'editado')}.pdf"))
+        elif mode == "each":
+            for k, it in enumerate(items):
+                core.save_pages(path, [it], os.path.join(out, f"{d.base}_p{k + 1:03d}.pdf"))
+        elif mode == "ranges":
+            for g in core.parse_ranges(req["ranges"], len(items)):
+                label = f"{g[0] + 1}-{g[-1] + 1}" if len(g) > 1 else f"{g[0] + 1}"
+                core.save_pages(path, [items[i] for i in g], os.path.join(out, f"{d.base}_{label}.pdf"))
+        return store_result(read_outputs(out))
+
+
+# ---- contraseña ----
+
+def op_encrypt(req):
+    d = get_doc(req)
+    need_pdf(d)
+    with as_file(d) as (path, tmp):
+        dst = os.path.join(tmp, "out", f"{d.base}_protegido.pdf")
+        os.makedirs(os.path.dirname(dst))
+        core.encrypt_pdf(path, dst, req["user_pw"], req.get("owner_pw", ""), bool(req.get("print")),
+                         bool(req.get("copy")), bool(req.get("edit")))
+        return store_result(read_outputs(os.path.dirname(dst)))
+
+
+def op_decrypt(req):
+    d = get_doc(req)
+    if d.kind != "pdf":
+        raise ValueError("Solo se puede quitar la contraseña de un PDF.")
+    with tempfile.TemporaryDirectory() as tmp:
+        src = os.path.join(tmp, "in.pdf")
+        with open(src, "wb") as f:
+            f.write(d.orig)
+        dst = os.path.join(tmp, f"{d.base}_sin_clave.pdf")
+        core.decrypt_pdf(src, dst, req.get("password", ""))
+        return store_result(read_outputs(tmp, exclude=(src,)))
+
+
+# ---- herramientas por lotes ----
+
+def batch(req, func):
+    files, notes, errors = [], [], []
+    for did in req["ids"]:
+        d = DOCS[did]
+        try:
+            with as_file(d) as (path, tmp):
+                out = os.path.join(tmp, "out")
+                os.makedirs(out)
+                note = func(d, path, out)
+                if note:
+                    notes.append(note)
+                files += read_outputs(out)
+        except Exception as ex:
+            errors.append(f"{d.name}: {ex}")
+    res = store_result(files) if files else {"rid": None, "files": []}
+    res.update(notes=notes, errors=errors)
+    return res
+
+
+def op_compress(req):
+    def f(d, path, out):
+        if core.ext_of(path) != ".pdf":
+            raise ValueError("no es un PDF")
+        before, after = core.compress_pdf(path, os.path.join(out, f"{d.base}_comprimido.pdf"), req["level"])
+        return f"{d.name}: {before / 1024:.0f} KB → {after / 1024:.0f} KB"
+    return batch(req, f)
+
+
+def op_toimages(req):
+    def f(d, path, out):
+        if core.ext_of(path) != ".pdf":
+            raise ValueError("no es un PDF")
+        core.pdf_to_images(path, out, req.get("fmt", "png"), int(req.get("dpi", 200)))
+    return batch(req, f)
+
+
+def op_topdf(req):
+    def f(d, path, out):
+        core.merge_files([path], os.path.join(out, d.base + ".pdf"))
+    return batch(req, f)
+
+
+def op_sanitize(req):
+    def f(d, path, out):
+        src = path
+        if d.kind in ("image", "office", "other") and not d.edited:
+            src = os.path.join(os.path.dirname(path), d.name)
+        core.sanitize_file(src, os.path.join(out, f"{d.base}_limpio{core.ext_of(src)}"))
+    return batch(req, f)
+
+
+def op_merge(req):
+    with tempfile.TemporaryDirectory() as tmp:
+        paths = []
+        for k, did in enumerate(req["ids"]):
+            d = DOCS[did]
+            need_pdf(d)
+            p = os.path.join(tmp, f"{k:03d}.pdf")
+            with open(p, "wb") as f:
+                f.write(d.pdf_bytes())
+            paths.append(p)
+        dst = os.path.join(tmp, req.get("name") or "unido.pdf")
+        core.merge_files(paths, dst)
+        with open(dst, "rb") as f:
+            return store_result([(os.path.basename(dst), f.read())])
+
+
+# ---- edición ----
+
+def op_edit_state(req):
+    d = get_doc(req)
+    doc = need_pdf(d)
+    n = int(req["n"])
+    page = doc[n]
+    return {"spans": editor.spans(page), "images": editor.images(page), "annots": editor.annotations(page),
+            "widgets": editor.widgets(page), "can_undo": bool(d.undo),
+            "size": [page.rect.width, page.rect.height]}
+
+
+def op_fonts(req):
+    return {"fonts": editor.font_choices()}
+
+
+EDIT_OPS = {
+    "replace_text": lambda doc, r: editor.replace_span(doc, r["n"], r["i"], r.get("text", ""), r.get("font", "auto"),
+                                                      r.get("size"), r.get("color"), r.get("bold"), r.get("italic")),
+    "add_text": lambda doc, r: editor.add_text(doc, r["n"], r["x"], r["y"], r["text"], r.get("font", "base:helv"),
+                                              float(r.get("size", 12)), r.get("color", "#000000"),
+                                              r.get("bold", False), r.get("italic", False)),
+    "insert_image": lambda doc, r: editor.insert_image(doc, r["n"], r["rect"], base64.b64decode(r["data"])),
+    "move_image": lambda doc, r: editor.move_image(doc, r["n"], r["xref"], r["rect"]),
+    "delete_image": lambda doc, r: editor.delete_image(doc, r["n"], r["xref"]),
+    "add_annot": lambda doc, r: editor.add_annotation(doc, r["n"], r["kind"], r["rect"], r.get("text", ""),
+                                                     r.get("color", "#ffd400"), float(r.get("size", 12))),
+    "add_ink": lambda doc, r: editor.add_ink(doc, r["n"], r["strokes"], r.get("color", "#1a4fd6"),
+                                            float(r.get("width", 2))),
+    "delete_annot": lambda doc, r: editor.delete_annotation(doc, r["n"], r["xref"]),
+    "add_widget": lambda doc, r: editor.add_widget(doc, r["n"], r["type"], r["rect"], r["name"], r.get("value"),
+                                                  r.get("options")),
+    "update_widget": lambda doc, r: editor.update_widget(doc, r["n"], r["xref"], r.get("name"), r.get("value"),
+                                                        r.get("options"), r.get("rect")),
+    "delete_widget": lambda doc, r: editor.delete_widget(doc, r["n"], r["xref"]),
+    "flatten": lambda doc, r: editor.flatten_forms(doc),
+}
+
+
+def op_edit(req, name):
+    d = get_doc(req)
+    doc = need_pdf(d)
+    snapshot = doc.tobytes()
+    result = EDIT_OPS[name](doc, req)
+    d.undo.append(snapshot)
+    del d.undo[:-MAX_UNDO]
+    d.edited = True
+    # Recargar tras cada cambio mantiene coherentes las listas de texto/imágenes/campos.
+    d.doc = fitz.open("pdf", doc.tobytes())
+    return {"message": result if isinstance(result, str) else ""}
+
+
+def op_undo(req):
+    d = get_doc(req)
+    if d.undo:
+        d.doc = fitz.open("pdf", d.undo.pop())
+        d.edited = bool(d.undo) or d.kind != "pdf"
+    return {"can_undo": bool(d.undo)}
+
+
+def op_edit_export(req):
+    d = get_doc(req)
+    need_pdf(d)
+    return store_result([(f"{d.base}_editado.pdf", d.doc.tobytes(garbage=3, deflate=True))])
+
+
+# ---- firmas ----
+
+def sig_dir():
+    p = os.path.join(core.config_dir(), "firmas")
+    os.makedirs(p, exist_ok=True)
+    return p
+
+
+def op_sigimgs(req):
+    out = []
+    for f in sorted(os.listdir(sig_dir())):
+        if f.endswith(".png"):
+            with open(os.path.join(sig_dir(), f), "rb") as fh:
+                out.append({"id": f[:-4], "png": base64.b64encode(fh.read()).decode()})
+    return {"items": out}
+
+
+def op_sigimg_save(req):
+    data = base64.b64decode(req["png"])
+    img = Image.open(io.BytesIO(data)).convert("RGBA")
+    bbox = img.getbbox()
+    if not bbox:
+        raise ValueError("La firma está vacía.")
+    img = img.crop(bbox)
+    if req.get("remove_white"):  # imagen escaneada: el fondo blanco pasa a transparente
+        px = [(r, g, b, 0 if r > 225 and g > 225 and b > 225 else a) for r, g, b, a in img.getdata()]
+        img.putdata(px)
+    sid = secrets.token_hex(6)
+    img.save(os.path.join(sig_dir(), sid + ".png"))
+    return {"id": sid}
+
+
+def op_sigimg_delete(req):
+    path = os.path.join(sig_dir(), os.path.basename(req["id"]) + ".png")
+    if os.path.exists(path):
+        os.remove(path)
+    return {}
+
+
+def sigimg_bytes(sid):
+    with open(os.path.join(sig_dir(), os.path.basename(sid) + ".png"), "rb") as f:
+        return f.read()
+
+
+def op_place_sigimg(req):
+    req = dict(req, data=base64.b64encode(sigimg_bytes(req["sig"])).decode())
+    return op_edit(req, "insert_image")
+
+
+def op_certinfo(req):
+    return signing.cert_info(base64.b64decode(req["p12"]), req.get("password", ""))
+
+
+def op_sign(req):
+    d = get_doc(req)
+    need_pdf(d)
+    img = sigimg_bytes(req["sig"]) if req.get("sig") else None
+    visible = req.get("rect") is not None
+    opts = dict(page=int(req["n"]) if visible else None, view_rect=req.get("rect"),
+                reason=req.get("reason", ""), location=req.get("location", ""),
+                contact=req.get("contact", ""), image_png=img, tsa_url=req.get("tsa") or None)
+    if req.get("source") == "card":
+        if not req.get("pin"):
+            raise ValueError("Escribe el PIN de la tarjeta.")
+        out = signing.sign_pdf_pkcs11(d.pdf_bytes(), req["module"], req["token"], req["cert_id"], req["pin"], **opts)
+    else:
+        out = signing.sign_pdf(d.pdf_bytes(), base64.b64decode(req["p12"]), req.get("password", ""), **opts)
+    return store_result([(f"{d.base}_firmado.pdf", out)])
+
+
+def op_p11_modules(req):
+    return {"modules": signing.pkcs11_modules()}
+
+
+def op_p11_login(req):
+    return signing.pkcs11_login(req["module"], req["token"], req["cert_id"], req["pin"])
+
+
+def op_p11_list(req):
+    return {"tokens": signing.pkcs11_list(req["module"])}
+
+
+def op_verify(req):
+    d = get_doc(req)
+    if d.kind != "pdf":
+        raise ValueError("Solo se pueden verificar PDFs.")
+    return {"signatures": signing.verify_pdf(d.orig if not d.edited else d.pdf_bytes())}
+
+
+def op_presets(req):
+    return {"presets": core.load_presets()}
+
+
+def op_presets_save(req):
+    core.save_presets(req["presets"])
+    return {}
+
+
+OPS = {
+    "presets": op_presets, "presets/save": op_presets_save,
+    "open_result": op_open_result, "close": op_close, "info": op_info,
+    "wm/preview": op_wm_preview, "wm/export": op_wm_export,
+    "words": op_words, "pages_without_text": op_pages_without_text, "ocr": op_ocr, "detect": op_detect,
+    "search": op_search, "redact": op_redact,
+    "pages/save": op_pages_save, "encrypt": op_encrypt, "decrypt": op_decrypt,
+    "compress": op_compress, "toimages": op_toimages, "topdf": op_topdf, "sanitize": op_sanitize, "merge": op_merge,
+    "edit/state": op_edit_state, "fonts": op_fonts, "edit/undo": op_undo, "edit/export": op_edit_export,
+    "sigimgs": op_sigimgs, "sigimg/save": op_sigimg_save, "sigimg/delete": op_sigimg_delete,
+    "sigimg/place": op_place_sigimg, "certinfo": op_certinfo, "sign": op_sign,
+    "p11/modules": op_p11_modules, "p11/list": op_p11_list, "p11/login": op_p11_login, "verify": op_verify,
+}
+for _name in EDIT_OPS:
+    OPS["edit/" + _name] = (lambda nm: lambda req: op_edit(req, nm))(_name)
+
+
+def zip_files(files):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, data in files:
+            z.writestr(name, data)
+    return buf.getvalue()
+
+
+def save_result_to(rid, target, is_folder):
+    """Usado por la ventana nativa: guarda el resultado en el disco."""
+    files = RESULTS[rid]
+    if is_folder:
+        paths = []
+        for name, data in files:
+            p = os.path.join(target, name)
+            with open(p, "wb") as f:
+                f.write(data)
+            paths.append(p)
+        return paths
+    with open(target, "wb") as f:
+        f.write(files[0][1] if len(files) == 1 else zip_files(files))
+    return [target]
+
+
+# --------------------------------------------------------------------------
+# HTTP
+# --------------------------------------------------------------------------
+
+MIME = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
+        ".css": "text/css; charset=utf-8", ".png": "image/png", ".svg": "image/svg+xml"}
+
+
+class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, *args):
+        pass
+
+    def send(self, code, body, ctype="application/json", headers=None):
+        if isinstance(body, (dict, list)):
+            body = json.dumps(body, ensure_ascii=False).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def authorized(self, query):
+        return secrets.compare_digest(self.headers.get("X-Token") or query.get("t", [""])[0], TOKEN)
+
+    def do_GET(self):
+        url = urllib.parse.urlparse(self.path)
+        q = urllib.parse.parse_qs(url.query)
+        if url.path.startswith("/api/"):
+            if not self.authorized(q):
+                return self.send(403, {"error": "no autorizado"})
+            try:
+                with LOCK:
+                    if url.path == "/api/page":
+                        return self.page(q)
+                    if url.path == "/api/result":
+                        return self.result(q)
+            except Exception as ex:
+                return self.send(400, {"error": str(ex)})
+            return self.send(404, {"error": "no encontrado"})
+        name = "index.html" if url.path in ("/", "") else url.path.lstrip("/")
+        path = os.path.realpath(os.path.join(WEB_DIR, name))
+        if not path.startswith(os.path.realpath(WEB_DIR)) or not os.path.isfile(path):
+            return self.send(404, b"no encontrado", "text/plain")
+        with open(path, "rb") as f:
+            self.send(200, f.read(), MIME.get(os.path.splitext(path)[1], "application/octet-stream"))
+
+    def page(self, q):
+        d = DOCS[q["id"][0]]
+        doc = need_pdf(d)
+        page = doc[int(q["n"][0])]
+        zoom = max(0.05, min(float(q.get("zoom", ["1"])[0]), 6))
+        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False, annots=True)
+        self.send(200, pix.tobytes("png"), "image/png")
+
+    def result(self, q):
+        files = RESULTS[q["rid"][0]]
+        if len(files) == 1:
+            name, data = files[0]
+        else:
+            name, data = "docguard.zip", zip_files(files)
+        disp = "attachment; filename*=UTF-8''" + urllib.parse.quote(name)
+        self.send(200, data, "application/octet-stream", {"Content-Disposition": disp})
+
+    def do_POST(self):
+        url = urllib.parse.urlparse(self.path)
+        if not url.path.startswith("/api/") or not self.authorized(urllib.parse.parse_qs(url.query)):
+            return self.send(403, {"error": "no autorizado"})
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length) if length else b""
+        op = url.path[len("/api/"):]
+        try:
+            with LOCK:
+                if op == "open":
+                    name = urllib.parse.unquote(self.headers.get("X-Filename", "archivo"))
+                    did = secrets.token_urlsafe(8)
+                    DOCS[did] = Doc(os.path.basename(name), body)
+                    return self.send(200, DOCS[did].info(did))
+                if op not in OPS:
+                    return self.send(404, {"error": f"operación desconocida: {op}"})
+                res = OPS[op](json.loads(body or b"{}"))
+            if isinstance(res, tuple):
+                return self.send(200, res[1], res[0])
+            return self.send(200, res)
+        except Exception as ex:
+            traceback.print_exc()
+            msg = str(ex) or ex.__class__.__name__
+            return self.send(400, {"error": msg})
+
+
+def start(port=0):
+    """Arranca el servidor en segundo plano. Devuelve la URL con el token."""
+    httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    httpd.daemon_threads = True
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    return f"http://127.0.0.1:{httpd.server_address[1]}/?t={TOKEN}", httpd

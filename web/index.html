@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DocGuard</title>
+<link rel="icon" href="icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<aside class="nav">
+  <div class="brand"><img src="icon.png" alt=""><span>DocGuard</span></div>
+  <button data-tool="edit" class="active"><span class="ic">✎</span>Editar PDF</button>
+  <button data-tool="watermark"><span class="ic">≋</span>Marca de agua</button>
+  <button data-tool="redact"><span class="ic">▇</span>Censurar</button>
+  <button data-tool="sign"><span class="ic">✍</span>Firma digital</button>
+  <button data-tool="pages"><span class="ic">▤</span>Páginas</button>
+  <button data-tool="protect"><span class="ic">🔒</span>Contraseña</button>
+  <button data-tool="convert"><span class="ic">⇄</span>Comprimir y convertir</button>
+  <button data-tool="sanitize"><span class="ic">✧</span>Limpiar metadatos</button>
+  <button data-tool="merge"><span class="ic">⊕</span>Unir PDFs</button>
+  <div class="card-status nav-card off" hidden><span class="dot"></span><span class="txt"></span></div>
+  <div class="nav-foot">Todo se procesa en tu equipo.<br>Ningún archivo sale de él.</div>
+</aside>
+
+<main>
+  <!-- EDITAR -->
+  <section class="tool active" id="tool-edit">
+    <div class="toolbar">
+      <button class="primary" data-act="open">Abrir PDF…</button>
+      <span class="doc-name"></span>
+      <div class="seg" data-role="modes">
+        <button data-mode="text" class="on" title="Haz clic en un texto para cambiarlo">Editar texto</button>
+        <button data-mode="addtext" title="Haz clic donde quieras escribir">Añadir texto</button>
+        <button data-mode="image">Imágenes</button>
+        <button data-mode="annot">Anotar</button>
+        <button data-mode="forms">Formularios</button>
+        <button data-mode="handsign">Firma manuscrita</button>
+      </div>
+      <span class="grow"></span>
+      <button data-act="undo" disabled>↶ Deshacer</button>
+      <button class="primary" data-act="export" disabled>Guardar PDF…</button>
+    </div>
+    <div class="work">
+      <div class="viewer-host"></div>
+      <div class="props"></div>
+    </div>
+  </section>
+
+  <!-- MARCA DE AGUA -->
+  <section class="tool" id="tool-watermark">
+    <div class="work">
+      <div class="side-panel">
+        <div class="files" data-role="files"></div>
+        <label>Plantilla
+          <div class="row"><select data-k="preset"><option value="">—</option></select>
+          <button data-act="preset-save" title="Guardar ajustes como plantilla">Guardar</button>
+          <button data-act="preset-del" title="Borrar plantilla">✕</button></div>
+        </label>
+        <label>Texto de la marca
+          <input data-k="text" value="Solo para uso de XXX – {fecha}">
+          <small>{fecha} y {hora} se rellenan solos.</small>
+        </label>
+        <label>Orientación <output></output><input type="range" data-k="angle" min="-90" max="90" value="35"></label>
+        <label>Tamaño <output></output><input type="range" data-k="size" min="10" max="150" value="40"></label>
+        <label>Separación horizontal <output></output><input type="range" data-k="gap_x" min="0" max="400" value="60"></label>
+        <label>Separación vertical <output></output><input type="range" data-k="gap_y" min="0" max="400" value="80"></label>
+        <label>Opacidad % <output></output><input type="range" data-k="opacity" min="5" max="100" value="35"></label>
+        <div class="row"><label class="inline">Color <input type="color" data-k="color" value="#c80000"></label>
+          <label class="inline"><input type="checkbox" data-k="hardened" checked> Protección anti-IA</label></div>
+        <div class="row">Exportar como
+          <label class="inline"><input type="radio" name="wmfmt" value="pdf" checked> PDF</label>
+          <label class="inline"><input type="radio" name="wmfmt" value="jpg"> JPG</label>
+          <label class="inline"><input type="radio" name="wmfmt" value="png"> PNG</label></div>
+        <div class="row">Tamaño px <input data-k="width" class="num" placeholder="ancho"> × <input data-k="height" class="num" placeholder="alto"></div>
+        <small>Vacío = original. Solo uno = mantiene la proporción.</small>
+        <button class="primary wide" data-act="export">Guardar con marca de agua…</button>
+        <small>Si has abierto varios archivos, se marcan todos a la vez.</small>
+      </div>
+      <div class="preview">
+        <div class="preview-img"><img alt=""><div class="empty">Abre o arrastra aquí un documento (PDF, JPG, PNG…)</div></div>
+        <div class="pager"><button data-act="prev">◀</button><span></span><button data-act="next">▶</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CENSURAR -->
+  <section class="tool" id="tool-redact">
+    <div class="toolbar">
+      <button class="primary" data-act="open">Abrir PDF/imagen…</button>
+      <span class="doc-name"></span>
+      <div class="seg" data-role="modes">
+        <button data-mode="text" class="on">Seleccionar texto</button>
+        <button data-mode="area">Área libre</button>
+      </div>
+      <input data-k="term" placeholder="Buscar…" class="search">
+      <button data-act="search">Marcar todo</button>
+      <button data-act="detect">Detectar datos sensibles…</button>
+      <button data-act="ocr">OCR</button>
+      <span class="grow"></span>
+      <button data-act="undo">↶ Deshacer</button>
+      <button data-act="clear">Limpiar página</button>
+      <select data-k="style"><option>Cuadro negro</option><option>Pixelado</option><option>Difuminado</option></select>
+      <button class="primary" data-act="save">Aplicar censura…</button>
+    </div>
+    <div class="work"><div class="viewer-host"></div></div>
+    <div class="status"></div>
+  </section>
+
+  <!-- FIRMA DIGITAL -->
+  <section class="tool" id="tool-sign">
+    <div class="toolbar">
+      <button class="primary" data-act="open">Abrir PDF…</button>
+      <span class="doc-name"></span>
+      <span class="grow"></span>
+      <button data-act="verify">Verificar firmas</button>
+    </div>
+    <div class="work">
+      <div class="viewer-host"></div>
+      <div class="props">
+        <h3>Certificado</h3>
+        <div class="seg" data-role="source">
+          <button data-src="file" class="on">Archivo (FNMT…)</button>
+          <button data-src="card">DNIe / tarjeta</button>
+        </div>
+        <div data-pane="file">
+          <button data-act="cert" class="wide">Elegir certificado (.p12 / .pfx)…</button>
+          <div class="cert-name muted">Ninguno</div>
+          <label>Contraseña del certificado <input type="password" data-k="password"></label>
+          <button data-act="certinfo">Comprobar certificado</button>
+          <div class="cert-info"></div>
+          <details><summary>¿Cómo consigo el archivo de mi certificado FNMT?</summary>
+            <ul class="help">
+              <li><b>Windows:</b> Inicio → «Administrar certificados de usuario» → Personal → Certificados → clic derecho en tu certificado → Todas las tareas → Exportar → «Exportar la clave privada» → formato .pfx con contraseña.</li>
+              <li><b>Mac:</b> Acceso a Llaveros → Mis certificados → clic derecho en tu certificado de la FNMT → Exportar → formato .p12 con contraseña.</li>
+              <li><b>Firefox:</b> Ajustes → Privacidad y seguridad → Ver certificados → Sus certificados → Hacer copia… (.p12).</li>
+              <li>Guarda ese archivo en un lugar seguro: con él y su contraseña se puede firmar en tu nombre.</li>
+            </ul></details>
+        </div>
+        <div data-pane="card" hidden>
+          <div class="card-status off" data-role="cardstatus"><span class="dot"></span><span class="txt">Sin tarjeta</span></div>
+          <label>Módulo del lector
+            <select data-k="module"></select></label>
+          <input data-k="module_custom" placeholder="Ruta al módulo PKCS#11 (.so / .dylib / .dll)" hidden>
+          <button data-act="p11list" class="wide">Detectar tarjeta y certificados</button>
+          <label>Certificado <select data-k="p11cert"><option value="">Inserta la tarjeta y pulsa «Detectar»</option></select></label>
+          <label>PIN <input type="password" data-k="pin" autocomplete="off"></label>
+          <button data-act="p11login" class="wide">Conectar (verificar PIN)</button>
+          <small>El DNIe se bloquea tras 3 PIN erróneos. El PIN solo se usa en este equipo para esta firma y no se guarda.</small>
+          <details><summary>¿Qué necesito para usar el DNIe?</summary>
+            <ul class="help">
+              <li>Un lector de tarjetas (o un lector con NFC compatible con DNIe 3.0/4.0).</li>
+              <li>El módulo del DNIe de <b>dnielectronico.es</b> (Área de descargas) o <b>OpenSC</b> (opensc-project.org). DocGuard los detecta automáticamente.</li>
+              <li>El PIN del DNIe (si no lo recuerdas, se cambia en los puntos de actualización de las comisarías).</li>
+              <li>Sirve igual para otras tarjetas criptográficas (FNMT en tarjeta, colegios profesionales…) con su módulo PKCS#11.</li>
+            </ul></details>
+        </div>
+        <h3>Aspecto</h3>
+        <label class="inline"><input type="checkbox" data-k="visible" checked> Firma visible</label>
+        <small>Arrastra sobre la página para colocar el recuadro de la firma.</small>
+        <label>Imagen de firma manuscrita (opcional)<select data-k="sig"><option value="">Sin imagen</option></select></label>
+        <button data-act="newsig">Nueva firma manuscrita…</button>
+        <h3>Datos</h3>
+        <label>Motivo <input data-k="reason" placeholder="Conforme"></label>
+        <label>Lugar <input data-k="location" placeholder="Madrid"></label>
+        <label>Contacto <input data-k="contact" placeholder="(opcional)"></label>
+        <label>Sello de tiempo
+          <select data-k="tsa"><option value="">Sin sello (hora del equipo)</option>
+            <option value="https://freetsa.org/tsr">FreeTSA (gratuito, requiere internet)</option>
+            <option value="custom">Otro servidor…</option></select></label>
+        <input data-k="tsa_custom" placeholder="https://…" hidden>
+        <button class="primary wide" data-act="sign">Firmar y guardar…</button>
+        <small>Firma siempre al final: cualquier cambio posterior invalida la firma.</small>
+      </div>
+    </div>
+  </section>
+
+  <!-- PÁGINAS -->
+  <section class="tool" id="tool-pages">
+    <div class="toolbar">
+      <button class="primary" data-act="open">Abrir PDF…</button>
+      <span class="doc-name"></span>
+      <button data-act="all">Seleccionar todas</button>
+      <button data-act="rotl">↺ Girar</button>
+      <button data-act="rotr">↻ Girar</button>
+      <button data-act="del">Eliminar</button>
+      <span class="grow"></span>
+      <button data-act="extract">Extraer seleccionadas…</button>
+      <button data-act="each">Una por archivo…</button>
+      <button data-act="ranges">Por rangos…</button>
+      <button class="primary" data-act="save">Guardar PDF…</button>
+    </div>
+    <div class="thumbs"><div class="empty">Abre o arrastra aquí un PDF. Arrastra las miniaturas para reordenarlas.</div></div>
+  </section>
+
+  <!-- CONTRASEÑA -->
+  <section class="tool" id="tool-protect">
+    <div class="form-page">
+      <div class="files" data-role="files"></div>
+      <fieldset><legend>Poner contraseña</legend>
+        <label>Contraseña para abrir <input type="password" data-k="pw1"></label>
+        <label>Repetir contraseña <input type="password" data-k="pw2"></label>
+        <label>Contraseña de propietario (opcional) <input type="password" data-k="owner"></label>
+        <label class="inline"><input type="checkbox" data-k="print" checked> Permitir imprimir</label>
+        <label class="inline"><input type="checkbox" data-k="copy"> Permitir copiar texto</label>
+        <label class="inline"><input type="checkbox" data-k="edit"> Permitir modificar</label>
+        <small>Cifrado AES-256. Si no pones contraseña de propietario se genera una aleatoria.</small>
+        <button class="primary" data-act="protect">Proteger y guardar…</button>
+      </fieldset>
+      <fieldset><legend>Quitar contraseña</legend>
+        <label>Contraseña actual <input type="password" data-k="pwrm"></label>
+        <button data-act="unprotect">Quitar y guardar…</button>
+      </fieldset>
+    </div>
+  </section>
+
+  <!-- COMPRIMIR Y CONVERTIR -->
+  <section class="tool" id="tool-convert">
+    <div class="form-page">
+      <p>Comprime PDFs para enviarlos por email, convierte las páginas de un PDF en imágenes o cada imagen en un PDF.</p>
+      <div class="files" data-role="files"></div>
+      <fieldset><legend>Comprimir PDF</legend>
+        <select data-k="level"><option>Baja (mejor calidad)</option><option selected>Media</option><option>Alta (menor tamaño)</option></select>
+        <button class="primary" data-act="compress">Comprimir…</button>
+      </fieldset>
+      <fieldset><legend>PDF → imágenes</legend>
+        <select data-k="fmt"><option value="png">PNG</option><option value="jpg">JPG</option></select>
+        <input data-k="dpi" type="number" value="200" min="50" max="600" class="num"> ppp
+        <button class="primary" data-act="toimages">Convertir…</button>
+      </fieldset>
+      <fieldset><legend>Imágenes → PDF</legend>
+        <button class="primary" data-act="topdf">Un PDF por imagen…</button>
+        <small>Para juntar varias en un solo PDF usa «Unir PDFs».</small>
+      </fieldset>
+    </div>
+  </section>
+
+  <!-- LIMPIAR -->
+  <section class="tool" id="tool-sanitize">
+    <div class="form-page">
+      <p>Elimina metadatos: autor, software, fechas, GPS/EXIF, XMP, JavaScript, adjuntos y miniaturas. Admite PDF, imágenes y documentos Office (docx, xlsx, pptx, odt…).</p>
+      <div class="files" data-role="files"></div>
+      <button class="primary" data-act="clean">Limpiar y guardar…</button>
+    </div>
+  </section>
+
+  <!-- UNIR -->
+  <section class="tool" id="tool-merge">
+    <div class="form-page">
+      <p>Une varios PDFs y/o imágenes en un único PDF, en el orden de la lista (arrastra para reordenar).</p>
+      <div class="files" data-role="files"></div>
+      <button class="primary" data-act="merge">Unir y guardar…</button>
+    </div>
+  </section>
+</main>
+
+<div id="busy"><div class="spinner"></div><div class="busy-text"></div></div>
+<div id="toasts"></div>
+<script src="app.js"></script>
+</body>
+</html>

@@ -10,6 +10,7 @@
 <body>
 <aside class="nav">
   <div class="brand"><img src="icon.png" alt=""><span>DocGuard</span></div>
+  <div class="current-doc" hidden><small>Documento actual</small><span class="cd-name"></span><button class="cd-close" title="Cerrar documento">✕</button></div>
   <button data-tool="edit" class="active"><span class="ic">✎</span>Editar PDF</button>
   <button data-tool="watermark"><span class="ic">≋</span>Marca de agua</button>
   <button data-tool="redact"><span class="ic">▇</span>Censurar</button>
@@ -66,8 +67,31 @@
         <label>Separación horizontal <output></output><input type="range" data-k="gap_x" min="0" max="400" value="60"></label>
         <label>Separación vertical <output></output><input type="range" data-k="gap_y" min="0" max="400" value="80"></label>
         <label>Opacidad % <output></output><input type="range" data-k="opacity" min="5" max="100" value="35"></label>
-        <div class="row"><label class="inline">Color <input type="color" data-k="color" value="#c80000"></label>
-          <label class="inline"><input type="checkbox" data-k="hardened" checked> Protección anti-IA</label></div>
+        <div class="row"><label class="inline">Color <input type="color" data-k="color" value="#c80000"></label></div>
+        <h3>Protección</h3>
+        <label>Nivel
+          <select data-k="level">
+            <option value="basica">Básica (solo marca de texto)</option>
+            <option value="reforzada" selected>Reforzada (recomendada)</option>
+            <option value="maxima">Máxima (doble capa cruzada)</option>
+          </select></label>
+        <input type="checkbox" data-k="hardened" checked hidden>
+        <label class="inline"><input type="checkbox" data-k="strike" checked> Microtexto sobre los datos</label>
+        <small>Atraviesa cada línea de texto (nombre, número…) con microtexto del color de la tinta: para quitarlo hay que reescribir los datos.</small>
+        <label class="inline"><input type="checkbox" data-k="mark" checked> Marca invisible de rastreo</label>
+        <small>Oculta una referencia en la imagen. Si alguien borra la marca visible, DocGuard puede identificar a quién se entregó.</small>
+        <h3>Código QR</h3>
+        <label class="inline"><input type="checkbox" data-k="qr"> Añadir QR con el uso autorizado</label>
+        <div data-role="qr" hidden>
+          <label>Autorizado a <input data-k="qr_recipient" placeholder="Inmobiliaria Sol S.L."></label>
+          <label>Finalidad <input data-k="qr_purpose" placeholder="Alquiler piso C/ Mayor 3"></label>
+          <label>Tamaño <output></output><input type="range" data-k="qr_size" min="12" max="40" value="22"></label>
+          <label>Posición <select data-k="qr_pos">
+            <option value="abajo-derecha">Abajo a la derecha</option><option value="abajo-izquierda">Abajo a la izquierda</option>
+            <option value="arriba-derecha">Arriba a la derecha</option><option value="arriba-izquierda">Arriba a la izquierda</option>
+            <option value="centro">Centro</option></select></label>
+          <small>Al escanearlo muestra a quién se autoriza, la finalidad, la fecha y la referencia.</small>
+        </div>
         <div class="row">Exportar como
           <label class="inline"><input type="radio" name="wmfmt" value="pdf" checked> PDF</label>
           <label class="inline"><input type="radio" name="wmfmt" value="jpg"> JPG</label>
@@ -76,6 +100,10 @@
         <small>Vacío = original. Solo uno = mantiene la proporción.</small>
         <button class="primary wide" data-act="export">Guardar con marca de agua…</button>
         <small>Si has abierto varios archivos, se marcan todos a la vez.</small>
+        <div class="row" style="margin-top:12px">
+          <button data-act="check">Comprobar un documento…</button>
+          <button data-act="registry">Historial de entregas</button>
+        </div>
       </div>
       <div class="preview">
         <div class="preview-img"><img alt=""><div class="empty">Abre o arrastra aquí un documento (PDF, JPG, PNG…)</div></div>

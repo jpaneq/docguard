@@ -166,3 +166,11 @@ details summary { cursor: pointer; color: var(--accent); }
 .nav-card.ok { color: #7ee2a8; }
 .nav-card + .nav-foot { margin-top: 0; }
 [hidden] { display: none !important; }
+
+.current-doc { margin: 0 4px 12px; padding: 8px 10px; border-radius: 8px; background: rgba(255, 255, 255, .08); color: #fff; position: relative; }
+.current-doc small { display: block; color: var(--nav-text); opacity: .8; font-size: 11px; }
+.current-doc .cd-name { display: block; font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 18px; }
+.current-doc .cd-close { position: absolute; top: 6px; right: 4px; background: none; border: 0; color: var(--nav-text); padding: 2px 6px; }
+table.reg { border-collapse: collapse; width: 100%; font-size: 12px; }
+table.reg td, table.reg th { border-bottom: 1px solid var(--line); padding: 5px 6px; text-align: left; vertical-align: top; }
+.side-panel small { display: block; margin-bottom: 4px; }

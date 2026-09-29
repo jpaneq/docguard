@@ -48,6 +48,10 @@ async function uploadFile(file) {
   return j;
 }
 
+// En la ventana nativa de macOS solo cuentan los tipos MIME (las extensiones se ignoran).
+const ACCEPT_DOCS = 'application/pdf,.pdf,image/*';
+const ACCEPT_PDF = 'application/pdf,.pdf';
+
 const pageUrl = (id, n, zoom, v = 0) => `/api/page?id=${id}&n=${n}&zoom=${zoom}&t=${TOKEN}&v=${v}`;
 
 function toast(msg, kind = '', actions = [], ms = 6000) {
@@ -184,6 +188,26 @@ function continueIn(res) {
     }, label))),
     actions: [{ label: 'Cerrar' }],
   });
+}
+
+/* ======================================================================
+   Documento actual (compartido entre herramientas)
+   ====================================================================== */
+
+let CURRENT = null;
+
+function setCurrent(info) {
+  if (!info || !info.pages?.length) return;
+  CURRENT = info;
+  const box = $('.current-doc');
+  box.hidden = false;
+  $('.cd-name', box).textContent = info.name;
+  box.title = info.name;
+}
+
+function clearCurrent() {
+  CURRENT = null;
+  $('.current-doc').hidden = true;
 }
 
 /* ======================================================================
@@ -498,7 +522,7 @@ const Edit = {
     this.textOpts = { font: 'base:helv', size: 12, color: '#000000', bold: false, italic: false };
     this.fonts = [];
     dropTarget(this.viewer.el, f => this.openFile(f[0]));
-    $('[data-act=open]', this.root).onclick = async () => { const [f] = await pickFiles('.pdf,image/*'); if (f) this.openFile(f); };
+    $('[data-act=open]', this.root).onclick = async () => { const [f] = await pickFiles(ACCEPT_DOCS); if (f) this.openFile(f); };
     $('[data-act=undo]', this.root).onclick = () => this.undo();
     $('[data-act=export]', this.root).onclick = async () => saveResult(await run('Preparando…', () => api('edit/export', { id: this.info.id })));
     $$('[data-mode]', this.root).forEach(b => b.onclick = () => {
@@ -522,6 +546,7 @@ const Edit = {
     if (info.encrypted) return toast('El PDF tiene contraseña: quítala primero en «Contraseña».', 'err');
     if (!info.pages.length) return toast('Solo se pueden editar PDFs e imágenes.', 'err');
     this.info = info; this.sel = null; this.st = null;
+    setCurrent(info);
     $('.doc-name', this.root).textContent = info.name;
     $('[data-act=export]', this.root).disabled = false;
     this.viewer.load(info);
@@ -812,7 +837,7 @@ const Wm = {
     this.img = $('.preview-img img', this.root);
     this.n = 0;
     this.files = new FileList($('[data-role=files]', this.root), {
-      accept: '.pdf,image/*', onselect: info => { this.n = 0; this.preview(); },
+      accept: ACCEPT_DOCS, onselect: info => { this.n = 0; if (info) setCurrent(info); this.preview(); },
       onchange: () => this.preview(),
     });
     dropTarget($('.preview', this.root), f => this.files.add(f));
@@ -823,6 +848,10 @@ const Wm = {
     $('[data-k=preset]', this.root).onchange = e => this.applyPreset(e.target.value);
     $('[data-act=preset-save]', this.root).onclick = () => this.savePreset();
     $('[data-act=preset-del]', this.root).onclick = () => this.deletePreset();
+    this.k('qr').addEventListener('change', () => { $('[data-role=qr]', this.root).hidden = !this.k('qr').checked; });
+    this.k('level').addEventListener('change', () => { this.k('strike').disabled = this.k('level').value === 'basica'; });
+    $('[data-act=check]', this.root).onclick = () => this.check();
+    $('[data-act=registry]', this.root).onclick = () => this.registry();
     new ResizeObserver(() => this.schedule()).observe($('.preview-img', this.root));
     this.outputs();
     this.loadPresets();
@@ -833,8 +862,10 @@ const Wm = {
   outputs() { $$('input[type=range]', this.root).forEach(r => { r.parentElement.querySelector('output').textContent = r.value; }); },
   params() {
     const p = {};
-    for (const k of ['text', 'angle', 'size', 'gap_x', 'gap_y', 'opacity', 'color']) p[k] = this.k(k).value;
-    p.hardened = this.k('hardened').checked;
+    for (const k of ['text', 'angle', 'size', 'gap_x', 'gap_y', 'opacity', 'color', 'level']) p[k] = this.k(k).value;
+    for (const k of ['hardened', 'strike', 'mark']) p[k] = this.k(k).checked;
+    p.qr = { enabled: this.k('qr').checked, recipient: this.k('qr_recipient').value, purpose: this.k('qr_purpose').value,
+      size: +this.k('qr_size').value, pos: this.k('qr_pos').value };
     return p;
   },
   schedule() { clearTimeout(this.t); this.t = setTimeout(() => this.preview(), 150); },
@@ -865,6 +896,36 @@ const Wm = {
     }));
     saveResult(res);
   },
+  async check() {
+    const [f] = await pickFiles(ACCEPT_DOCS);
+    if (!f) return;
+    const r = await run('Buscando la marca invisible…', async () => {
+      const info = await uploadFile(f);
+      try { return await api('wm/check', { id: info.id }); } finally { api('close', { id: info.id }).catch(() => {}); }
+    });
+    if (!r) return;
+    const body = r.found.length ? h('div', {}, r.found.map(x => h('div', { class: 'sig-result' },
+      h('div', {}, h('b', { class: 'ok' }, `✔ Marca encontrada: ${x.ref}`), x.page > 1 ? ` (página ${x.page})` : ''),
+      x.record ? h('div', { class: 'kv' },
+        h('b', {}, 'Entregado a'), h('span', {}, x.record.destinatario || '—'),
+        h('b', {}, 'Finalidad'), h('span', {}, x.record.finalidad || '—'),
+        h('b', {}, 'Fecha'), h('span', {}, x.record.fecha),
+        h('b', {}, 'Texto'), h('span', {}, x.record.texto || '—'),
+        h('b', {}, 'Archivo'), h('span', {}, x.record.archivo || '—'))
+        : h('p', { class: 'muted' }, 'Esta referencia no está en el historial de este equipo (quizá se marcó en otro).'))))
+      : h('p', {}, 'No se ha encontrado ninguna marca invisible de DocGuard. Puede que no la tenga, o que la imagen se haya recortado, girado o regenerado por completo.');
+    modal({ title: 'Comprobar marca invisible', body, actions: [{ label: 'Cerrar', primary: true }] });
+  },
+  async registry() {
+    const r = await run('Cargando…', () => api('wm/registry'));
+    if (!r) return;
+    const body = r.items.length ? h('table', { class: 'reg' },
+      h('tr', {}, h('th', {}, 'Fecha'), h('th', {}, 'Ref.'), h('th', {}, 'Entregado a'), h('th', {}, 'Finalidad'), h('th', {}, 'Archivo')),
+      r.items.map(x => h('tr', {}, h('td', {}, x.fecha), h('td', {}, x.ref), h('td', {}, x.destinatario || '—'),
+        h('td', {}, x.finalidad || '—'), h('td', {}, x.archivo))))
+      : h('p', {}, 'Todavía no has entregado documentos con marca de rastreo o QR.');
+    modal({ title: 'Historial de entregas', body, actions: [{ label: 'Cerrar', primary: true }], wide: true });
+  },
   settings() {
     return { ...this.params(), fmt: $('input[name=wmfmt]:checked', this.root).value, width: this.k('width').value, height: this.k('height').value };
   },
@@ -882,6 +943,16 @@ const Wm = {
     for (const k of ['text', 'angle', 'size', 'gap_x', 'gap_y', 'opacity', 'width', 'height']) if (p[k] != null) this.k(k).value = p[k];
     if (p.color) this.k('color').value = Array.isArray(p.color) ? '#' + p.color.map(c => (+c).toString(16).padStart(2, '0')).join('') : p.color;
     this.k('hardened').checked = p.hardened !== false;
+    if (p.level) this.k('level').value = p.level;
+    for (const k of ['strike', 'mark']) if (p[k] != null) this.k(k).checked = p[k];
+    if (p.qr) {
+      this.k('qr').checked = !!p.qr.enabled;
+      $('[data-role=qr]', this.root).hidden = !p.qr.enabled;
+      this.k('qr_recipient').value = p.qr.recipient || '';
+      this.k('qr_purpose').value = p.qr.purpose || '';
+      if (p.qr.size) this.k('qr_size').value = p.qr.size;
+      if (p.qr.pos) this.k('qr_pos').value = p.qr.pos;
+    }
     const f = $(`input[name=wmfmt][value=${(p.fmt || 'pdf').toLowerCase()}]`, this.root);
     if (f) f.checked = true;
     this.outputs();
@@ -919,7 +990,7 @@ const Redact = {
     this.mode = 'text'; this.marks = {}; this.words = {};
     dropTarget(this.viewer.el, f => this.openFile(f[0]));
     const act = (a, f) => { $(`[data-act=${a}]`, this.root).onclick = f; };
-    act('open', async () => { const [f] = await pickFiles('.pdf,image/*'); if (f) this.openFile(f); });
+    act('open', async () => { const [f] = await pickFiles(ACCEPT_DOCS); if (f) this.openFile(f); });
     act('search', () => this.search());
     $('[data-k=term]', this.root).addEventListener('keydown', e => { if (e.key === 'Enter') this.search(); });
     act('detect', () => this.detect());
@@ -937,6 +1008,7 @@ const Redact = {
   loadInfo(info) {
     if (info.encrypted || !info.pages.length) return toast('No se puede abrir: tiene contraseña o no es un PDF/imagen.', 'err');
     this.info = info; this.marks = {}; this.words = {};
+    setCurrent(info);
     $('.doc-name', this.root).textContent = info.name;
     this.viewer.load(info);
     this.ensureWords(0);
@@ -1060,9 +1132,9 @@ const Sign = {
     const act = (a, f) => { $(`[data-act=${a}]`, this.root).onclick = f; };
     const k = n => $(`[data-k=${n}]`, this.root);
     this.k = k;
-    act('open', async () => { const [f] = await pickFiles('.pdf'); if (f) this.openFile(f); });
+    act('open', async () => { const [f] = await pickFiles(ACCEPT_PDF); if (f) this.openFile(f); });
     act('cert', async () => {
-      const [f] = await pickFiles('.p12,.pfx');
+      const [f] = await pickFiles('');
       if (!f) return;
       this.p12 = await fileToB64(f);
       $('.cert-name', this.root).textContent = f.name;
@@ -1178,9 +1250,10 @@ const Sign = {
   },
   async openFile(f) { const info = await run('Abriendo…', () => uploadFile(f)); if (info) this.loadInfo(info); },
   loadInfo(info) {
-    if (info.kind !== 'pdf') return toast('La firma digital solo se aplica a PDFs. Convierte antes la imagen a PDF.', 'err');
+    if (!info.pages.length) return toast('Solo se pueden firmar PDFs o imágenes (se convierten a PDF).', 'err');
     if (info.encrypted) return toast('Quita primero la contraseña del PDF.', 'err');
     this.info = info; this.rect = null;
+    setCurrent(info);
     $('.doc-name', this.root).textContent = info.name;
     this.viewer.load(info);
   },
@@ -1253,7 +1326,7 @@ const Pages = {
     this.items = [];
     dropTarget(this.grid, f => this.openFile(f[0]));
     const act = (a, f) => { $(`[data-act=${a}]`, this.root).onclick = f; };
-    act('open', async () => { const [f] = await pickFiles('.pdf,image/*'); if (f) this.openFile(f); });
+    act('open', async () => { const [f] = await pickFiles(ACCEPT_DOCS); if (f) this.openFile(f); });
     act('all', () => { const all = this.items.every(i => i.sel); this.items.forEach(i => { i.sel = !all; }); this.render(); });
     act('rotl', () => this.rotate(-90));
     act('rotr', () => this.rotate(90));
@@ -1278,6 +1351,8 @@ const Pages = {
   loadInfo(info) {
     if (info.encrypted || !info.pages.length) return toast('No se puede abrir: tiene contraseña o no es un PDF.', 'err');
     this.info = info;
+    this.v = (this.v || 0) + 1;
+    setCurrent(info);
     this.items = info.pages.map((_, i) => ({ idx: i, rot: 0, sel: false }));
     $('.doc-name', this.root).textContent = `${info.name} (${info.pages.length} págs.)`;
     this.render();
@@ -1291,7 +1366,7 @@ const Pages = {
   render() {
     this.grid.innerHTML = '';
     this.items.forEach((it, k) => {
-      const img = h('img', { src: pageUrl(this.info.id, it.idx, 0.35), style: `transform:rotate(${it.rot}deg)`, draggable: false });
+      const img = h('img', { src: pageUrl(this.info.id, it.idx, 0.35, this.v), style: `transform:rotate(${it.rot}deg)`, draggable: false });
       const card = h('div', { class: 'thumb' + (it.sel ? ' sel' : ''), draggable: true },
         h('div', { class: 'ti' }, img),
         h('div', { class: 'tl' }, h('span', {}, `${k + 1}${it.idx !== k ? ` (orig. ${it.idx + 1})` : ''}`),
@@ -1327,7 +1402,9 @@ const Pages = {
 const Protect = {
   init() {
     this.root = $('#tool-protect');
-    this.files = new FileList($('[data-role=files]', this.root), { multiple: false, accept: '.pdf,image/*' });
+    this.files = new FileList($('[data-role=files]', this.root), {
+      multiple: false, accept: ACCEPT_DOCS, onselect: info => { if (info) setCurrent(info); },
+    });
     const k = n => $(`[data-k=${n}]`, this.root);
     $('[data-act=protect]', this.root).onclick = async () => {
       const f = this.files.current;
@@ -1356,7 +1433,7 @@ function batchTool(id, accept, handlers) {
       saveResult(await run('Procesando…', () => fn(files, root)));
     };
   }
-  return { loadInfo: info => files.setItems([info]) };
+  return { files, loadInfo: info => files.setItems([info]) };
 }
 
 /* ======================================================================
@@ -1365,7 +1442,27 @@ function batchTool(id, accept, handlers) {
 
 const TOOLS = {};
 
+/** Al entrar en una herramienta, abre en ella el documento actual (con sus cambios). */
+function syncTool(name) {
+  const t = TOOLS[name];
+  if (!CURRENT || !t) return;
+  const same = t.info?.id === CURRENT.id;
+  if (name === 'edit') { if (same) t.refresh(true); else t.loadInfo(CURRENT); }
+  else if (name === 'redact') { if (same) { t.words = {}; t.viewer.refresh(); t.ensureWords(t.viewer.n); } else t.loadInfo(CURRENT); }
+  else if (name === 'sign') { if (same) t.viewer.refresh(); else t.loadInfo(CURRENT); }
+  else if (name === 'pages') { if (same) { t.v++; t.render(); } else t.loadInfo(CURRENT); }
+  else if (name === 'watermark' || name === 'protect') {
+    const fl = t.files;
+    const i = fl.items.findIndex(x => x.id === CURRENT.id);
+    if (i >= 0) { fl.cur = i; fl.render(); }
+    else if (fl.items.length <= 1) { fl.items = [CURRENT]; fl.cur = 0; fl.render(); }
+    else { fl.items.unshift(CURRENT); fl.cur = 0; fl.render(); }
+    if (name === 'watermark') { t.n = 0; t.preview(); }
+  } else if (t.files && !t.files.items.length) { t.files.items = [CURRENT]; t.files.render(); }
+}
+
 function showTool(name) {
+  syncTool(name);
   $$('.nav button').forEach(b => b.classList.toggle('active', b.dataset.tool === name));
   $$('.tool').forEach(s => s.classList.toggle('active', s.id === 'tool-' + name));
   requestAnimationFrame(() => TOOLS[name]?.viewer?.fit());
@@ -1375,13 +1472,14 @@ function showTool(name) {
 function init() {
   Edit.init(); Wm.init(); Redact.init(); Sign.init(); Pages.init(); Protect.init();
   Object.assign(TOOLS, { edit: Edit, watermark: Wm, redact: Redact, sign: Sign, pages: Pages, protect: Protect });
-  TOOLS.convert = batchTool('tool-convert', '.pdf,image/*', {
+  $('.cd-close').onclick = clearCurrent;
+  TOOLS.convert = batchTool('tool-convert', ACCEPT_DOCS, {
     compress: (f, r) => api('compress', { ids: f.ids, level: $('[data-k=level]', r).value }),
     toimages: (f, r) => api('toimages', { ids: f.ids, fmt: $('[data-k=fmt]', r).value, dpi: +$('[data-k=dpi]', r).value }),
     topdf: f => api('topdf', { ids: f.ids }),
   });
   TOOLS.sanitize = batchTool('tool-sanitize', '', { clean: f => api('sanitize', { ids: f.ids }) });
-  TOOLS.merge = batchTool('tool-merge', '.pdf,image/*', { merge: f => api('merge', { ids: f.ids }) });
+  TOOLS.merge = batchTool('tool-merge', ACCEPT_DOCS, { merge: f => api('merge', { ids: f.ids }) });
   $$('.nav button').forEach(b => b.onclick = () => showTool(b.dataset.tool));
   Sigs.load();
 }

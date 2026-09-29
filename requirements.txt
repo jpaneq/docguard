@@ -5,3 +5,4 @@ onnxruntime>=1.18
 pywebview>=5.0
 pyhanko>=0.25
 python-pkcs11>=0.7
+qrcode>=7.4

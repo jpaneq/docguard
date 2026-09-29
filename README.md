@@ -7,7 +7,7 @@ Una aplicación de escritorio (Windows y macOS) para proteger, editar y firmar d
 | Herramienta | Qué hace |
 |---|---|
 | **Editar PDF** | **Texto:** cambia el texto que ya existe detectando su fuente, tamaño y color. Usa la fuente incrustada o la misma familia instalada en el sistema; si no está, una equivalente. También puedes añadir texto nuevo con la fuente que elijas.<br>**Imágenes:** insertar, mover, redimensionar y eliminar.<br>**Anotaciones:** resaltar, subrayar, tachar, notas, cuadros de texto, rectángulos, elipses y dibujo a mano.<br>**Formularios:** crear campos (texto, casilla, desplegable, lista, botón de opción), rellenarlos, editarlos y aplanarlos.<br>**Firma manuscrita:** dibujada o subida como imagen.<br>Deshacer ilimitado. |
-| **Marca de agua** | Texto en mosaico resistente a la eliminación por IA. Se ajustan orientación, tamaño, separación, opacidad y color, con vista previa de cada página. `{fecha}` y `{hora}` se rellenan solos. Admite plantillas, procesar varios archivos a la vez y exportar a PDF, JPG o PNG con tamaño en píxeles. |
+| **Marca de agua** | Texto en mosaico con tres niveles de protección (básica, reforzada y máxima). Añade microtexto sobre los datos, un código QR con el uso autorizado y una marca invisible de rastreo; con «Comprobar un documento» e «Historial de entregas» sabes a quién se entregó cada copia. Se ajustan orientación, tamaño, separación, opacidad y color, con vista previa de cada página. Admite plantillas, `{fecha}`/`{hora}`, procesar varios archivos a la vez y exportar a PDF/JPG/PNG con tamaño en píxeles. |
 | **Censurar** | Censura real (el contenido se elimina del archivo). Se marca seleccionando texto, dibujando áreas, buscando palabras o con **detección automática** de DNI/NIE, IBAN, tarjetas, teléfonos, emails y fechas. Con **OCR** funciona en escaneos. Estilos: negro, pixelado o difuminado. |
 | **Firma digital** | Firma con validez legal (PAdES) de dos formas:<br>• **Certificado en archivo** `.p12/.pfx` (FNMT u otro).<br>• **DNIe o tarjeta criptográfica** por PKCS#11. Un indicador verde muestra que el DNIe está conectado y el PIN verificado.<br>Admite firma visible con imagen manuscrita, motivo, lugar, sello de tiempo y verificación de las firmas de un PDF. |
 | **Páginas** | Miniaturas que se reordenan arrastrando. Permite girar, eliminar, extraer y dividir (una página por archivo o por rangos). |
@@ -16,7 +16,7 @@ Una aplicación de escritorio (Windows y macOS) para proteger, editar y firmar d
 | **Limpiar metadatos** | PDF, imágenes y documentos Office. |
 | **Unir PDFs** | PDFs e imágenes en un solo PDF. |
 
-Cuando terminas una operación, «Seguir con este archivo…» abre el resultado en otra herramienta. Por ejemplo: editar → censurar → firmar.
+El **documento actual** (arriba en la barra lateral) se mantiene al cambiar de herramienta, con las ediciones incluidas. Cuando terminas una operación, «Seguir con este archivo…» abre el resultado en otra herramienta. Por ejemplo: editar → censurar → firmar.
 
 ## DNIe y certificado FNMT
 - **FNMT (archivo):** exporta tu certificado como `.pfx`/`.p12` con su contraseña. En la app tienes la guía para Windows, Mac y Firefox.
@@ -24,7 +24,11 @@ Cuando terminas una operación, «Seguir con este archivo…» abre el resultado
 - El PIN solo se usa en el momento de firmar y no se guarda. El DNIe se bloquea tras 3 PIN erróneos.
 
 ## Protección frente a IA
-La marca de agua varía un poco en posición, tamaño y opacidad en cada repetición. Además lleva líneas onduladas entrelazadas y un ruido leve, y se **rasteriza**, así que no queda ninguna capa que se pueda quitar. Así es mucho más difícil borrarla de forma automática, aunque ninguna marca es 100 % imposible de quitar.
+Ninguna marca visible es imposible de quitar para una IA generativa. DocGuard combina capas para que quitarla sea costoso, deje huella y que el origen se pueda demostrar igualmente:
+1. **Marca principal difícil de aislar:** cada letra con giro, tamaño, altura y tono aleatorios, una trama de líneas finas por todo el documento y, en nivel máximo, una segunda capa cruzada.
+2. **Microtexto sobre los datos:** el OCR localiza cada línea (nombre, número, fechas…) y la atraviesa con microtexto del color de la tinta. Para eliminarlo hay que reescribir los datos, y una IA tiende a alterarlos al hacerlo, con lo que la copia queda falseada.
+3. **Código QR:** muestra a quién se autoriza, la finalidad, la fecha y la referencia.
+4. **Marca invisible de rastreo:** una referencia oculta en la imagen que resiste compresión JPEG y cambios de tamaño (probado hasta el 30 %). Aunque se borren la marca visible y el QR, «Comprobar un documento» identifica la copia en el historial local. No resiste recortes fuertes ni que la imagen se regenere por completo.
 
 ## Ejecutar desde el código
 Necesitas Python 3.10–3.12. Se recomienda instalarlo con [uv](https://docs.astral.sh/uv/) o desde python.org.

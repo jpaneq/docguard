@@ -192,13 +192,14 @@ def fit_size(img, width=None, height=None):
     return img.resize((max(1, int(w)), max(1, int(h))), Image.LANCZOS)
 
 
-def export_watermarked(src, dst, params, width=None, height=None):
+def export_watermarked(src, dst, params, width=None, height=None, painter=None):
     """Exporta con marca de agua. El formato sale de la extensión de `dst`
     (.pdf, .png, .jpg). Si el origen tiene varias páginas y se exporta como
     imagen, se guarda un archivo por página (_p1, _p2...). Devuelve las rutas."""
     pages = load_pages(src)
     fmt = ext_of(dst)
-    marked = [(apply_watermark(fit_size(img, width, height), seed=1000 + i, **params), size_pt)
+    painter = painter or apply_watermark
+    marked = [(painter(fit_size(img, width, height), seed=1000 + i, **params), size_pt)
               for i, (img, size_pt) in enumerate(pages)]
     if fmt == ".pdf":
         out = fitz.open()

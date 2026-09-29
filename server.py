@@ -23,6 +23,7 @@ from PIL import Image
 
 import core
 import editor
+import protect
 import signing
 
 TOKEN = secrets.token_urlsafe(18)
@@ -41,6 +42,7 @@ class Doc:
         self.edited = False
         self.undo = []
         self.ocr = {}
+        self.lines = {}
         if self.ext == ".pdf":
             self.kind = "pdf"
         elif self.ext in core.IMAGE_EXTS:
@@ -73,7 +75,7 @@ class Doc:
         pages = []
         if self.doc and not self.encrypted:
             pages = [[round(p.rect.width, 2), round(p.rect.height, 2)] for p in self.doc]
-        return {"id": did, "name": self.name, "kind": self.kind, "pages": pages,
+        return {"id": did, "name": self.name, "kind": self.kind, "pages": pages, "edited": self.edited,
                 "encrypted": self.encrypted, "size": len(self.orig)}
 
 
@@ -155,6 +157,20 @@ def op_info(req):
 
 def wm_params(req):
     p = req["params"]
+    base = wm_basic(p)
+    base.update(level=p.get("level", "reforzada"), strike=bool(p.get("strike", True)))
+    return base
+
+
+def wm_qr(p, ref):
+    q = p.get("qr") or {}
+    if not q.get("enabled"):
+        return None
+    data = protect.qr_text(q.get("recipient", "").strip(), q.get("purpose", "").strip(), ref)
+    return {"data": data, "size": float(q.get("size", 22)), "pos": q.get("pos", "abajo-derecha")}
+
+
+def wm_basic(p):
     return dict(text=p.get("text", ""), angle=float(p.get("angle", 35)), size=float(p.get("size", 40)),
                 gap_x=float(p.get("gap_x", 60)), gap_y=float(p.get("gap_y", 80)),
                 opacity=float(p.get("opacity", 35)) / 100, color=tuple(int(p.get("color", "#c80000")[i:i + 2], 16)
@@ -176,7 +192,11 @@ def op_wm_preview(req):
         pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
         img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
     img.thumbnail((maxw, maxw * 3))
-    out = core.apply_watermark(img, seed=1000 + n, **wm_params(req))
+    params = wm_params(req)
+    if params["strike"] and params["level"] != "basica" and n not in d.lines:
+        d.lines[n] = protect.detect_lines(img)
+    out = protect.watermark(img, seed=1000 + n, lines=d.lines.get(n), qr=wm_qr(req["params"], "(al guardar)"),
+                            **params)
     buf = io.BytesIO()
     out.save(buf, "JPEG", quality=85)
     return ("image/jpeg", buf.getvalue())
@@ -187,15 +207,50 @@ def op_wm_export(req):
     fmt = req.get("fmt", "pdf").lower()
     w = int(req["width"]) if req.get("width") else None
     h = int(req["height"]) if req.get("height") else None
-    files = []
+    p = req["params"]
+    files, refs = [], []
     for did in req["ids"]:
         d = DOCS[did]
+        q = p.get("qr") or {}
+        ref = None
+        if p.get("mark", True) or q.get("enabled"):
+            ref = protect.register(q.get("recipient", ""), q.get("purpose", ""),
+                                   core.expand_placeholders(params["text"]), d.name)
+            refs.append(ref)
+        extra = dict(params, qr=wm_qr(p, ref), mark=ref if p.get("mark", True) else None)
         with as_file(d) as (path, tmp):
             dst = os.path.join(tmp, "out", f"{d.base}_marca.{fmt}")
             os.makedirs(os.path.dirname(dst))
-            core.export_watermarked(path, dst, params, w, h)
+            core.export_watermarked(path, dst, extra, w, h, painter=protect.watermark)
             files += read_outputs(os.path.dirname(dst))
-    return store_result(files)
+    res = store_result(files)
+    if refs:
+        res["notes"] = ["Referencia: " + ", ".join(refs)]
+    return res
+
+
+def op_wm_check(req):
+    """Busca la marca invisible en un documento y la cruza con el registro."""
+    d = get_doc(req)
+    results = []
+    if d.kind == "image" and not d.edited:
+        imgs = [Image.open(io.BytesIO(d.orig)).convert("RGB")]
+    else:
+        doc = need_pdf(d)
+        imgs = []
+        for page in list(doc)[:5]:
+            pix = page.get_pixmap(dpi=150, alpha=False)
+            imgs.append(Image.frombytes("RGB", (pix.width, pix.height), pix.samples))
+    for i, img in enumerate(imgs):
+        ref, conf = protect.detect_mark(img)
+        if ref:
+            results.append({"page": i + 1, "ref": ref, "confidence": round(conf, 2), "record": protect.lookup(ref)})
+    return {"found": results}
+
+
+def op_wm_registry(req):
+    reg = protect._load_registry()
+    return {"items": [dict(ref=k, **v) for k, v in reversed(list(reg.items()))]}
 
 
 # ---- censura ----
@@ -436,6 +491,7 @@ def op_edit(req, name):
     d.undo.append(snapshot)
     del d.undo[:-MAX_UNDO]
     d.edited = True
+    d.lines, d.ocr = {}, {}  # el texto puede haber cambiado
     # Recargar tras cada cambio mantiene coherentes las listas de texto/imágenes/campos.
     d.doc = fitz.open("pdf", doc.tobytes())
     return {"message": result if isinstance(result, str) else ""}
@@ -445,6 +501,7 @@ def op_undo(req):
     d = get_doc(req)
     if d.undo:
         d.doc = fitz.open("pdf", d.undo.pop())
+        d.lines, d.ocr = {}, {}
         d.edited = bool(d.undo) or d.kind != "pdf"
     return {"can_undo": bool(d.undo)}
 
@@ -556,7 +613,8 @@ def op_presets_save(req):
 OPS = {
     "presets": op_presets, "presets/save": op_presets_save,
     "open_result": op_open_result, "close": op_close, "info": op_info,
-    "wm/preview": op_wm_preview, "wm/export": op_wm_export,
+    "wm/preview": op_wm_preview, "wm/export": op_wm_export, "wm/check": op_wm_check,
+    "wm/registry": op_wm_registry,
     "words": op_words, "pages_without_text": op_pages_without_text, "ocr": op_ocr, "detect": op_detect,
     "search": op_search, "redact": op_redact,
     "pages/save": op_pages_save, "encrypt": op_encrypt, "decrypt": op_decrypt,

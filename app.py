@@ -102,6 +102,12 @@ def selftest():
     call("ocr", {"id": scan["id"], "n": 0})
     checks["OCR"] = "DNI / NIE" in call("detect", {"id": scan["id"]})["found"]
     checks["firma digital"] = _selftest_signing(doc.tobytes())
+    import protect
+    from PIL import Image
+    card = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+    out = protect.watermark(card, "Solo para prueba", level="maxima",
+                            qr={"data": protect.qr_text("A", "B", "0000ABCD")}, mark="0000ABCD")
+    checks["protección reforzada + QR + marca invisible"] = protect.detect_mark(out)[0] == "0000ABCD"
     try:
         import pkcs11  # noqa: F401
         import signing

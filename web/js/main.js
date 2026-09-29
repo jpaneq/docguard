@@ -44,7 +44,8 @@ function init() {
     topdf: f => api('topdf', { ids: f.ids }),
   });
   TOOLS.sanitize = batchTool('tool-sanitize', '', { clean: f => api('sanitize', { ids: f.ids }) });
-  TOOLS.merge = batchTool('tool-merge', ACCEPT_DOCS, { merge: f => api('merge', { ids: f.ids }) });
+  Merge.init();
+  TOOLS.merge = Merge;
   $$('.nav button').forEach(b => b.onclick = () => showTool(b.dataset.tool));
   Sigs.load();
 }

@@ -474,6 +474,21 @@ def op_sanitize(req):
     return batch(req, f)
 
 
+def op_merge_pages(req):
+    """Une páginas sueltas de varios documentos en el orden indicado: items = [[id, página, giro]]."""
+    out = fitz.open()
+    for did, idx, rot in req["items"]:
+        d = DOCS[did]
+        src = need_pdf(d)
+        out.insert_pdf(src, from_page=int(idx), to_page=int(idx))
+        p = out[-1]
+        p.set_rotation((p.rotation + int(rot)) % 360)
+    out.set_metadata({})
+    data = out.tobytes(garbage=4, deflate=True)
+    out.close()
+    return store_result([(req.get("name") or "unido.pdf", data)])
+
+
 def op_merge(req):
     with tempfile.TemporaryDirectory() as tmp:
         paths = []
@@ -729,7 +744,7 @@ OPS = {
     "words": op_words, "pages_without_text": op_pages_without_text, "ocr": op_ocr, "detect": op_detect,
     "search": op_search, "redact": op_redact,
     "pages/save": op_pages_save, "encrypt": op_encrypt, "decrypt": op_decrypt,
-    "compress": op_compress, "toimages": op_toimages, "topdf": op_topdf, "sanitize": op_sanitize, "merge": op_merge,
+    "compress": op_compress, "toimages": op_toimages, "topdf": op_topdf, "sanitize": op_sanitize, "merge": op_merge, "merge_pages": op_merge_pages,
     "edit/state": op_edit_state, "fonts": op_fonts, "outline": op_outline, "edit/undo": op_undo, "edit/redo": op_redo, "edit/export": op_edit_export,
     "sigimgs": op_sigimgs, "sigimg/save": op_sigimg_save, "sigimg/delete": op_sigimg_delete,
     "sigimg/place": op_place_sigimg, "sigimg/margin": op_sign_margin, "edit/copy": op_copy, "edit/copy_spans": op_copy_spans, "certinfo": op_certinfo, "sign": op_sign,

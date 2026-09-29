@@ -175,7 +175,7 @@ table.reg { border-collapse: collapse; width: 100%; font-size: 12px; }
 table.reg td, table.reg th { border-bottom: 1px solid var(--line); padding: 5px 6px; text-align: left; vertical-align: top; }
 .side-panel small { display: block; margin-bottom: 4px; }
 
-.inline-edit { position: absolute; white-space: pre; outline: 2px solid var(--accent); outline-offset: 1px; padding: 0 1px; z-index: 5; cursor: text; user-select: text; }
+.inline-edit { position: absolute; white-space: pre; height: auto; outline: 2px solid var(--accent); outline-offset: 1px; padding: 0 1px; z-index: 5; cursor: text; user-select: text; }
 .inline-edit.new { background: rgba(255, 255, 255, .0); outline-style: dashed; min-height: 1em; }
 .sel-text { background: var(--panel2); border-radius: 6px; padding: 6px 8px; font-size: 13px; word-break: break-word; }
 .bx.span.sel { cursor: move; }
@@ -237,3 +237,20 @@ textarea.inline-edit { resize: none; border: 0; background: rgba(255, 255, 255, 
 .toc { overflow: auto; padding: 0 6px 20px; }
 .toc-i { display: flex; justify-content: space-between; gap: 8px; padding: 5px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; }
 .toc-i:hover { background: var(--panel2); } .toc-i small { color: var(--muted); }
+
+/* unir: vista de páginas */
+.merge-grid { flex: 1; overflow: auto; background: var(--canvas); padding: 16px 20px 40px; }
+.merge-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 14px; font-size: 13px; }
+.merge-legend .lg { display: inline-flex; align-items: center; gap: 6px; background: var(--panel); padding: 4px 10px; border-radius: 999px; }
+.merge-legend i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.merge-pages { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; }
+.mp { width: 140px; background: var(--panel); border-radius: 8px; padding: 6px; border-top: 4px solid var(--dc); box-shadow: var(--shadow); cursor: grab; }
+.mp.over { outline: 3px dashed var(--ok); }
+.mp-img { height: 170px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.mp-img img { max-width: 124px; max-height: 164px; background: #fff; transition: transform .2s; }
+.mp-foot { display: flex; align-items: center; justify-content: space-between; gap: 4px; margin-top: 4px; font-size: 11px; }
+.mp-n { font-weight: 700; } .mp-doc { color: var(--dc); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; flex: 1; }
+.mp-foot button { padding: 0 5px; font-size: 12px; }
+.ins { width: 22px; height: 60px; margin: 0 5px; padding: 0; border-radius: 11px; border: 2px dashed transparent; background: transparent; color: var(--muted); font-size: 18px; opacity: .35; }
+.ins:hover, .ins.over { opacity: 1; border-color: var(--accent); color: var(--accent); background: var(--panel); }
+#tool-merge .form-page { flex: 1; }

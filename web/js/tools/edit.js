@@ -252,7 +252,7 @@ const Edit = {
     if (t === 'select' || t === 'form') this.drawWidgets(st);
     if (this.region && this.region.n === v.n) v.box(this.region.r, 'region');
     this.hint({
-      select: 'Clic: seleccionar · Doble clic en un texto: escribir · Arrastrar: mover, o seleccionar zona en vacío · ⌘C/⌘X/⌘V · Supr · Clic derecho: más opciones',
+      select: 'Clic: seleccionar · Doble clic en un texto: escribir (Intro = nueva línea) · Arrastrar: mover, o seleccionar zona en vacío · ⌘C/⌘X/⌘V · Supr · Clic derecho: más opciones',
       text: 'Clic en la página para escribir texto nuevo, o en un texto existente para modificarlo. ⌘+Intro o clic fuera para fijarlo.',
       image: 'Arrastra en la página el recuadro donde colocar la imagen.',
       shape: 'Arrastra para dibujar la forma. Clic en una forma para moverla o cambiar su tamaño.',
@@ -617,9 +617,10 @@ const Edit = {
     const fam = await cssFont(`/api/font?id=${this.info.id}&n=${v.n}&name=${encodeURIComponent(s.rawfont)}&t=${TOKEN}`, s.font, s.flags);
     const el = h('div', { class: 'inline-edit', contentEditable: 'true', spellcheck: false });
     el.textContent = s.text;
+    const lh = this.lineHeight(s);
     Object.assign(el.style, {
-      left: x0 * z + 'px', top: y0 * z + 'px', minWidth: (x1 - x0) * z + 'px', height: (y1 - y0) * z + 'px',
-      lineHeight: (y1 - y0) * z + 'px', fontSize: s.size * z + 'px', fontFamily: fam, color: s.color,
+      left: x0 * z + 'px', top: (y0 - (lh - (y1 - y0)) / 2) * z + 'px', minWidth: (x1 - x0) * z + 'px', minHeight: lh * z + 'px',
+      lineHeight: lh * z + 'px', fontSize: s.size * z + 'px', fontFamily: fam, color: s.color,
       fontWeight: s.bold ? 'bold' : 'normal', fontStyle: s.italic ? 'italic' : 'normal',
       background: pageColorAt(v, x0 - 1.5, y0 + (y1 - y0) / 2),
     });
@@ -632,11 +633,26 @@ const Edit = {
     else { const rg = document.createRange(); rg.selectNodeContents(el); rg.collapse(false); sel.removeAllRanges(); sel.addRange(rg); }
     el.addEventListener('keydown', e => {
       e.stopPropagation();
-      if (e.key === 'Enter') { e.preventDefault(); this.commitInline(); }
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); this.commitInline(); return; }
+      if (e.key === 'Enter') { e.preventDefault(); document.execCommand('insertLineBreak'); return; }
       if (e.key === 'Escape') { e.preventDefault(); this.cancelInline(); }
     });
+    el.addEventListener('paste', e => {  // pegar solo texto, sin formato
+      e.preventDefault();
+      document.execCommand('insertText', false, e.clipboardData.getData('text/plain'));
+    });
     el.addEventListener('mousedown', e => e.stopPropagation());
-    this.hint('Escribe sobre el texto. Intro guarda · Esc cancela.');
+    this.hint('Escribe sobre el texto. Intro = nueva línea (el texto de debajo baja) · ⌘+Intro o clic fuera para guardar · Esc cancela.');
+  },
+  /** Interlineado junto a un texto (distancia a la línea de debajo), como en el servidor. */
+  lineHeight(s) {
+    let best = null;
+    for (const o of this.st?.spans || []) {
+      if (o === s || o.bbox[0] > s.bbox[2] || o.bbox[2] < s.bbox[0]) continue;
+      const d = o.bbox[1] - s.bbox[1];
+      if (d > s.size * 0.9 && d < s.size * 2.5 && (best === null || d < best)) best = d;
+    }
+    return best || s.size * 1.25;
   },
   cancelInline() {
     this.inline?.el.remove();
@@ -655,7 +671,7 @@ const Edit = {
       else this.renderBar();
       return;
     }
-    const text = it.el.innerText.replace(/\n+/g, ' ').replace(/ /g, ' ');
+    const text = it.el.innerText.replace(/\u00a0/g, ' ').replace(/\n+$/, '');
     if (text === it.s.text) { it.el.remove(); this.renderBar(); return; }
     this.op('replace_text', { i: it.s.i, text: text.trim() ? text : '' }).then(() => it.el.remove());
   },

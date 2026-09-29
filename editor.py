@@ -186,8 +186,10 @@ def resolve_font(doc, page, name, flags, text, choice="auto"):
 # --------------------------------------------------------------------------
 
 def spans(page):
-    """Fragmentos de texto horizontales de la página, con fuente, tamaño y color."""
+    """Fragmentos de texto horizontales de la página, con fuente, tamaño y color.
+    No incluye el texto que se ve dentro de los campos de formulario."""
     out = []
+    fields = [fitz.Rect(w.rect) for w in (page.widgets() or ())]
     for b in page.get_text("dict")["blocks"]:
         if b["type"] != 0:
             continue
@@ -196,6 +198,9 @@ def spans(page):
                 continue
             for s in line["spans"]:
                 if not s["text"].strip():
+                    continue
+                c = fitz.Point((s["bbox"][0] + s["bbox"][2]) / 2, (s["bbox"][1] + s["bbox"][3]) / 2)
+                if any(c in f for f in fields):
                     continue
                 out.append({"text": s["text"].replace("\xa0", " "), "bbox": to_view(page, s["bbox"]),
                             "origin": list(s["origin"]), "font": s["font"].split("+", 1)[-1],
@@ -236,17 +241,47 @@ def _erase_spans(page, sel):
                           text=fitz.PDF_REDACT_TEXT_REMOVE)
 
 
-def replace_span(doc, pno, index, new_text, font="auto", size=None, color=None, bold=None, italic=None):
+def _line_height(all_spans, s):
+    """Interlineado del documento junto al fragmento (distancia a la línea de debajo)."""
+    best = None
+    for o in all_spans:
+        if o is s or o["bbox"][0] > s["bbox"][2] or o["bbox"][2] < s["bbox"][0]:
+            continue
+        d = o["bbox"][1] - s["bbox"][1]
+        if s["size"] * 0.9 < d < s["size"] * 2.5 and (best is None or d < best):
+            best = d
+    return best or s["size"] * 1.25
+
+
+def replace_span(doc, pno, index, new_text, font="auto", size=None, color=None, bold=None, italic=None, push=True):
+    """Sustituye el texto de un fragmento. Si el texto nuevo tiene varias líneas, se escriben
+    una debajo de otra con el interlineado del documento y el texto de debajo baja (push)."""
     page = doc[pno]
-    s = spans(page)[index]
+    all_spans = spans(page)
+    s = all_spans[index]
     flags = _span_flags(s, bold, italic)
+    lines = new_text.split("\n") if new_text else []
     # La fuente se resuelve ANTES de borrar: después puede dejar de estar en la página.
-    kw, label = resolve_font(doc, page, s["rawfont"], flags, new_text, font) if new_text else ({}, "")
-    _erase_spans(page, [s])
+    kw, label = resolve_font(doc, page, s["rawfont"], flags, new_text.replace("\n", ""), font) if new_text else ({}, "")
+    lh = _line_height(all_spans, s) * ((size or s["size"]) / s["size"])
+    extra = max(0, len(lines) - 1)
+    below = []
+    if push and extra:
+        x0, x1 = s["bbox"][0], s["bbox"][2]
+        below = [o for o in all_spans if o is not s and o["bbox"][1] >= s["bbox"][3] - 1
+                 and o["bbox"][0] < x1 + 40 and o["bbox"][2] > x0 - 40]
+    below_fonts = [resolve_font(doc, page, o["rawfont"], o["flags"], o["text"])[0] for o in below]
+    _erase_spans(page, [s] + below)
+    down = point_from_view(page, 0, 1) - point_from_view(page, 0, 0)  # un punto hacia abajo
+    for i, line in enumerate(lines):
+        if line.strip():
+            page.insert_text(fitz.Point(s["origin"]) + down * (lh * i), line, fontsize=size or s["size"],
+                             color=rgb(color or s["color"]), rotate=page.rotation, **kw)
+    for o, okw in zip(below, below_fonts):
+        page.insert_text(fitz.Point(o["origin"]) + down * (lh * extra), o["text"], fontsize=o["size"],
+                         color=rgb(o["color"]), rotate=page.rotation, **okw)
     if not new_text:
         return "texto eliminado"
-    page.insert_text(fitz.Point(s["origin"]), new_text, fontsize=size or s["size"],
-                     color=rgb(color or s["color"]), rotate=page.rotation, **kw)
     return label
 
 

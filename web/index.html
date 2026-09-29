@@ -307,11 +307,22 @@
 
   <!-- UNIR -->
   <section class="tool" id="tool-merge">
-    <div class="form-page">
-      <p>Une varios PDFs y/o imágenes en un único PDF, en el orden de la lista (arrastra para reordenar).</p>
-      <div class="files" data-role="files"></div>
+    <div class="toolbar">
+      <div class="seg" data-role="view">
+        <button data-view="list" class="on">Lista de archivos</button>
+        <button data-view="grid">Ver páginas</button>
+      </div>
+      <button data-act="add">Añadir PDFs o imágenes…</button>
+      <span class="muted" data-role="count"></span>
+      <span class="grow"></span>
+      <button data-act="reset" hidden>Restablecer orden</button>
       <button class="primary" data-act="merge">Unir y guardar…</button>
     </div>
+    <div class="form-page" data-pane="list">
+      <p>Une varios PDFs y/o imágenes en un único PDF, en el orden de la lista (arrastra para reordenar). Con «Ver páginas» puedes colocar cada página donde quieras e insertar un documento en un punto concreto.</p>
+      <div class="files" data-role="files"></div>
+    </div>
+    <div class="merge-grid" data-pane="grid" hidden></div>
   </section>
 </main>
 
@@ -327,6 +338,7 @@
 <script src="js/tools/sign.js"></script>
 <script src="js/tools/pages.js"></script>
 <script src="js/tools/misc.js"></script>
+<script src="js/tools/merge.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

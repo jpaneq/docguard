@@ -6,10 +6,10 @@ Una aplicación de escritorio (Windows y macOS) para proteger, editar y firmar d
 
 | Herramienta | Qué hace |
 |---|---|
-| **Editar PDF** | **Escritura directa sobre la página:** doble clic en un texto para escribir en él con su misma fuente; clic y arrastrar para moverlo; selección múltiple con recuadro; Supr para borrar; flechas para desplazar. Para añadir texto, clic en la página y escribir.<br>**Formas** (rectángulo, elipse, línea, flecha) que se pueden mover y redimensionar.<br>**Seleccionar, copiar y pegar** zonas del documento con su calidad original, también imágenes o texto desde otras aplicaciones.<br>**OCR:** convierte un escaneo en texto editable o seleccionable.<br>**Firma al margen** de todas las páginas de una vez.<br>**Texto:** cambia el texto que ya existe detectando su fuente, tamaño y color. Usa la fuente incrustada o la misma familia instalada en el sistema; si no está, una equivalente. También puedes añadir texto nuevo con la fuente que elijas.<br>**Imágenes:** insertar, mover, redimensionar y eliminar.<br>**Anotaciones:** resaltar, subrayar, tachar, notas, cuadros de texto, rectángulos, elipses y dibujo a mano.<br>**Formularios:** crear campos (texto, casilla, desplegable, lista, botón de opción), rellenarlos, editarlos y aplanarlos.<br>**Firma manuscrita:** dibujada o subida como imagen.<br>Deshacer ilimitado. |
+| **Editar PDF** | Barra de iconos al estilo Acrobat/Word, barra de formato contextual, desplazamiento continuo con **miniaturas e índice**, menú contextual (clic derecho), ⌘C/⌘X/⌘V, deshacer y rehacer. Con la herramienta **Seleccionar** se hace casi todo: seleccionar y mover textos, imágenes (también firmas escaneadas), formas y campos, o seleccionar una zona para copiarla (las zonas sin texto se copian como captura).<br>**Listas** con viñetas, numeradas o con letras, y sub-listas (Tab / Mayús+Tab).<br>**Escritura directa sobre la página:** doble clic en un texto para escribir en él con su misma fuente; clic y arrastrar para moverlo; selección múltiple con recuadro; Supr para borrar; flechas para desplazar. Para añadir texto, clic en la página y escribir.<br>**Formas** (rectángulo, elipse, línea, flecha) que se pueden mover y redimensionar.<br>**Seleccionar, copiar y pegar** zonas del documento con su calidad original, también imágenes o texto desde otras aplicaciones.<br>**OCR:** convierte un escaneo en texto editable o seleccionable.<br>**Firma al margen** de todas las páginas de una vez.<br>**Texto:** cambia el texto que ya existe detectando su fuente, tamaño y color. Usa la fuente incrustada o la misma familia instalada en el sistema; si no está, una equivalente. También puedes añadir texto nuevo con la fuente que elijas.<br>**Imágenes:** insertar, mover, redimensionar y eliminar.<br>**Anotaciones:** resaltar, subrayar, tachar, notas, cuadros de texto, rectángulos, elipses y dibujo a mano.<br>**Formularios:** crear campos (texto, casilla, desplegable, lista, botón de opción), rellenarlos, editarlos y aplanarlos.<br>**Firma manuscrita:** dibujada o subida como imagen.<br>Deshacer ilimitado. |
 | **Marca de agua** | Texto en mosaico con tres niveles de protección (básica, reforzada y máxima). Añade microtexto sobre los datos, un código QR con el uso autorizado y una marca invisible de rastreo; con «Comprobar un documento» e «Historial de entregas» sabes a quién se entregó cada copia. Se ajustan orientación, tamaño, separación, opacidad y color, con vista previa de cada página. Admite plantillas, `{fecha}`/`{hora}`, procesar varios archivos a la vez y exportar a PDF/JPG/PNG con tamaño en píxeles. |
 | **Censurar** | Cada recuadro, también los detectados automáticamente, se puede seleccionar y quitar (✕ o Supr). Incluye los datos de DNI y pasaporte que no suele hacer falta compartir. Censura real (el contenido se elimina del archivo). Se marca seleccionando texto, dibujando áreas, buscando palabras o con **detección automática** de DNI/NIE, IBAN, tarjetas, teléfonos, emails y fechas. Con **OCR** funciona en escaneos. Estilos: negro, pixelado o difuminado. |
-| **Firma digital** | Firma con validez legal (PAdES) de dos formas:<br>• **Certificado en archivo** `.p12/.pfx` (FNMT u otro).<br>• **DNIe o tarjeta criptográfica** por PKCS#11. Un indicador verde muestra que el DNIe está conectado y el PIN verificado.<br>Admite firma visible con imagen manuscrita, motivo, lugar, sello de tiempo y verificación de las firmas de un PDF. |
+| **Firma digital** | Firma con validez legal (PAdES) de dos formas:<br>• **Certificado en archivo** `.p12/.pfx` (FNMT u otro).<br>• **DNIe o tarjeta criptográfica** por PKCS#11. Un indicador verde muestra que el DNIe está conectado y el PIN verificado.<br>Admite firma visible con imagen manuscrita, motivo, lugar, sello de tiempo y verificación de las firmas de un PDF.<br>**Varios firmantes:** «Firmar y pasar al siguiente firmante» deja el documento firmado abierto para que firme otra persona (su certificado o su DNIe) sin invalidar la firma anterior. «Firmar y enviar por correo» guarda el PDF y lo adjunta a un correo nuevo (Mail u Outlook). |
 | **Páginas** | Miniaturas que se reordenan arrastrando. Permite girar, eliminar, extraer y dividir (una página por archivo o por rangos). |
 | **Contraseña** | Cifrado AES-256 con permisos de imprimir, copiar y modificar. También quita la contraseña si la conoces. |
 | **Comprimir y convertir** | Compresión en tres niveles. Conversión PDF → PNG/JPG e imágenes → PDF. |
@@ -46,14 +46,33 @@ uv pip install --python .venv -r requirements.txt
 - Windows: `build_windows.bat` → `dist\DocGuard\DocGuard.exe`.
 - GitHub Actions (`.github/workflows/build.yml`) compila las dos versiones y pasa el autotest en cada push.
 
-## Estructura
-- `app.py`: arranque (ventana nativa o navegador) y autotest.
-- `server.py`: API local; solo escucha en `127.0.0.1` y exige un token aleatorio.
-- `core.py`: marca de agua, censura, OCR, detección, páginas, compresión, cifrado y metadatos.
-- `editor.py`: edición de PDF (texto con fuentes, imágenes, anotaciones y formularios).
-- `signing.py`: firma digital con archivo `.p12` o PKCS#11 (DNIe) y verificación.
-- `web/`: interfaz (HTML/CSS/JS sin dependencias externas).
+## Estructura (modular)
+Cada módulo se puede trabajar por separado. El servidor expone cada función como una operación de la API y la interfaz tiene un archivo por herramienta.
+
+**Servidor (Python)**
+| Módulo | Contenido |
+|---|---|
+| `app.py` | Arranque (ventana nativa o navegador), puente con el sistema (guardar, correo) y autotest (`--selftest`). |
+| `server.py` | API local: documentos abiertos, deshacer/rehacer, resultados. Solo `127.0.0.1`, con token. |
+| `core.py` | Marca de agua básica, OCR, detección de datos sensibles, censura, páginas, compresión, cifrado y metadatos. |
+| `editor.py` | Edición de PDF: texto con su fuente, mover/copiar/pegar, imágenes, formas, anotaciones, formularios, OCR a texto, firma al margen. |
+| `protect.py` | Protección reforzada: microtexto, trama, QR (ficha/web/texto), marca invisible y registro de entregas. |
+| `idfields.py` | Datos de DNI y pasaporte que conviene ocultar (MRZ, CAN, soporte, firma, domicilio…). |
+| `signing.py` | Firma digital PAdES con `.p12/.pfx` o DNIe/tarjeta (PKCS#11) y verificación. |
+
+**Interfaz (`web/`)**
+| Archivo | Contenido |
+|---|---|
+| `js/core/util.js` | API, avisos, ventanas, archivos, resultados y documento actual compartido. |
+| `js/core/viewer.js` | Visor de páginas (una a una o continuo) y fuentes para la edición directa. |
+| `js/core/filelist.js`, `js/core/sigs.js` | Listas de archivos y firmas manuscritas guardadas. |
+| `js/tools/*.js` | Una herramienta por archivo: `edit`, `watermark`, `redact`, `sign`, `pages`, `misc` (contraseña, convertir, limpiar, unir). |
+| `js/main.js` | Registro de herramientas y navegación. |
+| `verificar.html` | Página de verificación del QR (también en `docs/` para publicarla). |
 
 ## Versiones
 - `v0`: interfaz de escritorio con Tkinter.
 - `v1`: interfaz web con edición de PDF, firma digital y DNIe.
+- `v1.1`: protección reforzada, QR y marca invisible; documento compartido entre herramientas.
+- `v1.2`: edición directa, formas, copiar/pegar, OCR en Editar, firma al margen, ocultar datos de DNI/pasaporte.
+- `v1.3`: Editar estilo Acrobat/Word (barra de iconos, formato contextual, selección unificada, menú contextual, ⌘C/⌘X/⌘V, rehacer), listas, visor continuo con miniaturas e índice, varios firmantes y firmar y enviar, interfaz dividida en módulos.

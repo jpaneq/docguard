@@ -27,28 +27,40 @@
 <main>
   <!-- EDITAR -->
   <section class="tool active" id="tool-edit">
-    <div class="toolbar">
-      <button class="primary" data-act="open">Abrir PDF…</button>
+    <div class="toolbar ribbon">
+      <button class="primary" data-act="open" title="Abrir PDF o imagen">Abrir…</button>
+      <button data-act="pages" data-i="pages" title="Miniaturas e índice"></button>
       <span class="doc-name"></span>
-      <div class="seg" data-role="modes">
-        <button data-mode="text" class="on" title="Haz clic en un texto para cambiarlo">Editar texto</button>
-        <button data-mode="addtext" title="Haz clic donde quieras escribir">Añadir texto</button>
-        <button data-mode="image">Imágenes</button>
-        <button data-mode="shapes">Formas</button>
-        <button data-mode="annot">Anotar</button>
-        <button data-mode="forms">Formularios</button>
-        <button data-mode="handsign">Firma manuscrita</button>
-        <button data-mode="select" title="Selecciona una zona para copiarla y pegarla">Seleccionar</button>
+      <span class="sep"></span>
+      <div class="rgroup" data-role="tools">
+        <button data-t="select" class="on" data-i="select" title="Seleccionar y editar (V): clic para seleccionar, doble clic para escribir, arrastrar para mover o seleccionar zona"></button>
+        <button data-t="text" data-i="text" title="Añadir texto (T): clic en la página y escribe"></button>
+        <button data-t="image" data-i="image" title="Insertar imagen"></button>
+        <button data-t="shape" data-i="shape" title="Formas (R)"></button>
+        <button data-t="annot" data-i="annot" title="Resaltar y anotar (H)"></button>
+        <button data-t="form" data-i="form" title="Campos de formulario"></button>
+        <button data-t="sign" data-i="sign" title="Firma manuscrita"></button>
       </div>
-      <button data-act="ocr" title="Reconocer el texto de páginas escaneadas">OCR…</button>
+      <span class="sep"></span>
+      <div class="rgroup">
+        <button data-act="copy" data-i="copy" title="Copiar (⌘C)"></button>
+        <button data-act="cut" data-i="cut" title="Cortar (⌘X)"></button>
+        <button data-act="paste" data-i="paste" title="Pegar (⌘V) donde tengas el ratón"></button>
+        <button data-act="delete" data-i="trash" title="Eliminar la selección (Supr)"></button>
+      </div>
+      <span class="sep"></span>
+      <div class="rgroup">
+        <button data-act="undo" data-i="undo" title="Deshacer (⌘Z)" disabled></button>
+        <button data-act="redo" data-i="redo" title="Rehacer (⇧⌘Z)" disabled></button>
+      </div>
+      <span class="sep"></span>
+      <button data-act="ocr" data-i="ocr" title="Reconocer texto de escaneos (OCR)"></button>
       <span class="grow"></span>
-      <button data-act="undo" disabled>↶ Deshacer</button>
       <button class="primary" data-act="export" disabled>Guardar PDF…</button>
     </div>
-    <div class="work">
-      <div class="viewer-host"></div>
-      <div class="props"></div>
-    </div>
+    <div class="formatbar"></div>
+    <div class="work"><div class="pages-side" hidden></div><div class="viewer-host"></div></div>
+    <div class="status"></div>
   </section>
 
   <!-- MARCA DE AGUA -->
@@ -215,7 +227,11 @@
             <option value="custom">Otro servidor…</option></select></label>
         <input data-k="tsa_custom" placeholder="https://…" hidden>
         <button class="primary wide" data-act="sign">Firmar y guardar…</button>
-        <small>Firma siempre al final: cualquier cambio posterior invalida la firma.</small>
+        <button class="wide" data-act="signnext">Firmar y pasar al siguiente firmante</button>
+        <button class="wide" data-act="signmail">Firmar y enviar por correo…</button>
+        <small>Firma siempre al final: cualquier cambio posterior invalida la firma. Si firman varias personas, cada una añade su firma sin invalidar las anteriores.</small>
+        <h3>Firmas en este documento</h3>
+        <div class="sig-list muted">—</div>
       </div>
     </div>
   </section>
@@ -301,6 +317,16 @@
 
 <div id="busy"><div class="spinner"></div><div class="busy-text"></div></div>
 <div id="toasts"></div>
-<script src="app.js"></script>
+<script src="js/core/util.js"></script>
+<script src="js/core/viewer.js"></script>
+<script src="js/core/filelist.js"></script>
+<script src="js/core/sigs.js"></script>
+<script src="js/tools/edit.js"></script>
+<script src="js/tools/watermark.js"></script>
+<script src="js/tools/redact.js"></script>
+<script src="js/tools/sign.js"></script>
+<script src="js/tools/pages.js"></script>
+<script src="js/tools/misc.js"></script>
+<script src="js/main.js"></script>
 </body>
 </html>

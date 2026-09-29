@@ -37,6 +37,25 @@ class Api:
         target = r if isinstance(r, str) else r[0]
         return server.save_result_to(rid, target, folder)
 
+    def email(self, path):
+        """Abre un correo nuevo con el archivo adjunto (Mail en macOS, Outlook en Windows)."""
+        try:
+            if sys.platform == "darwin":
+                subprocess.Popen(["open", "-a", "Mail", path])
+                return "mail"
+            if sys.platform == "win32":
+                import shutil
+                outlook = shutil.which("outlook") or next((p for p in (
+                    r"C:\Program Files\Microsoft Office\root\Office16\OUTLOOK.EXE",
+                    r"C:\Program Files (x86)\Microsoft Office\root\Office16\OUTLOOK.EXE") if os.path.exists(p)), None)
+                if outlook:
+                    subprocess.Popen([outlook, "/a", path])
+                    return "outlook"
+        except Exception:
+            pass
+        self.reveal(path)
+        return "reveal"
+
     def reveal(self, path):
         if sys.platform == "darwin":
             subprocess.Popen(["open", "-R", path])

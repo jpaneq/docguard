@@ -193,3 +193,47 @@ table.reg td, table.reg th { border-bottom: 1px solid var(--line); padding: 5px 
 .hbox.sel { border: 2px solid var(--accent); box-shadow: 0 0 0 2px rgba(37, 99, 217, .35); }
 .hbox .x { position: absolute; top: -10px; right: -10px; width: 20px; height: 20px; line-height: 18px; text-align: center; font-size: 12px; border-radius: 50%; background: var(--danger); color: #fff; }
 .hide-ov .drag-box { position: absolute; border: 2px dashed var(--accent); background: rgba(37, 99, 217, .1); }
+
+textarea.inline-edit { resize: none; border: 0; background: rgba(255, 255, 255, .0) !important; padding: 0 !important; overflow: hidden; border-radius: 0 !important; white-space: pre; }
+.list-seg { display: flex; margin-bottom: 8px; } .list-seg button { flex: 1; padding: 5px 4px; font-size: 12px; }
+
+/* barra de iconos de Editar */
+.ribbon { gap: 4px; }
+.ribbon .sep, .formatbar .sep { width: 1px; align-self: stretch; background: var(--line); margin: 2px 4px; }
+.rgroup { display: inline-flex; gap: 2px; }
+.ribbon [data-i], .ib { width: 34px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-color: transparent; background: transparent; }
+.ribbon [data-i]:hover:not(:disabled), .ib:hover { background: var(--panel2); border-color: var(--line); }
+.ribbon [data-t].on, .ib.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.ib.txt { font-size: 15px; width: 30px; }
+.svg { display: inline-flex; }
+.formatbar { display: flex; align-items: center; gap: 6px; padding: 6px 10px; min-height: 44px; background: var(--panel2); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.formatbar .blabel { font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-right: 4px; }
+.formatbar select.fsel { width: 190px !important; }
+.formatbar input.mid { width: 200px !important; }
+.formatbar button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.formatbar .sig-gallery.inline { margin: 0; flex-wrap: nowrap; }
+.formatbar .sig-item img { height: 26px; }
+#tool-edit .status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov.tool-text { cursor: text; } .ov.tool-select { cursor: default; }
+.ov.tool-shape, .ov.tool-annot, .ov.tool-form, .ov.tool-sign, .ov.tool-image { cursor: crosshair; }
+.bx.img { cursor: pointer; } .bx.img.sel { cursor: move; border: 2px solid var(--accent); }
+.bx.widget.locked { background: rgba(31, 157, 85, .12); border-color: var(--ok); }
+.ctxmenu { position: fixed; z-index: 70; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); padding: 4px; min-width: 230px; }
+.ctxmenu .mi { display: flex; justify-content: space-between; gap: 20px; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+.ctxmenu .mi:hover { background: var(--accent); color: var(--accent-ink); }
+.ctxmenu .mi:hover small { color: inherit; }
+.ctxmenu .mi.off { opacity: .4; pointer-events: none; }
+.ctxmenu .msep { height: 1px; background: var(--line); margin: 4px 0; }
+
+.stack { display: flex; flex-direction: column; align-items: center; gap: 16px; padding-bottom: 60px; }
+.stack .page-wrap { margin: 0; flex: none; }
+.stack .page-wrap img:not([src]) { visibility: hidden; }
+.pages-side { width: 190px; flex: none; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+.side-tabs { display: flex; margin: 8px; } .side-tabs button { flex: 1; font-size: 12px; padding: 4px; }
+.thumb-list { overflow: auto; padding: 4px 12px 20px; display: flex; flex-direction: column; gap: 12px; align-items: center; }
+.tp { cursor: pointer; text-align: center; font-size: 12px; color: var(--muted); }
+.tp img { width: 130px; display: block; background: #fff; box-shadow: var(--shadow); border: 2px solid transparent; border-radius: 2px; }
+.tp.on img { border-color: var(--accent); } .tp.on { color: var(--accent); font-weight: 600; }
+.toc { overflow: auto; padding: 0 6px 20px; }
+.toc-i { display: flex; justify-content: space-between; gap: 8px; padding: 5px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.toc-i:hover { background: var(--panel2); } .toc-i small { color: var(--muted); }

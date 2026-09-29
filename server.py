@@ -42,6 +42,7 @@ class Doc:
         self.orig = data
         self.edited = False
         self.undo = []
+        self.redo = []
         self.ocr = {}
         self.lines = {}
         self.idf = {}
@@ -497,8 +498,13 @@ def op_edit_state(req):
     n = int(req["n"])
     page = doc[n]
     return {"spans": editor.spans(page), "images": editor.images(page), "annots": editor.annotations(page),
-            "widgets": editor.widgets(page), "can_undo": bool(d.undo),
+            "widgets": editor.widgets(page), "can_undo": bool(d.undo), "can_redo": bool(d.redo),
             "size": [page.rect.width, page.rect.height]}
+
+
+def op_outline(req):
+    d = get_doc(req)
+    return {"toc": [[lvl, title, page] for lvl, title, page in need_pdf(d).get_toc(simple=True) if page > 0]}
 
 
 def op_fonts(req):
@@ -519,11 +525,15 @@ EDIT_OPS = {
     "add_ink": lambda doc, r: editor.add_ink(doc, r["n"], r["strokes"], r.get("color", "#1a4fd6"),
                                             float(r.get("width", 2))),
     "move_spans": lambda doc, r: editor.move_spans(doc, r["n"], r["indices"], float(r["dx"]), float(r["dy"])),
+    "format_spans": lambda doc, r: editor.format_spans(doc, r["n"], r["indices"], r.get("font", "auto"), r.get("size"),
+                                                      r.get("color"), r.get("bold"), r.get("italic")),
     "delete_spans": lambda doc, r: editor.delete_spans(doc, r["n"], r["indices"]),
     "add_shape": lambda doc, r: editor.add_shape(doc, r["n"], r["kind"], r.get("rect"), r.get("stroke", "#d62828"),
                                                 r.get("fill"), float(r.get("width", 2)), r.get("points")),
     "move_annot": lambda doc, r: editor.move_annotation(doc, r["n"], r["xref"], r["rect"]),
-    "paste": lambda doc, r: editor.paste_region(doc, r["n"], CLIPBOARD["clip"], float(r["x"]), float(r["y"])),
+    "paste": lambda doc, r: editor.paste_region(doc, r["n"], CLIPBOARD["clip"], float(r["x"]), float(r["y"]),
+                                               r.get("mode", "auto")),
+    "paste_spans": lambda doc, r: editor.paste_spans(doc, r["n"], CLIPBOARD["spans"], float(r["x"]), float(r["y"])),
     "ocr": lambda doc, r: f"{sum(editor.ocr_page(doc, p, r.get('mode', 'editable')) for p in r['pages'])} líneas",
     "delete_annot": lambda doc, r: editor.delete_annotation(doc, r["n"], r["xref"]),
     "add_widget": lambda doc, r: editor.add_widget(doc, r["n"], r["type"], r["rect"], r["name"], r.get("value"),
@@ -542,6 +552,7 @@ def op_edit(req, name):
     result = EDIT_OPS[name](doc, req)
     d.undo.append(snapshot)
     del d.undo[:-MAX_UNDO]
+    d.redo = []
     d.edited = True
     d.lines, d.ocr, d.idf = {}, {}, {}  # el texto puede haber cambiado
     # Recargar tras cada cambio mantiene coherentes las listas de texto/imágenes/campos.
@@ -557,6 +568,13 @@ def op_copy(req):
     clip, text, png = editor.copy_region(need_pdf(d), int(req["n"]), req["rect"])
     CLIPBOARD["clip"] = clip
     return {"text": text, "png": base64.b64encode(png).decode(), "size": clip["size"]}
+
+
+def op_copy_spans(req):
+    d = get_doc(req)
+    clip, text = editor.copy_spans(need_pdf(d), int(req["n"]), req["indices"])
+    CLIPBOARD["spans"] = clip
+    return {"text": text}
 
 
 def op_sign_margin(req):
@@ -578,13 +596,24 @@ def op_sign_margin(req):
         EDIT_OPS.pop("_margin", None)
 
 
+def op_redo(req):
+    d = get_doc(req)
+    if d.redo:
+        d.undo.append(d.doc.tobytes())
+        d.doc = fitz.open("pdf", d.redo.pop())
+        d.edited = True
+        d.lines, d.ocr, d.idf = {}, {}, {}
+    return {"can_undo": bool(d.undo), "can_redo": bool(d.redo)}
+
+
 def op_undo(req):
     d = get_doc(req)
     if d.undo:
+        d.redo.append(d.doc.tobytes())
         d.doc = fitz.open("pdf", d.undo.pop())
         d.lines, d.ocr, d.idf = {}, {}, {}
         d.edited = bool(d.undo) or d.kind != "pdf"
-    return {"can_undo": bool(d.undo)}
+    return {"can_undo": bool(d.undo), "can_redo": bool(d.redo)}
 
 
 def op_edit_export(req):
@@ -660,7 +689,8 @@ def op_sign(req):
         out = signing.sign_pdf_pkcs11(d.pdf_bytes(), req["module"], req["token"], req["cert_id"], req["pin"], **opts)
     else:
         out = signing.sign_pdf(d.pdf_bytes(), base64.b64decode(req["p12"]), req.get("password", ""), **opts)
-    return store_result([(f"{d.base}_firmado.pdf", out)])
+    base = d.base if d.base.endswith("_firmado") else d.base + "_firmado"
+    return store_result([(f"{base}.pdf", out)])
 
 
 def op_p11_modules(req):
@@ -700,9 +730,9 @@ OPS = {
     "search": op_search, "redact": op_redact,
     "pages/save": op_pages_save, "encrypt": op_encrypt, "decrypt": op_decrypt,
     "compress": op_compress, "toimages": op_toimages, "topdf": op_topdf, "sanitize": op_sanitize, "merge": op_merge,
-    "edit/state": op_edit_state, "fonts": op_fonts, "edit/undo": op_undo, "edit/export": op_edit_export,
+    "edit/state": op_edit_state, "fonts": op_fonts, "outline": op_outline, "edit/undo": op_undo, "edit/redo": op_redo, "edit/export": op_edit_export,
     "sigimgs": op_sigimgs, "sigimg/save": op_sigimg_save, "sigimg/delete": op_sigimg_delete,
-    "sigimg/place": op_place_sigimg, "sigimg/margin": op_sign_margin, "edit/copy": op_copy, "certinfo": op_certinfo, "sign": op_sign,
+    "sigimg/place": op_place_sigimg, "sigimg/margin": op_sign_margin, "edit/copy": op_copy, "edit/copy_spans": op_copy_spans, "certinfo": op_certinfo, "sign": op_sign,
     "p11/modules": op_p11_modules, "p11/list": op_p11_list, "p11/login": op_p11_login, "verify": op_verify,
 }
 for _name in EDIT_OPS:

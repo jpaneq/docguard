@@ -145,6 +145,11 @@ def resolve_font(doc, page, name, flags, text, choice="auto"):
     bold, italic = bool(flags & 16), bool(flags & 2)
     if choice.startswith("base:"):
         fam = choice[5:]
+        # Helvetica/Times/Courier estándar no tienen símbolos como • o –: se usa la equivalente instalada
+        sys_name = {"helv": "Arial", "tiro": "Times New Roman", "cour": "Courier New"}[fam]
+        path = _system_match(sys_name, bold, italic)
+        if path:
+            return {"fontname": "DG" + norm_font(os.path.basename(path))[:20], "fontfile": path}, sys_name
         return {"fontname": BASE14[fam][(int(bold), int(italic))]}, BASE_LABELS[fam]
     if choice.startswith("sys:"):
         path = choice[4:]
@@ -256,6 +261,24 @@ def move_spans(doc, pno, indices, dx, dy):
     for s, kw in zip(sel, fonts):
         page.insert_text(fitz.Point(s["origin"]) + shift, s["text"], fontsize=s["size"],
                          color=rgb(s["color"]), rotate=page.rotation, **kw)
+
+
+def format_spans(doc, pno, indices, font="auto", size=None, color=None, bold=None, italic=None):
+    """Cambia el formato de varios fragmentos manteniendo su texto y posición."""
+    page = doc[pno]
+    all_spans = spans(page)
+    sel = [all_spans[i] for i in sorted(set(indices))]
+    plan = []
+    for s in sel:
+        flags = _span_flags(s, bold, italic)
+        plan.append((s, resolve_font(doc, page, s["rawfont"], flags, s["text"], font or "auto")))
+    _erase_spans(page, sel)
+    labels = set()
+    for s, (kw, label) in plan:
+        page.insert_text(fitz.Point(s["origin"]), s["text"], fontsize=size or s["size"],
+                         color=rgb(color or s["color"]), rotate=page.rotation, **kw)
+        labels.add(label)
+    return ", ".join(sorted(labels))
 
 
 def delete_spans(doc, pno, indices):
@@ -422,6 +445,7 @@ WIDGET_TYPES = {"text": fitz.PDF_WIDGET_TYPE_TEXT, "checkbox": fitz.PDF_WIDGET_T
                 "combobox": fitz.PDF_WIDGET_TYPE_COMBOBOX, "listbox": fitz.PDF_WIDGET_TYPE_LISTBOX,
                 "radio": fitz.PDF_WIDGET_TYPE_RADIOBUTTON}
 WIDGET_NAMES = {v: k for k, v in WIDGET_TYPES.items()}
+WIDGET_NAMES[fitz.PDF_WIDGET_TYPE_SIGNATURE] = "signature"
 
 
 def widgets(page):
@@ -488,7 +512,10 @@ def update_widget(doc, pno, xref, name=None, value=None, options=None, rect=None
 
 def delete_widget(doc, pno, xref):
     page = doc[pno]
-    page.delete_widget(_find_widget(page, xref))
+    w = _find_widget(page, xref)
+    if w.field_type == fitz.PDF_WIDGET_TYPE_SIGNATURE:
+        raise ValueError("Las firmas digitales no se pueden borrar.")
+    page.delete_widget(w)
 
 
 def flatten_forms(doc):
@@ -573,18 +600,52 @@ def copy_region(doc, pno, rect):
     r = from_view(page, rect)
     text = page.get_textbox(r).strip()
     pix = page.get_pixmap(matrix=fitz.Matrix(3, 3), clip=r * page.rotation_matrix if page.rotation else r, alpha=False)
-    clip = {"pdf": doc.tobytes(), "pno": pno, "rect": tuple(r),
+    png = pix.tobytes("png")
+    clip = {"pdf": doc.tobytes(), "pno": pno, "rect": tuple(r), "text": text, "png": png,
             "size": (rect[2] - rect[0], rect[3] - rect[1])}
-    return clip, text, pix.tobytes("png")
+    return clip, text, png
 
 
-def paste_region(doc, pno, clip, x, y):
-    """Pega la zona copiada (vectorial: texto, dibujos e imágenes) con su esquina en x, y."""
+def paste_region(doc, pno, clip, x, y, mode="auto"):
+    """Pega la zona copiada con su esquina en x, y.
+    mode='vector': tal cual (texto, dibujos e imágenes, sin perder calidad).
+    mode='image': como captura (una imagen que luego se puede mover y redimensionar).
+    mode='auto': captura si la zona no tiene texto (gráficas, fotos...), vectorial si lo tiene."""
     page = doc[pno]
     w, h = clip["size"]
     target = from_view(page, [x, y, x + w, y + h])
+    if mode == "image" or (mode == "auto" and not clip.get("text")):
+        page.insert_image(target, stream=clip["png"], keep_proportion=False)
+        return "pegado como imagen"
     with fitz.open("pdf", clip["pdf"]) as src:
         page.show_pdf_page(target, src, clip["pno"], clip=fitz.Rect(clip["rect"]))
+    return "pegado"
+
+
+def copy_spans(doc, pno, indices):
+    """Copia textos seleccionados conservando fuente, tamaño, color y posición relativa."""
+    page = doc[pno]
+    all_spans = spans(page)
+    sel = [all_spans[i] for i in sorted(set(indices))]
+    x0 = min(s["bbox"][0] for s in sel)
+    y0 = min(s["bbox"][1] for s in sel)
+    items = []
+    for s in sel:
+        o = fitz.Point(s["origin"]) * page.rotation_matrix
+        items.append({k: s[k] for k in ("text", "rawfont", "flags", "size", "color")} | {"dx": o.x - x0, "dy": o.y - y0})
+    sel_sorted = sorted(sel, key=lambda s: (round(s["bbox"][1]), s["bbox"][0]))
+    text = "\n".join(s["text"] for s in sel_sorted)
+    return {"items": items, "pdf": doc.tobytes(), "pno": pno}, text
+
+
+def paste_spans(doc, pno, clip, x, y):
+    page = doc[pno]
+    with fitz.open("pdf", clip["pdf"]) as src:
+        spage = src[clip["pno"]]
+        fonts = [resolve_font(src, spage, it["rawfont"], it["flags"], it["text"])[0] for it in clip["items"]]
+    for it, kw in zip(clip["items"], fonts):
+        page.insert_text(point_from_view(page, x + it["dx"], y + it["dy"]), it["text"], fontsize=it["size"],
+                         color=rgb(it["color"]), rotate=page.rotation, **kw)
 
 
 # --------------------------------------------------------------------------

@@ -146,28 +146,45 @@ def apply_watermark(img, text, angle=35, size=40, gap_x=60, gap_y=80,
     return out
 
 
-def export_watermarked(src, dst, params):
-    ext = ext_of(src)
+def fit_size(img, width=None, height=None):
+    """Redimensiona a width x height píxeles. Si solo se da uno, mantiene la proporción."""
+    if not width and not height:
+        return img
+    w = width or round(img.width * height / img.height)
+    h = height or round(img.height * width / img.width)
+    return img.resize((max(1, int(w)), max(1, int(h))), Image.LANCZOS)
+
+
+def export_watermarked(src, dst, params, width=None, height=None):
+    """Exporta con marca de agua. El formato sale de la extensión de `dst`
+    (.pdf, .png, .jpg). Si el origen tiene varias páginas y se exporta como
+    imagen, se guarda un archivo por página (_p1, _p2...). Devuelve las rutas."""
     pages = load_pages(src)
-    if ext == ".pdf" or ext_of(dst) == ".pdf":
+    fmt = ext_of(dst)
+    marked = [(apply_watermark(fit_size(img, width, height), seed=1000 + i, **params), size_pt)
+              for i, (img, size_pt) in enumerate(pages)]
+    if fmt == ".pdf":
         out = fitz.open()
-        for i, (img, size_pt) in enumerate(pages):
-            wm = apply_watermark(img, seed=1000 + i, **params)
+        for wm, size_pt in marked:
             buf = io.BytesIO()
             wm.save(buf, "JPEG", quality=90)
-            if size_pt is None:
-                size_pt = (img.width * 72 / RENDER_DPI, img.height * 72 / RENDER_DPI)
+            if size_pt is None or width or height:
+                size_pt = (wm.width * 72 / RENDER_DPI, wm.height * 72 / RENDER_DPI)
             page = out.new_page(width=size_pt[0], height=size_pt[1])
             page.insert_image(page.rect, stream=buf.getvalue())
         out.set_metadata({})
         out.save(dst, garbage=4, deflate=True)
         out.close()
-    else:
-        wm = apply_watermark(pages[0][0], seed=1000, **params)
-        if ext_of(dst) in (".jpg", ".jpeg"):
-            wm.save(dst, "JPEG", quality=92)
+        return [dst]
+    paths = []
+    for i, (wm, _) in enumerate(marked):
+        path = dst if len(marked) == 1 else suffixed(dst, f"p{i + 1}")
+        if fmt in (".jpg", ".jpeg"):
+            wm.save(path, "JPEG", quality=92)
         else:
-            wm.save(dst)
+            wm.save(path, "PNG")
+        paths.append(path)
+    return paths
 
 
 # --------------------------------------------------------------------------
@@ -298,6 +315,22 @@ class WatermarkTab(ttk.Frame):
                   text="Añade variaciones aleatorias, líneas entrelazadas y ruido, "
                        "y rasteriza el resultado (el PDF no tiene capa de texto "
                        "que se pueda quitar).").pack(fill="x")
+        ttk.Label(ctrl, text="Exportar como:").pack(anchor="w", pady=(10, 0))
+        self.fmt = tk.StringVar(value="PDF")
+        fr = ttk.Frame(ctrl)
+        fr.pack(fill="x")
+        for f in ("PDF", "JPG", "PNG"):
+            ttk.Radiobutton(fr, text=f, value=f, variable=self.fmt).pack(side="left")
+        ttk.Label(ctrl, text="Tamaño en píxeles (opcional):").pack(anchor="w", pady=(8, 0))
+        fr = ttk.Frame(ctrl)
+        fr.pack(fill="x")
+        self.out_w, self.out_h = tk.StringVar(), tk.StringVar()
+        ttk.Entry(fr, textvariable=self.out_w, width=7).pack(side="left")
+        ttk.Label(fr, text=" × ").pack(side="left")
+        ttk.Entry(fr, textvariable=self.out_h, width=7).pack(side="left")
+        ttk.Label(ctrl, wraplength=230, foreground="gray",
+                  text="Vacío = tamaño original. Si rellenas solo uno, "
+                       "se mantiene la proporción.").pack(fill="x")
         ttk.Button(ctrl, text="Guardar con marca de agua…", command=self.save).pack(fill="x", pady=12)
 
         self.canvas = tk.Canvas(self, bg="#444", highlightthickness=0)
@@ -352,19 +385,27 @@ class WatermarkTab(ttk.Frame):
         if not self.src:
             messagebox.showinfo(APP_NAME, "Primero abre un documento.")
             return
-        ext = ext_of(self.src)
-        if ext not in (".pdf", ".png", ".jpg", ".jpeg"):
-            ext = ".png"
+        try:
+            w = int(self.out_w.get()) if self.out_w.get().strip() else None
+            h = int(self.out_h.get()) if self.out_h.get().strip() else None
+            if (w is not None and w <= 0) or (h is not None and h <= 0):
+                raise ValueError
+        except ValueError:
+            messagebox.showerror(APP_NAME, "El tamaño debe ser un número entero de píxeles.")
+            return
+        ext = "." + self.fmt.get().lower()
         dst = filedialog.asksaveasfilename(
             defaultextension=ext, initialfile=os.path.basename(suffixed(self.src, "marca", ext)),
-            filetypes=[("PDF", "*.pdf"), ("PNG", "*.png"), ("JPEG", "*.jpg")])
+            filetypes=[(self.fmt.get(), "*" + ext)])
         if not dst:
             return
+        if ext_of(dst) != ext:
+            dst += ext
         self.config(cursor="watch")
         self.update()
         try:
-            export_watermarked(self.src, dst, self.params())
-            messagebox.showinfo(APP_NAME, f"Guardado:\n{dst}")
+            paths = export_watermarked(self.src, dst, self.params(), w, h)
+            messagebox.showinfo(APP_NAME, "Guardado:\n" + "\n".join(paths))
         except Exception as ex:
             messagebox.showerror(APP_NAME, f"Error al guardar:\n{ex}")
         finally:

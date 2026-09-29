@@ -4,7 +4,7 @@ Una herramienta de escritorio (Windows y macOS) que funciona sin conexión y pro
 
 | Pestaña | Qué hace |
 |---|---|
-| **Marca de agua** | Pone un texto en mosaico (p. ej. "Solo para uso de XXX") sobre PDF/PNG/JPG. Puedes ajustar la orientación, el tamaño, la separación, la opacidad y el color, con vista previa en directo. |
+| **Marca de agua** | Pone un texto en mosaico (p. ej. "Solo para uso de XXX") sobre PDF/PNG/JPG. Puedes ajustar la orientación, el tamaño, la separación, la opacidad y el color, con vista previa en directo. Exporta a PDF, JPG o PNG, con un tamaño en píxeles opcional (ancho × alto). |
 | **Censurar PDF** | Arrastras el ratón sobre el texto para marcarlo, o buscas una palabra para marcarla en todo el documento. Aplica una censura *real*: borra el texto y los píxeles que hay debajo. También tiene un modo "Área libre" para escaneos e imágenes. |
 | **Limpiar metadatos** | Borra autor, fechas, software, EXIF/GPS, XMP, JavaScript, adjuntos y miniaturas. Admite PDF, imágenes y Office (docx/xlsx/pptx/odt…). |
 | **Unir PDFs** | Une varios PDF o imágenes en uno solo, en el orden que elijas. |

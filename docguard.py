@@ -1,368 +1,242 @@
 """DocGuard - herramienta local para proteger documentos.
 
-Funciones:
-  1. Marca de agua resistente (tramada, con variaciones aleatorias y rasterizada).
-  2. Censura real de PDF seleccionando texto (o áreas) con cuadros negros.
-  3. Limpieza de metadatos (PDF, imágenes, documentos Office).
-  4. Unión de PDFs (e imágenes) en un único PDF.
+Pestañas:
+  1. Marca de agua resistente (tramada, variaciones aleatorias, rasterizada),
+     con plantillas, {fecha}/{hora}, vista por página, lote y exportación PDF/JPG/PNG.
+  2. Censura real de PDF: seleccionando texto, por búsqueda o detectando datos
+     sensibles; con OCR para escaneos y estilo negro/pixelado/difuminado.
+  3. Páginas: reordenar, girar, eliminar, extraer y dividir.
+  4. Proteger PDF con contraseña (o quitarla).
+  5. Comprimir PDF y convertir PDF <-> imágenes.
+  6. Limpieza de metadatos (PDF, imágenes, Office).
+  7. Unión de PDFs e imágenes.
 
 Todo se procesa en local; ningún archivo sale del equipo.
 """
 
-import io
-import math
 import os
-import random
-import sys
-import zipfile
-from functools import lru_cache
 import tkinter as tk
-from tkinter import colorchooser, filedialog, messagebox, ttk
+from tkinter import colorchooser, filedialog, messagebox, simpledialog, ttk
 
 import pymupdf as fitz
-from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageTk
+from PIL import Image, ImageTk
 
-APP_NAME = "DocGuard"
-IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp", ".gif"}
-OFFICE_EXTS = {".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp"}
-RENDER_DPI = 200
+import core
+from core import APP_NAME, ext_of, suffixed
 
-FONT_CANDIDATES = [
-    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
-    "/Library/Fonts/Arial Bold.ttf",
-    "/System/Library/Fonts/Supplemental/Arial.ttf",
-    "C:/Windows/Fonts/arialbd.ttf",
-    "C:/Windows/Fonts/arial.ttf",
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-]
+try:
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+    HAS_DND = True
+except Exception:  # la app funciona igual sin arrastrar y soltar
+    HAS_DND = False
+
+DOC_TYPES = [("Documentos", "*.pdf *.png *.jpg *.jpeg *.bmp *.tif *.tiff *.webp"), ("Todos", "*.*")]
+PDF_TYPES = [("PDF", "*.pdf")]
 
 
-@lru_cache(maxsize=64)
-def get_font(size):
-    size = max(6, int(size))
-    for path in FONT_CANDIDATES:
-        if os.path.exists(path):
-            try:
-                return ImageFont.truetype(path, size)
-            except OSError:
-                pass
-    return ImageFont.load_default(size=size)
+def enable_drop(widget, callback):
+    """Permite soltar archivos sobre `widget`; llama a callback(lista_de_rutas)."""
+    if HAS_DND:
+        widget.drop_target_register(DND_FILES)
+        widget.dnd_bind("<<Drop>>", lambda e: callback(list(widget.tk.splitlist(e.data))))
 
 
-def ext_of(path):
-    return os.path.splitext(path)[1].lower()
+def busy(widget, on=True):
+    widget.winfo_toplevel().config(cursor="watch" if on else "")
+    widget.update()
 
 
-def suffixed(path, suffix, new_ext=None):
-    base, ext = os.path.splitext(path)
-    return f"{base}_{suffix}{new_ext or ext}"
-
-
-# --------------------------------------------------------------------------
-# Carga de documentos como imágenes
-# --------------------------------------------------------------------------
-
-def load_pages(path, dpi=RENDER_DPI):
-    """Devuelve una lista de (PIL.Image RGB, (ancho_pt, alto_pt) o None)."""
-    if ext_of(path) == ".pdf":
-        pages = []
-        with fitz.open(path) as doc:
-            for page in doc:
-                pix = page.get_pixmap(dpi=dpi, alpha=False)
-                img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-                pages.append((img, (page.rect.width, page.rect.height)))
-        return pages
-    img = Image.open(path)
-    img = ImageOps.exif_transpose(img).convert("RGB")
-    return [(img, None)]
+def pil_from_page(page, zoom):
+    pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+    return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
 
 
 # --------------------------------------------------------------------------
 # Marca de agua
 # --------------------------------------------------------------------------
 
-def apply_watermark(img, text, angle=35, size=40, gap_x=60, gap_y=80,
-                    opacity=0.35, color=(200, 0, 0), hardened=True, seed=1):
-    """Aplica una marca de agua en mosaico.
-
-    Los tamaños se expresan en milésimas del ancho de la imagen, así la vista
-    previa y el resultado final se ven igual a cualquier resolución.
-    Con `hardened` se añaden variaciones aleatorias (posición, opacidad,
-    tamaño), líneas onduladas entrelazadas y ruido, lo que dificulta mucho
-    que herramientas de IA puedan eliminar la marca limpiamente.
-    """
-    rnd = random.Random(seed)
-    base = img.convert("RGBA")
-    W, H = base.size
-    s = W / 1000.0
-    diag = int(math.hypot(W, H)) + 4
-    layer = Image.new("RGBA", (diag, diag), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(layer)
-
-    font = get_font(size * s)
-    l, t, r, b = draw.textbbox((0, 0), text, font=font)
-    tw, th = r - l, b - t
-    step_x = tw + max(1, gap_x * s)
-    step_y = th + max(1, gap_y * s)
-    a_max = int(255 * opacity)
-
-    row = 0
-    y = -step_y
-    while y < diag + step_y:
-        x = -step_x + (step_x / 2 if row % 2 else 0)
-        while x < diag + step_x:
-            jx = jy = 0
-            f = font
-            alpha = a_max
-            if hardened:
-                jx = rnd.uniform(-0.05, 0.05) * step_x
-                jy = rnd.uniform(-0.25, 0.25) * th
-                alpha = int(a_max * rnd.uniform(0.7, 1.0))
-                f = get_font(size * s * rnd.uniform(0.9, 1.1))
-            draw.text((x + jx, y + jy), text, font=f, fill=color + (alpha,),
-                      stroke_width=max(1, int(s)) if hardened else 0,
-                      stroke_fill=(255, 255, 255, alpha // 3) if hardened else None)
-            x += step_x
-        if hardened:
-            # Línea ondulada entre filas: rompe patrones regulares fáciles de borrar.
-            ly = y + th + (step_y - th) / 2
-            amp = max(2.0, (step_y - th) * 0.3)
-            period = max(20.0, step_x / 2)
-            phase = rnd.uniform(0, math.tau)
-            pts = [(px, ly + amp * math.sin(px / period * math.tau + phase))
-                   for px in range(0, diag, max(2, int(3 * s)))]
-            draw.line(pts, fill=color + (int(a_max * 0.45),), width=max(1, int(1.5 * s)))
-        y += step_y
-        row += 1
-
-    layer = layer.rotate(angle, resample=Image.BICUBIC)
-    left, top = (diag - W) // 2, (diag - H) // 2
-    layer = layer.crop((left, top, left + W, top + H))
-    out = Image.alpha_composite(base, layer).convert("RGB")
-
-    if hardened:
-        noise = Image.effect_noise((W, H), 24).convert("RGB")
-        out = Image.blend(out, noise, 0.035)
-    return out
-
-
-def fit_size(img, width=None, height=None):
-    """Redimensiona a width x height píxeles. Si solo se da uno, mantiene la proporción."""
-    if not width and not height:
-        return img
-    w = width or round(img.width * height / img.height)
-    h = height or round(img.height * width / img.width)
-    return img.resize((max(1, int(w)), max(1, int(h))), Image.LANCZOS)
-
-
-def export_watermarked(src, dst, params, width=None, height=None):
-    """Exporta con marca de agua. El formato sale de la extensión de `dst`
-    (.pdf, .png, .jpg). Si el origen tiene varias páginas y se exporta como
-    imagen, se guarda un archivo por página (_p1, _p2...). Devuelve las rutas."""
-    pages = load_pages(src)
-    fmt = ext_of(dst)
-    marked = [(apply_watermark(fit_size(img, width, height), seed=1000 + i, **params), size_pt)
-              for i, (img, size_pt) in enumerate(pages)]
-    if fmt == ".pdf":
-        out = fitz.open()
-        for wm, size_pt in marked:
-            buf = io.BytesIO()
-            wm.save(buf, "JPEG", quality=90)
-            if size_pt is None or width or height:
-                size_pt = (wm.width * 72 / RENDER_DPI, wm.height * 72 / RENDER_DPI)
-            page = out.new_page(width=size_pt[0], height=size_pt[1])
-            page.insert_image(page.rect, stream=buf.getvalue())
-        out.set_metadata({})
-        out.save(dst, garbage=4, deflate=True)
-        out.close()
-        return [dst]
-    paths = []
-    for i, (wm, _) in enumerate(marked):
-        path = dst if len(marked) == 1 else suffixed(dst, f"p{i + 1}")
-        if fmt in (".jpg", ".jpeg"):
-            wm.save(path, "JPEG", quality=92)
-        else:
-            wm.save(path, "PNG")
-        paths.append(path)
-    return paths
-
-
-# --------------------------------------------------------------------------
-# Limpieza de metadatos
-# --------------------------------------------------------------------------
-
-EMPTY_CORE = (
-    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
-    '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/'
-    'metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" '
-    'xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/'
-    'dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>'
-)
-EMPTY_ODF_META = (
-    '<?xml version="1.0" encoding="UTF-8"?>\n'
-    '<office:document-meta xmlns:office="urn:oasis:names:tc:opendocument:xmlns:'
-    'office:1.0" office:version="1.2"><office:meta/></office:document-meta>'
-)
-
-
-def sanitize_file(src, dst):
-    ext = ext_of(src)
-    if ext == ".pdf":
-        with fitz.open(src) as doc:
-            doc.scrub()  # metadatos, XMP, JavaScript, adjuntos, miniaturas, texto oculto...
-            doc.set_metadata({})
-            doc.del_xml_metadata()
-            doc.save(dst, garbage=4, deflate=True, clean=True)
-    elif ext in IMAGE_EXTS:
-        img = Image.open(src)
-        img = ImageOps.exif_transpose(img)
-        clean = img.copy()
-        # Solo se conservan los píxeles (y la transparencia); fuera EXIF, XMP, ICC, textos...
-        clean.info = {k: v for k, v in img.info.items() if k == "transparency"}
-        if ext in (".jpg", ".jpeg"):
-            clean.convert("RGB").save(dst, "JPEG", quality=95)
-        else:
-            clean.save(dst)
-    elif ext in OFFICE_EXTS:
-        with zipfile.ZipFile(src) as zin, zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zout:
-            for item in zin.infolist():
-                data = zin.read(item.filename)
-                if item.filename == "docProps/core.xml":
-                    data = EMPTY_CORE.encode()
-                elif item.filename == "meta.xml":
-                    data = EMPTY_ODF_META.encode()
-                info = zipfile.ZipInfo(item.filename, date_time=(1980, 1, 1, 0, 0, 0))
-                info.compress_type = zipfile.ZIP_STORED if item.filename == "mimetype" else zipfile.ZIP_DEFLATED
-                zout.writestr(info, data)
-    else:
-        raise ValueError(f"Formato no soportado: {ext}")
-
-
-# --------------------------------------------------------------------------
-# Unión
-# --------------------------------------------------------------------------
-
-def merge_files(paths, dst):
-    out = fitz.open()
-    for p in paths:
-        if ext_of(p) == ".pdf":
-            with fitz.open(p) as d:
-                out.insert_pdf(d)
-        else:
-            with fitz.open(p) as img:
-                with fitz.open("pdf", img.convert_to_pdf()) as d:
-                    out.insert_pdf(d)
-    out.set_metadata({})
-    out.save(dst, garbage=4, deflate=True)
-    out.close()
-
-
-# --------------------------------------------------------------------------
-# Interfaz
-# --------------------------------------------------------------------------
-
-DOC_TYPES = [("Documentos", "*.pdf *.png *.jpg *.jpeg *.bmp *.tif *.tiff *.webp"),
-             ("Todos", "*.*")]
-
-
 class WatermarkTab(ttk.Frame):
     def __init__(self, master):
         super().__init__(master, padding=8)
         self.src = None
-        self.preview_src = None
+        self.page_idx = 0
+        self.n_pages = 0
+        self._cache = {}
         self.color = (200, 0, 0)
         self._job = None
         self._photo = None
 
-        ctrl = ttk.Frame(self)
+        ctrl = ttk.Frame(self, width=270)
         ctrl.pack(side="left", fill="y", padx=(0, 8))
-        ttk.Button(ctrl, text="Abrir documento…", command=self.open).pack(fill="x")
-        self.file_lbl = ttk.Label(ctrl, text="Ningún archivo", wraplength=230)
-        self.file_lbl.pack(fill="x", pady=4)
+        ctrl.columnconfigure(1, weight=1)
+        r = 0
 
-        ttk.Label(ctrl, text="Texto de la marca:").pack(anchor="w", pady=(8, 0))
-        self.text = tk.StringVar(value="Solo para uso de XXX")
-        e = ttk.Entry(ctrl, textvariable=self.text, width=32)
-        e.pack(fill="x")
+        def row(widget, pady=(6, 0), **kw):
+            nonlocal r
+            widget.grid(row=r, column=0, columnspan=3, sticky="ew", pady=pady, **kw)
+            r += 1
+
+        row(ttk.Button(ctrl, text="Abrir documento…", command=self.open), pady=0)
+        self.file_lbl = ttk.Label(ctrl, text="Ningún archivo (puedes arrastrarlo aquí)", wraplength=260)
+        row(self.file_lbl, pady=2)
+
+        pf = ttk.Frame(ctrl)
+        ttk.Label(pf, text="Plantilla:").pack(side="left")
+        self.preset = tk.StringVar()
+        self.preset_cb = ttk.Combobox(pf, textvariable=self.preset, state="readonly", width=14)
+        self.preset_cb.pack(side="left", fill="x", expand=True, padx=2)
+        self.preset_cb.bind("<<ComboboxSelected>>", lambda e: self.apply_preset())
+        ttk.Button(pf, text="Guardar", width=7, command=self.save_preset).pack(side="left")
+        ttk.Button(pf, text="✕", width=2, command=self.delete_preset).pack(side="left")
+        row(pf)
+
+        row(ttk.Label(ctrl, text="Texto de la marca:"))
+        self.text = tk.StringVar(value="Solo para uso de XXX – {fecha}")
+        row(ttk.Entry(ctrl, textvariable=self.text), pady=0)
         self.text.trace_add("write", lambda *_: self.schedule())
+        row(ttk.Label(ctrl, foreground="gray", text="{fecha} y {hora} se rellenan solos."), pady=0)
 
         self.vars = {}
         for key, label, lo, hi, val in [
-            ("angle", "Orientación (°)", -90, 90, 35),
-            ("size", "Tamaño del texto", 10, 150, 40),
-            ("gap_x", "Separación horizontal", 0, 400, 60),
-            ("gap_y", "Separación vertical", 0, 400, 80),
-            ("opacity", "Opacidad (%)", 5, 100, 35),
+            ("angle", "Orientación °", -90, 90, 35),
+            ("size", "Tamaño", 10, 150, 40),
+            ("gap_x", "Separación ↔", 0, 400, 60),
+            ("gap_y", "Separación ↕", 0, 400, 80),
+            ("opacity", "Opacidad %", 5, 100, 35),
         ]:
             var = tk.DoubleVar(value=val)
             self.vars[key] = var
-            row = ttk.Frame(ctrl)
-            row.pack(fill="x", pady=(8, 0))
-            ttk.Label(row, text=label).pack(side="left")
-            val_lbl = ttk.Label(row, text=str(val))
-            val_lbl.pack(side="right")
-            ttk.Scale(ctrl, from_=lo, to=hi, variable=var,
-                      command=lambda v, l=val_lbl: (l.config(text=str(int(float(v)))), self.schedule())
-                      ).pack(fill="x")
+            ttk.Label(ctrl, text=label).grid(row=r, column=0, sticky="w", pady=(4, 0))
+            ttk.Scale(ctrl, from_=lo, to=hi, variable=var).grid(row=r, column=1, sticky="ew", padx=4)
+            val_lbl = ttk.Label(ctrl, text=str(val), width=4)
+            val_lbl.grid(row=r, column=2)
+            var.trace_add("write", lambda *_, v=var, l=val_lbl: (l.config(text=str(int(v.get()))),
+                                                                 self.schedule()))
+            r += 1
 
-        self.color_btn = tk.Button(ctrl, text="Color", bg="#c80000", fg="white",
-                                   command=self.pick_color)
-        self.color_btn.pack(fill="x", pady=(10, 0))
+        self.color_btn = tk.Button(ctrl, text="Color", bg="#c80000", fg="white", command=self.pick_color)
+        row(self.color_btn)
         self.hardened = tk.BooleanVar(value=True)
-        ttk.Checkbutton(ctrl, text="Protección anti-IA (recomendado)", variable=self.hardened,
-                        command=self.schedule).pack(anchor="w", pady=6)
-        ttk.Label(ctrl, wraplength=230, foreground="gray",
-                  text="Añade variaciones aleatorias, líneas entrelazadas y ruido, "
-                       "y rasteriza el resultado (el PDF no tiene capa de texto "
-                       "que se pueda quitar).").pack(fill="x")
-        ttk.Label(ctrl, text="Exportar como:").pack(anchor="w", pady=(10, 0))
+        row(ttk.Checkbutton(ctrl, text="Protección anti-IA (recomendado)", variable=self.hardened,
+                            command=self.schedule))
+
+        ef = ttk.Frame(ctrl)
+        ttk.Label(ef, text="Exportar como:").pack(side="left")
         self.fmt = tk.StringVar(value="PDF")
-        fr = ttk.Frame(ctrl)
-        fr.pack(fill="x")
         for f in ("PDF", "JPG", "PNG"):
-            ttk.Radiobutton(fr, text=f, value=f, variable=self.fmt).pack(side="left")
-        ttk.Label(ctrl, text="Tamaño en píxeles (opcional):").pack(anchor="w", pady=(8, 0))
-        fr = ttk.Frame(ctrl)
-        fr.pack(fill="x")
+            ttk.Radiobutton(ef, text=f, value=f, variable=self.fmt).pack(side="left")
+        row(ef, pady=(10, 0))
+
+        sf = ttk.Frame(ctrl)
+        ttk.Label(sf, text="Tamaño px:").pack(side="left")
         self.out_w, self.out_h = tk.StringVar(), tk.StringVar()
-        ttk.Entry(fr, textvariable=self.out_w, width=7).pack(side="left")
-        ttk.Label(fr, text=" × ").pack(side="left")
-        ttk.Entry(fr, textvariable=self.out_h, width=7).pack(side="left")
-        ttk.Label(ctrl, wraplength=230, foreground="gray",
-                  text="Vacío = tamaño original. Si rellenas solo uno, "
-                       "se mantiene la proporción.").pack(fill="x")
-        ttk.Button(ctrl, text="Guardar con marca de agua…", command=self.save).pack(fill="x", pady=12)
+        ttk.Entry(sf, textvariable=self.out_w, width=6).pack(side="left")
+        ttk.Label(sf, text="×").pack(side="left")
+        ttk.Entry(sf, textvariable=self.out_h, width=6).pack(side="left")
+        row(sf)
+        row(ttk.Label(ctrl, foreground="gray", wraplength=260,
+                      text="Vacío = original. Solo uno = mantiene proporción."), pady=0)
 
-        self.canvas = tk.Canvas(self, bg="#444", highlightthickness=0)
-        self.canvas.pack(side="left", fill="both", expand=True)
+        row(ttk.Button(ctrl, text="Guardar con marca de agua…", command=self.save), pady=(12, 0))
+        row(ttk.Button(ctrl, text="Aplicar a varios archivos…", command=self.batch))
+
+        right = ttk.Frame(self)
+        right.pack(side="left", fill="both", expand=True)
+        self.canvas = tk.Canvas(right, bg="#444", highlightthickness=0)
+        self.canvas.pack(fill="both", expand=True)
         self.canvas.bind("<Configure>", lambda e: self.schedule())
+        nav = ttk.Frame(right)
+        nav.pack(pady=4)
+        ttk.Button(nav, text="◀", width=3, command=lambda: self.goto(self.page_idx - 1)).pack(side="left")
+        self.page_lbl = ttk.Label(nav, text="–", width=10, anchor="center")
+        self.page_lbl.pack(side="left")
+        ttk.Button(nav, text="▶", width=3, command=lambda: self.goto(self.page_idx + 1)).pack(side="left")
 
+        for w in (self, self.canvas):
+            enable_drop(w, lambda paths: self.load(paths[0]))
+        self.refresh_presets()
+
+    # -- parámetros y plantillas --
     def params(self):
         v = {k: var.get() for k, var in self.vars.items()}
         v["opacity"] /= 100.0
-        return dict(text=self.text.get() or " ", color=self.color,
-                    hardened=self.hardened.get(), **v)
+        return dict(text=self.text.get(), color=self.color, hardened=self.hardened.get(), **v)
 
+    def settings(self):
+        return dict(text=self.text.get(), color=list(self.color), hardened=self.hardened.get(),
+                    fmt=self.fmt.get(), width=self.out_w.get(), height=self.out_h.get(),
+                    **{k: var.get() for k, var in self.vars.items()})
+
+    def refresh_presets(self):
+        self.presets = core.load_presets()
+        self.preset_cb["values"] = sorted(self.presets)
+
+    def save_preset(self):
+        name = simpledialog.askstring(APP_NAME, "Nombre de la plantilla:", initialvalue=self.preset.get(),
+                                      parent=self)
+        if not name:
+            return
+        self.presets[name] = self.settings()
+        core.save_presets(self.presets)
+        self.refresh_presets()
+        self.preset.set(name)
+
+    def delete_preset(self):
+        name = self.preset.get()
+        if name in self.presets and messagebox.askyesno(APP_NAME, f"¿Borrar la plantilla «{name}»?"):
+            del self.presets[name]
+            core.save_presets(self.presets)
+            self.refresh_presets()
+            self.preset.set("")
+
+    def apply_preset(self):
+        p = self.presets.get(self.preset.get())
+        if not p:
+            return
+        self.text.set(p.get("text", ""))
+        for k, var in self.vars.items():
+            if k in p:
+                var.set(p[k])
+        self.set_color(tuple(p.get("color", self.color)))
+        self.hardened.set(p.get("hardened", True))
+        self.fmt.set(p.get("fmt", "PDF"))
+        self.out_w.set(p.get("width", ""))
+        self.out_h.set(p.get("height", ""))
+        self.schedule()
+
+    def set_color(self, rgb):
+        self.color = tuple(int(c) for c in rgb)
+        self.color_btn.config(bg="#%02x%02x%02x" % self.color)
+
+    def pick_color(self):
+        rgb, _ = colorchooser.askcolor(color="#%02x%02x%02x" % self.color)
+        if rgb:
+            self.set_color(rgb)
+            self.schedule()
+
+    # -- documento y vista previa --
     def open(self):
         path = filedialog.askopenfilename(filetypes=DOC_TYPES)
-        if not path:
-            return
+        if path:
+            self.load(path)
+
+    def load(self, path):
         try:
-            img, _ = load_pages(path, dpi=100)[0]
+            n = core.page_count(path)
+            core.load_page(path, 0, dpi=30)
         except Exception as ex:
             messagebox.showerror(APP_NAME, f"No se pudo abrir:\n{ex}")
             return
-        self.src = path
-        self.preview_src = img
+        self.src, self.n_pages, self._cache = path, n, {}
         self.file_lbl.config(text=os.path.basename(path))
-        self.schedule()
+        self.goto(0)
 
-    def pick_color(self):
-        rgb, hx = colorchooser.askcolor(color="#%02x%02x%02x" % self.color)
-        if rgb:
-            self.color = tuple(int(c) for c in rgb)
-            self.color_btn.config(bg=hx)
-            self.schedule()
+    def goto(self, i):
+        if not self.src:
+            return
+        self.page_idx = max(0, min(i, self.n_pages - 1))
+        self.page_lbl.config(text=f"{self.page_idx + 1} / {self.n_pages}")
+        self.schedule()
 
     def schedule(self):
         if self._job:
@@ -371,27 +245,36 @@ class WatermarkTab(ttk.Frame):
 
     def render(self):
         self._job = None
-        if self.preview_src is None:
+        if not self.src:
             return
+        if self.page_idx not in self._cache:
+            self._cache[self.page_idx] = core.load_page(self.src, self.page_idx, dpi=100)[0]
         cw, ch = max(50, self.canvas.winfo_width()), max(50, self.canvas.winfo_height())
-        img = self.preview_src.copy()
+        img = self._cache[self.page_idx].copy()
         img.thumbnail((cw - 10, ch - 10))
-        wm = apply_watermark(img, seed=1000, **self.params())
+        wm = core.apply_watermark(img, seed=1000 + self.page_idx, **self.params())
         self._photo = ImageTk.PhotoImage(wm)
         self.canvas.delete("all")
         self.canvas.create_image(cw // 2, ch // 2, image=self._photo)
 
-    def save(self):
-        if not self.src:
-            messagebox.showinfo(APP_NAME, "Primero abre un documento.")
-            return
+    # -- exportación --
+    def out_size(self):
         try:
             w = int(self.out_w.get()) if self.out_w.get().strip() else None
             h = int(self.out_h.get()) if self.out_h.get().strip() else None
             if (w is not None and w <= 0) or (h is not None and h <= 0):
                 raise ValueError
+            return True, w, h
         except ValueError:
             messagebox.showerror(APP_NAME, "El tamaño debe ser un número entero de píxeles.")
+            return False, None, None
+
+    def save(self):
+        if not self.src:
+            messagebox.showinfo(APP_NAME, "Primero abre un documento.")
+            return
+        ok, w, h = self.out_size()
+        if not ok:
             return
         ext = "." + self.fmt.get().lower()
         dst = filedialog.asksaveasfilename(
@@ -401,16 +284,45 @@ class WatermarkTab(ttk.Frame):
             return
         if ext_of(dst) != ext:
             dst += ext
-        self.config(cursor="watch")
-        self.update()
+        busy(self)
         try:
-            paths = export_watermarked(self.src, dst, self.params(), w, h)
+            paths = core.export_watermarked(self.src, dst, self.params(), w, h)
             messagebox.showinfo(APP_NAME, "Guardado:\n" + "\n".join(paths))
         except Exception as ex:
             messagebox.showerror(APP_NAME, f"Error al guardar:\n{ex}")
         finally:
-            self.config(cursor="")
+            busy(self, False)
 
+    def batch(self):
+        ok, w, h = self.out_size()
+        if not ok:
+            return
+        files = filedialog.askopenfilenames(filetypes=DOC_TYPES, title="Archivos a marcar")
+        if not files:
+            return
+        folder = filedialog.askdirectory(title="Carpeta de destino")
+        if not folder:
+            return
+        ext = "." + self.fmt.get().lower()
+        done, errors = 0, []
+        busy(self)
+        for f in files:
+            dst = os.path.join(folder, os.path.basename(suffixed(f, "marca", ext)))
+            try:
+                core.export_watermarked(f, dst, self.params(), w, h)
+                done += 1
+            except Exception as ex:
+                errors.append(f"{os.path.basename(f)}: {ex}")
+        busy(self, False)
+        msg = f"{done} archivo(s) guardados en:\n{folder}"
+        if errors:
+            msg += "\n\nErrores:\n" + "\n".join(errors)
+        messagebox.showinfo(APP_NAME, msg)
+
+
+# --------------------------------------------------------------------------
+# Censura
+# --------------------------------------------------------------------------
 
 class RedactTab(ttk.Frame):
     def __init__(self, master):
@@ -419,7 +331,8 @@ class RedactTab(ttk.Frame):
         self.src = None
         self.page_no = 0
         self.zoom = 1.3
-        self.marks = {}  # nº página -> [[fitz.Rect], ...] (grupos)
+        self.marks = {}      # nº página -> [[fitz.Rect], ...] (un grupo por acción, para deshacer)
+        self.ocr_words = {}  # nº página -> [(Rect, palabra)] reconocidas por OCR
         self._photo = None
         self._start = None
 
@@ -432,20 +345,27 @@ class RedactTab(ttk.Frame):
         ttk.Button(bar, text="▶", width=3, command=lambda: self.goto(self.page_no + 1)).pack(side="left")
         ttk.Button(bar, text="−", width=3, command=lambda: self.set_zoom(self.zoom / 1.2)).pack(side="left", padx=(10, 0))
         ttk.Button(bar, text="+", width=3, command=lambda: self.set_zoom(self.zoom * 1.2)).pack(side="left")
-
         self.mode = tk.StringVar(value="text")
         ttk.Radiobutton(bar, text="Seleccionar texto", value="text", variable=self.mode).pack(side="left", padx=(12, 0))
         ttk.Radiobutton(bar, text="Área libre", value="area", variable=self.mode).pack(side="left")
+        ttk.Button(bar, text="Reconocer texto (OCR)", command=self.run_ocr_all).pack(side="right")
 
         bar2 = ttk.Frame(self)
         bar2.pack(fill="x", pady=6)
-        ttk.Label(bar2, text="Buscar y censurar:").pack(side="left")
+        ttk.Label(bar2, text="Buscar:").pack(side="left")
         self.search = tk.StringVar()
-        ttk.Entry(bar2, textvariable=self.search, width=24).pack(side="left", padx=4)
-        ttk.Button(bar2, text="Marcar en todo el documento", command=self.search_mark).pack(side="left")
-        ttk.Button(bar2, text="Deshacer", command=self.undo).pack(side="left", padx=(12, 0))
+        ent = ttk.Entry(bar2, textvariable=self.search, width=18)
+        ent.pack(side="left", padx=4)
+        ent.bind("<Return>", lambda e: self.search_mark())
+        ttk.Button(bar2, text="Marcar todo", command=self.search_mark).pack(side="left")
+        ttk.Button(bar2, text="Detectar datos sensibles…", command=self.detect).pack(side="left", padx=(8, 0))
+        ttk.Button(bar2, text="Deshacer", command=self.undo).pack(side="left", padx=(8, 0))
         ttk.Button(bar2, text="Limpiar página", command=self.clear_page).pack(side="left")
         ttk.Button(bar2, text="Aplicar censura y guardar…", command=self.save).pack(side="right")
+        self.style = tk.StringVar(value="Cuadro negro")
+        ttk.Combobox(bar2, textvariable=self.style, values=list(core.REDACT_STYLES), state="readonly",
+                     width=13).pack(side="right", padx=4)
+        ttk.Label(bar2, text="Estilo:").pack(side="right")
 
         wrap = ttk.Frame(self)
         wrap.pack(fill="both", expand=True)
@@ -459,27 +379,27 @@ class RedactTab(ttk.Frame):
         self.canvas.bind("<ButtonPress-1>", self.on_press)
         self.canvas.bind("<B1-Motion>", self.on_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_release)
-        ttk.Label(self, foreground="gray",
-                  text="Arrastra sobre el texto para marcarlo. La censura elimina el texto "
-                       "y los píxeles de imagen subyacentes (no es solo un recuadro encima).").pack(anchor="w")
+        self.status = ttk.Label(self, foreground="gray",
+                                text="Arrastra sobre el texto para marcarlo (o suelta aquí un archivo). "
+                                     "La censura elimina el texto y los píxeles subyacentes.")
+        self.status.pack(anchor="w")
+        enable_drop(self.canvas, lambda paths: self.load(paths[0]))
 
     # -- documento --
     def open(self):
         path = filedialog.askopenfilename(filetypes=DOC_TYPES)
-        if not path:
-            return
+        if path:
+            self.load(path)
+
+    def load(self, path):
         try:
-            doc = fitz.open(path)
-            if not doc.is_pdf:
-                pdf = doc.convert_to_pdf()
-                doc.close()
-                doc = fitz.open("pdf", pdf)
+            doc = core.open_as_pdf(path)
         except Exception as ex:
             messagebox.showerror(APP_NAME, f"No se pudo abrir:\n{ex}")
             return
         if self.doc:
             self.doc.close()
-        self.doc, self.src, self.marks = doc, path, {}
+        self.doc, self.src, self.marks, self.ocr_words = doc, path, {}, {}
         self.goto(0)
 
     def goto(self, n):
@@ -506,17 +426,59 @@ class RedactTab(ttk.Frame):
     def render(self):
         if not self.doc:
             return
-        pix = self.page.get_pixmap(matrix=fitz.Matrix(self.zoom, self.zoom), alpha=False)
-        img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+        img = pil_from_page(self.page, self.zoom)
         self._photo = ImageTk.PhotoImage(img)
         self.canvas.delete("all")
         self.canvas.create_image(0, 0, image=self._photo, anchor="nw")
-        self.canvas.config(scrollregion=(0, 0, pix.width, pix.height))
+        self.canvas.config(scrollregion=(0, 0, img.width, img.height))
         for r in (r for g in self.marks.get(self.page_no, []) for r in g):
             c = self.to_canvas(r)
-            self.canvas.create_rectangle(c.x0, c.y0, c.x1, c.y1, fill="black",
-                                         stipple="gray50", outline="red")
+            self.canvas.create_rectangle(c.x0, c.y0, c.x1, c.y1, fill="black", stipple="gray50", outline="red")
+        extra = " · texto por OCR" if self.page_no in self.ocr_words else ""
         self.page_lbl.config(text=f"{self.page_no + 1} / {len(self.doc)}")
+        self.status.config(text=f"Página {self.page_no + 1}{extra}")
+
+    # -- texto y OCR --
+    def words(self, pno):
+        native = core.native_words(self.doc[pno])
+        return native if native else self.ocr_words.get(pno, [])
+
+    def pages_without_text(self):
+        return [i for i in range(len(self.doc))
+                if i not in self.ocr_words and not core.native_words(self.doc[i])]
+
+    def run_ocr(self, pages):
+        if not core.ocr_available():
+            messagebox.showerror(APP_NAME, "El OCR no está disponible en esta instalación.")
+            return
+        busy(self)
+        try:
+            for k, i in enumerate(pages, 1):
+                self.status.config(text=f"Reconociendo texto… página {i + 1} ({k}/{len(pages)})")
+                self.update()
+                self.ocr_words[i] = core.ocr_page_words(self.doc[i])
+        except Exception as ex:
+            messagebox.showerror(APP_NAME, f"Error en el OCR:\n{ex}")
+        finally:
+            busy(self, False)
+            self.render()
+
+    def run_ocr_all(self):
+        if not self.doc:
+            return
+        pages = self.pages_without_text()
+        if not pages:
+            messagebox.showinfo(APP_NAME, "Todas las páginas ya tienen texto seleccionable.")
+            return
+        self.run_ocr(pages)
+        n = sum(len(self.ocr_words.get(i, [])) for i in pages)
+        messagebox.showinfo(APP_NAME, f"OCR terminado: {n} palabras reconocidas en {len(pages)} página(s).")
+
+    def offer_ocr(self, pages):
+        if pages and core.ocr_available() and messagebox.askyesno(
+                APP_NAME, f"{len(pages)} página(s) no tienen texto (parecen escaneadas).\n"
+                          "¿Reconocer el texto con OCR? Puede tardar unos segundos por página."):
+            self.run_ocr(pages)
 
     # -- selección --
     def on_press(self, e):
@@ -528,8 +490,7 @@ class RedactTab(ttk.Frame):
 
     def on_drag(self, e):
         if self._start:
-            self.canvas.coords(self._rect_id, *self._start,
-                               self.canvas.canvasx(e.x), self.canvas.canvasy(e.y))
+            self.canvas.coords(self._rect_id, *self._start, self.canvas.canvasx(e.x), self.canvas.canvasy(e.y))
 
     def on_release(self, e):
         if not self._start:
@@ -543,17 +504,16 @@ class RedactTab(ttk.Frame):
             return
         new = []
         if self.mode.get() == "text":
-            for w in self.page.get_text("words"):
-                wr = fitz.Rect(w[:4])
-                if wr.intersects(sel):
-                    new.append(wr)
+            if not self.words(self.page_no):
+                self.offer_ocr([self.page_no])
+            new = [r for r, _ in self.words(self.page_no) if r.intersects(sel)]
             if not new:
                 messagebox.showinfo(APP_NAME, "No se ha encontrado texto en esa zona.\n"
-                                    "Si es un documento escaneado, usa el modo 'Área libre'.")
+                                              "Puedes usar el modo 'Área libre'.")
         else:
-            new.append(sel)
+            new = [sel]
         if new:
-            self.marks.setdefault(self.page_no, []).append(new)  # un grupo por selección
+            self.marks.setdefault(self.page_no, []).append(new)
         self.render()
 
     def undo(self):
@@ -571,49 +531,318 @@ class RedactTab(ttk.Frame):
         if not self.doc or not term:
             return
         count = 0
+        low = term.lower()
         for i, page in enumerate(self.doc):
             hits = page.search_for(term)
+            hits += [r for r, w in self.ocr_words.get(i, []) if low in w.lower()]
             if hits:
                 self.marks.setdefault(i, []).append(hits)
                 count += len(hits)
         self.render()
         messagebox.showinfo(APP_NAME, f"{count} coincidencia(s) marcadas.")
 
+    def detect(self):
+        if not self.doc:
+            return
+        self.offer_ocr(self.pages_without_text())
+        found = {}  # tipo -> [(página, [rects])]
+        for i in range(len(self.doc)):
+            for kind, groups in core.detect_sensitive(self.words(i)).items():
+                found.setdefault(kind, []).extend((i, g) for g in groups)
+        if not found:
+            messagebox.showinfo(APP_NAME, "No se han encontrado datos sensibles.")
+            return
+        dlg = tk.Toplevel(self)
+        dlg.title("Datos sensibles encontrados")
+        dlg.transient(self.winfo_toplevel())
+        ttk.Label(dlg, text="Marca los tipos que quieres censurar:", padding=10).pack(anchor="w")
+        checks = {}
+        for kind, items in found.items():
+            var = tk.BooleanVar(value=kind != "Fecha")
+            checks[kind] = var
+            ttk.Checkbutton(dlg, text=f"{kind}  ({len(items)})", variable=var).pack(anchor="w", padx=20)
+
+        def apply():
+            n = 0
+            for kind, var in checks.items():
+                if var.get():
+                    for pno, rects in found[kind]:
+                        self.marks.setdefault(pno, []).append(rects)
+                        n += 1
+            dlg.destroy()
+            self.render()
+            self.status.config(text=f"{n} dato(s) marcados. Revisa las páginas antes de guardar.")
+
+        ttk.Button(dlg, text="Marcar seleccionados", command=apply).pack(pady=10)
+        dlg.grab_set()
+
     def save(self):
         if not self.doc:
             return
-        if not any(self.marks.values()):
+        marks = {p: [r for g in gs for r in g] for p, gs in self.marks.items()}
+        if not any(marks.values()):
             messagebox.showinfo(APP_NAME, "No hay nada marcado para censurar.")
             return
-        dst = filedialog.asksaveasfilename(
-            defaultextension=".pdf", filetypes=[("PDF", "*.pdf")],
-            initialfile=os.path.basename(suffixed(self.src, "censurado", ".pdf")))
+        dst = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=PDF_TYPES,
+                                           initialfile=os.path.basename(suffixed(self.src, "censurado", ".pdf")))
         if not dst:
             return
+        busy(self)
         try:
-            data = self.doc.tobytes()
-            with fitz.open("pdf", data) as out:
-                for pno, groups in self.marks.items():
-                    page = out[pno]
-                    for r in (r for g in groups for r in g):
-                        page.add_redact_annot(r, fill=(0, 0, 0))
-                    page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_PIXELS)
-                out.scrub()
-                out.set_metadata({})
-                out.save(dst, garbage=4, deflate=True, clean=True)
+            core.redact_pdf(self.doc, marks, dst, core.REDACT_STYLES[self.style.get()])
             messagebox.showinfo(APP_NAME, f"Guardado:\n{dst}")
         except Exception as ex:
             messagebox.showerror(APP_NAME, f"Error al guardar:\n{ex}")
+        finally:
+            busy(self, False)
 
+
+# --------------------------------------------------------------------------
+# Páginas
+# --------------------------------------------------------------------------
+
+class PagesTab(ttk.Frame):
+    def __init__(self, master):
+        super().__init__(master, padding=8)
+        self.src = None
+        self.doc = None
+        self.items = []  # [[índice_original, giro_extra]]
+        self._photo = None
+
+        left = ttk.Frame(self)
+        left.pack(side="left", fill="y")
+        ttk.Button(left, text="Abrir PDF…", command=self.open).pack(fill="x")
+        self.file_lbl = ttk.Label(left, text="Ningún archivo", wraplength=220)
+        self.file_lbl.pack(fill="x", pady=4)
+        self.lb = tk.Listbox(left, selectmode="extended", width=28, height=22)
+        self.lb.pack(fill="y", expand=True)
+        self.lb.bind("<<ListboxSelect>>", lambda e: self.preview())
+        enable_drop(self.lb, lambda p: self.load(p[0]))
+
+        side = ttk.Frame(self)
+        side.pack(side="left", fill="y", padx=8)
+        for text, cmd in [("Subir", lambda: self.move(-1)), ("Bajar", lambda: self.move(1)),
+                          ("Girar ⟲ 90°", lambda: self.rotate(-90)), ("Girar ⟳ 90°", lambda: self.rotate(90)),
+                          ("Eliminar", self.delete), (None, None),
+                          ("Guardar PDF…", self.save), ("Extraer seleccionadas…", self.extract),
+                          ("Dividir: una por archivo…", self.split_each), ("Dividir por rangos…", self.split_ranges)]:
+            if text is None:
+                ttk.Separator(side).pack(fill="x", pady=10)
+            else:
+                ttk.Button(side, text=text, command=cmd).pack(fill="x", pady=2)
+
+        self.canvas = tk.Canvas(self, bg="#444", highlightthickness=0)
+        self.canvas.pack(side="left", fill="both", expand=True)
+        self.canvas.bind("<Configure>", lambda e: self.preview())
+        enable_drop(self.canvas, lambda p: self.load(p[0]))
+
+    def open(self):
+        path = filedialog.askopenfilename(filetypes=DOC_TYPES)
+        if path:
+            self.load(path)
+
+    def load(self, path):
+        try:
+            doc = core.open_as_pdf(path)
+        except Exception as ex:
+            messagebox.showerror(APP_NAME, f"No se pudo abrir:\n{ex}")
+            return
+        if self.doc:
+            self.doc.close()
+        self.src, self.doc = path, doc
+        self.items = [[i, 0] for i in range(len(doc))]
+        self.file_lbl.config(text=f"{os.path.basename(path)} ({len(doc)} págs.)")
+        self.refresh()
+        self.lb.selection_set(0)
+        self.preview()
+
+    def refresh(self, select=()):
+        self.lb.delete(0, "end")
+        for idx, rot in self.items:
+            self.lb.insert("end", f"Página {idx + 1}" + (f"   (girada {rot}°)" if rot else ""))
+        for i in select:
+            self.lb.selection_set(i)
+
+    def sel(self):
+        return list(self.lb.curselection())
+
+    def preview(self):
+        s = self.sel()
+        self.canvas.delete("all")
+        if not self.doc or not s:
+            return
+        idx, rot = self.items[s[0]]
+        cw, ch = max(50, self.canvas.winfo_width()), max(50, self.canvas.winfo_height())
+        img = pil_from_page(self.doc[idx], 1.0).rotate(-rot, expand=True)
+        img.thumbnail((cw - 10, ch - 10))
+        self._photo = ImageTk.PhotoImage(img)
+        self.canvas.create_image(cw // 2, ch // 2, image=self._photo)
+
+    def move(self, d):
+        s = self.sel()
+        if not s or min(s) + d < 0 or max(s) + d >= len(self.items):
+            return
+        for i in (s if d < 0 else reversed(s)):
+            self.items[i], self.items[i + d] = self.items[i + d], self.items[i]
+        self.refresh([i + d for i in s])
+
+    def rotate(self, deg):
+        s = self.sel()
+        for i in s:
+            self.items[i][1] = (self.items[i][1] + deg) % 360
+        self.refresh(s)
+        self.preview()
+
+    def delete(self):
+        s = self.sel()
+        if s and len(s) < len(self.items):
+            for i in reversed(s):
+                del self.items[i]
+            self.refresh()
+            self.preview()
+
+    def _ask_save(self, suffix):
+        return filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=PDF_TYPES,
+                                            initialfile=os.path.basename(suffixed(self.src, suffix, ".pdf")))
+
+    def _done(self, paths):
+        messagebox.showinfo(APP_NAME, f"{len(paths)} archivo(s) guardados:\n" + "\n".join(paths[:10]) +
+                            ("\n…" if len(paths) > 10 else ""))
+
+    def save(self):
+        if self.doc:
+            dst = self._ask_save("editado")
+            if dst:
+                core.save_pages(self.src, self.items, dst)
+                self._done([dst])
+
+    def extract(self):
+        s = self.sel()
+        if self.doc and s:
+            dst = self._ask_save("extracto")
+            if dst:
+                core.save_pages(self.src, [self.items[i] for i in s], dst)
+                self._done([dst])
+
+    def _split(self, groups, names):
+        folder = filedialog.askdirectory(title="Carpeta de destino")
+        if not folder:
+            return
+        base = os.path.splitext(os.path.basename(self.src))[0]
+        paths = []
+        for g, name in zip(groups, names):
+            dst = os.path.join(folder, f"{base}_{name}.pdf")
+            core.save_pages(self.src, [self.items[i] for i in g], dst)
+            paths.append(dst)
+        self._done(paths)
+
+    def split_each(self):
+        if self.doc:
+            n = len(self.items)
+            self._split([[i] for i in range(n)], [f"p{i + 1}" for i in range(n)])
+
+    def split_ranges(self):
+        if not self.doc:
+            return
+        spec = simpledialog.askstring(APP_NAME, "Rangos de páginas (según el orden actual).\n"
+                                                "Ejemplo: 1-3, 4-6, 7-", parent=self)
+        if not spec:
+            return
+        try:
+            groups = core.parse_ranges(spec, len(self.items))
+        except ValueError as ex:
+            messagebox.showerror(APP_NAME, str(ex))
+            return
+        self._split(groups, [f"{g[0] + 1}-{g[-1] + 1}" if len(g) > 1 else f"{g[0] + 1}" for g in groups])
+
+
+# --------------------------------------------------------------------------
+# Proteger con contraseña
+# --------------------------------------------------------------------------
+
+class ProtectTab(ttk.Frame):
+    def __init__(self, master):
+        super().__init__(master, padding=16)
+        self.src = None
+        ttk.Button(self, text="Abrir PDF o imagen…", command=self.open).grid(row=0, column=0, sticky="w")
+        self.file_lbl = ttk.Label(self, text="Ningún archivo (puedes arrastrarlo aquí)")
+        self.file_lbl.grid(row=0, column=1, columnspan=2, sticky="w", padx=8)
+
+        box = ttk.LabelFrame(self, text="Poner contraseña", padding=12)
+        box.grid(row=1, column=0, columnspan=3, sticky="ew", pady=12)
+        self.pw1, self.pw2, self.owner = tk.StringVar(), tk.StringVar(), tk.StringVar()
+        for r, (label, var) in enumerate([("Contraseña para abrir:", self.pw1), ("Repetir contraseña:", self.pw2),
+                                          ("Contraseña de propietario (opcional):", self.owner)]):
+            ttk.Label(box, text=label).grid(row=r, column=0, sticky="w", pady=3)
+            ttk.Entry(box, textvariable=var, show="•", width=30).grid(row=r, column=1, sticky="w", padx=8)
+        self.p_print, self.p_copy, self.p_edit = tk.BooleanVar(value=True), tk.BooleanVar(), tk.BooleanVar()
+        ttk.Checkbutton(box, text="Permitir imprimir", variable=self.p_print).grid(row=3, column=0, sticky="w", pady=(8, 0))
+        ttk.Checkbutton(box, text="Permitir copiar texto", variable=self.p_copy).grid(row=4, column=0, sticky="w")
+        ttk.Checkbutton(box, text="Permitir modificar", variable=self.p_edit).grid(row=5, column=0, sticky="w")
+        ttk.Label(box, foreground="gray", wraplength=520,
+                  text="Cifrado AES-256. La contraseña de propietario permite cambiar los permisos; "
+                       "si la dejas vacía se genera una aleatoria.").grid(row=6, column=0, columnspan=2, sticky="w", pady=6)
+        ttk.Button(box, text="Proteger y guardar…", command=self.protect).grid(row=7, column=0, sticky="w")
+
+        box2 = ttk.LabelFrame(self, text="Quitar contraseña", padding=12)
+        box2.grid(row=2, column=0, columnspan=3, sticky="ew")
+        self.pw_rm = tk.StringVar()
+        ttk.Label(box2, text="Contraseña actual:").grid(row=0, column=0, sticky="w")
+        ttk.Entry(box2, textvariable=self.pw_rm, show="•", width=30).grid(row=0, column=1, padx=8)
+        ttk.Button(box2, text="Quitar y guardar…", command=self.unprotect).grid(row=0, column=2)
+        enable_drop(self, lambda p: self.load(p[0]))
+
+    def open(self):
+        path = filedialog.askopenfilename(filetypes=DOC_TYPES)
+        if path:
+            self.load(path)
+
+    def load(self, path):
+        self.src = path
+        self.file_lbl.config(text=os.path.basename(path))
+
+    def protect(self):
+        if not self.src:
+            return messagebox.showinfo(APP_NAME, "Primero abre un archivo.")
+        if not self.pw1.get():
+            return messagebox.showerror(APP_NAME, "Escribe una contraseña.")
+        if self.pw1.get() != self.pw2.get():
+            return messagebox.showerror(APP_NAME, "Las contraseñas no coinciden.")
+        dst = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=PDF_TYPES,
+                                           initialfile=os.path.basename(suffixed(self.src, "protegido", ".pdf")))
+        if not dst:
+            return
+        try:
+            core.encrypt_pdf(self.src, dst, self.pw1.get(), self.owner.get(),
+                             self.p_print.get(), self.p_copy.get(), self.p_edit.get())
+            messagebox.showinfo(APP_NAME, f"Guardado:\n{dst}")
+        except Exception as ex:
+            messagebox.showerror(APP_NAME, f"Error:\n{ex}")
+
+    def unprotect(self):
+        if not self.src:
+            return messagebox.showinfo(APP_NAME, "Primero abre un archivo.")
+        dst = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=PDF_TYPES,
+                                           initialfile=os.path.basename(suffixed(self.src, "sin_clave", ".pdf")))
+        if not dst:
+            return
+        try:
+            core.decrypt_pdf(self.src, dst, self.pw_rm.get())
+            messagebox.showinfo(APP_NAME, f"Guardado:\n{dst}")
+        except Exception as ex:
+            messagebox.showerror(APP_NAME, f"Error:\n{ex}")
+
+
+# --------------------------------------------------------------------------
+# Pestañas con lista de archivos
+# --------------------------------------------------------------------------
 
 class FileListTab(ttk.Frame):
-    """Base para pestañas con una lista de archivos."""
-
     types = DOC_TYPES
 
     def __init__(self, master, intro, reorder):
         super().__init__(master, padding=8)
-        ttk.Label(self, text=intro, wraplength=700).pack(anchor="w", pady=(0, 6))
+        ttk.Label(self, text=intro, wraplength=760).pack(anchor="w", pady=(0, 6))
         body = ttk.Frame(self)
         body.pack(fill="both", expand=True)
         self.lb = tk.Listbox(body, selectmode="extended")
@@ -627,15 +856,19 @@ class FileListTab(ttk.Frame):
             ttk.Button(side, text="Subir", command=lambda: self.move(-1)).pack(fill="x")
             ttk.Button(side, text="Bajar", command=lambda: self.move(1)).pack(fill="x", pady=4)
         self.side = side
+        enable_drop(self.lb, self.add_paths)
 
     def refresh(self):
         self.lb.delete(0, "end")
         for p in self.paths:
             self.lb.insert("end", os.path.basename(p))
 
-    def add(self):
-        self.paths.extend(filedialog.askopenfilenames(filetypes=self.types))
+    def add_paths(self, paths):
+        self.paths.extend(p for p in paths if os.path.isfile(p))
         self.refresh()
+
+    def add(self):
+        self.add_paths(filedialog.askopenfilenames(filetypes=self.types))
 
     def remove(self):
         for i in reversed(self.lb.curselection()):
@@ -652,35 +885,92 @@ class FileListTab(ttk.Frame):
             self.refresh()
             self.lb.selection_set(j)
 
+    def run_each(self, func, label):
+        """Ejecuta func(ruta, carpeta) para cada archivo y muestra un resumen."""
+        if not self.paths:
+            return messagebox.showinfo(APP_NAME, "Añade algún archivo a la lista.")
+        folder = filedialog.askdirectory(title="Carpeta de destino")
+        if not folder:
+            return
+        lines, errors = [], []
+        busy(self)
+        for p in self.paths:
+            try:
+                lines.append(func(p, folder))
+            except Exception as ex:
+                errors.append(f"{os.path.basename(p)}: {ex}")
+        busy(self, False)
+        msg = f"{label}: {len(lines)} archivo(s).\n" + "\n".join(l for l in lines if l)
+        if errors:
+            msg += "\n\nErrores:\n" + "\n".join(errors)
+        messagebox.showinfo(APP_NAME, msg)
+
+
+class ToolsTab(FileListTab):
+    def __init__(self, master):
+        super().__init__(master, "Comprime PDFs para enviarlos por email, convierte las páginas de un PDF "
+                                 "en imágenes o cada imagen en un PDF. Añade o arrastra archivos a la lista.",
+                         reorder=False)
+        s = self.side
+        ttk.Separator(s).pack(fill="x", pady=10)
+        ttk.Label(s, text="Compresión:").pack(anchor="w")
+        self.level = tk.StringVar(value="Media")
+        ttk.Combobox(s, textvariable=self.level, values=list(core.COMPRESS_LEVELS), state="readonly",
+                     width=18).pack(fill="x")
+        ttk.Button(s, text="Comprimir PDFs…", command=self.compress).pack(fill="x", pady=4)
+        ttk.Separator(s).pack(fill="x", pady=10)
+        ttk.Label(s, text="PDF → imágenes:").pack(anchor="w")
+        f = ttk.Frame(s)
+        f.pack(fill="x")
+        self.img_fmt = tk.StringVar(value="png")
+        ttk.Combobox(f, textvariable=self.img_fmt, values=["png", "jpg"], state="readonly", width=5).pack(side="left")
+        self.dpi = tk.IntVar(value=200)
+        ttk.Spinbox(f, from_=72, to=600, increment=50, textvariable=self.dpi, width=5).pack(side="left", padx=4)
+        ttk.Label(f, text="ppp").pack(side="left")
+        ttk.Button(s, text="Convertir a imágenes…", command=self.to_images).pack(fill="x", pady=4)
+        ttk.Separator(s).pack(fill="x", pady=10)
+        ttk.Button(s, text="Imágenes → PDF (uno por archivo)…", command=self.to_pdf).pack(fill="x")
+
+    def compress(self):
+        def job(p, folder):
+            if ext_of(p) != ".pdf":
+                raise ValueError("no es un PDF")
+            dst = os.path.join(folder, os.path.basename(suffixed(p, "comprimido")))
+            before, after = core.compress_pdf(p, dst, self.level.get())
+            return f"{os.path.basename(p)}: {before / 1024:.0f} KB → {after / 1024:.0f} KB"
+        self.run_each(job, "Comprimidos")
+
+    def to_images(self):
+        def job(p, folder):
+            if ext_of(p) != ".pdf":
+                raise ValueError("no es un PDF")
+            n = len(core.pdf_to_images(p, folder, self.img_fmt.get(), int(self.dpi.get())))
+            return f"{os.path.basename(p)}: {n} imagen(es)"
+        self.run_each(job, "Convertidos")
+
+    def to_pdf(self):
+        def job(p, folder):
+            dst = os.path.join(folder, os.path.splitext(os.path.basename(p))[0] + ".pdf")
+            core.merge_files([p], dst)
+            return os.path.basename(dst)
+        self.run_each(job, "Convertidos")
+
 
 class SanitizeTab(FileListTab):
     types = [("Soportados", "*.pdf *.png *.jpg *.jpeg *.bmp *.tif *.tiff *.webp *.gif "
                             "*.docx *.xlsx *.pptx *.odt *.ods *.odp"), ("Todos", "*.*")]
 
     def __init__(self, master):
-        super().__init__(master, "Elimina metadatos (autor, software, fechas, GPS/EXIF, XMP, "
-                                 "JavaScript, adjuntos y miniaturas en PDF). Se guarda una copia "
-                                 "con el sufijo _limpio en la carpeta elegida.", reorder=False)
+        super().__init__(master, "Elimina metadatos (autor, software, fechas, GPS/EXIF, XMP, JavaScript, "
+                                 "adjuntos y miniaturas en PDF). Se guarda una copia con el sufijo _limpio.",
+                         reorder=False)
         ttk.Button(self.side, text="Limpiar todo…", command=self.run).pack(fill="x", pady=(16, 0))
 
     def run(self):
-        if not self.paths:
-            return
-        folder = filedialog.askdirectory(title="Carpeta de destino")
-        if not folder:
-            return
-        ok, errors = 0, []
-        for p in self.paths:
-            dst = os.path.join(folder, os.path.basename(suffixed(p, "limpio")))
-            try:
-                sanitize_file(p, dst)
-                ok += 1
-            except Exception as ex:
-                errors.append(f"{os.path.basename(p)}: {ex}")
-        msg = f"{ok} archivo(s) limpiados."
-        if errors:
-            msg += "\n\nErrores:\n" + "\n".join(errors)
-        messagebox.showinfo(APP_NAME, msg)
+        def job(p, folder):
+            core.sanitize_file(p, os.path.join(folder, os.path.basename(suffixed(p, "limpio"))))
+            return ""
+        self.run_each(job, "Limpiados")
 
 
 class MergeTab(FileListTab):
@@ -691,29 +981,58 @@ class MergeTab(FileListTab):
 
     def run(self):
         if len(self.paths) < 2:
-            messagebox.showinfo(APP_NAME, "Añade al menos dos archivos.")
-            return
-        dst = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF", "*.pdf")],
-                                           initialfile="unido.pdf")
+            return messagebox.showinfo(APP_NAME, "Añade al menos dos archivos.")
+        dst = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=PDF_TYPES, initialfile="unido.pdf")
         if not dst:
             return
         try:
-            merge_files(self.paths, dst)
+            core.merge_files(self.paths, dst)
             messagebox.showinfo(APP_NAME, f"Guardado:\n{dst}")
         except Exception as ex:
             messagebox.showerror(APP_NAME, f"Error al unir:\n{ex}")
 
 
-def main():
-    root = tk.Tk()
+def build(root):
     root.title(APP_NAME)
-    root.geometry("1150x780")
+    root.geometry("1180x820")
+    icon = core.resource_path("icon.png")
+    if os.path.exists(icon):
+        root._icon = ImageTk.PhotoImage(Image.open(icon).resize((128, 128)))
+        root.iconphoto(True, root._icon)
     nb = ttk.Notebook(root)
     nb.pack(fill="both", expand=True)
-    nb.add(WatermarkTab(nb), text="Marca de agua")
-    nb.add(RedactTab(nb), text="Censurar PDF")
-    nb.add(SanitizeTab(nb), text="Limpiar metadatos")
-    nb.add(MergeTab(nb), text="Unir PDFs")
+    tabs = [(WatermarkTab, "Marca de agua"), (RedactTab, "Censurar"), (PagesTab, "Páginas"),
+            (ProtectTab, "Contraseña"), (ToolsTab, "Comprimir y convertir"),
+            (SanitizeTab, "Limpiar metadatos"), (MergeTab, "Unir PDFs")]
+    for cls, name in tabs:
+        nb.add(cls(nb), text=name)
+    return nb
+
+
+def selftest():
+    """Comprueba el núcleo sin abrir la ventana (útil tras compilar): DocGuard --selftest"""
+    import tempfile
+    doc = fitz.open()
+    doc.new_page().insert_text((50, 80), "DNI 12345678Z", fontsize=14)
+    pix = doc[0].get_pixmap(dpi=200)
+    img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+    core.apply_watermark(img, "test {fecha}")
+    with tempfile.TemporaryDirectory() as tmp:
+        scan = os.path.join(tmp, "scan.png")
+        img.save(scan)
+        with core.open_as_pdf(scan) as sd:
+            found = core.detect_sensitive(core.ocr_page_words(sd[0]))
+    ok = "DNI / NIE" in found
+    print("selftest", "OK" if ok else f"FALLO: {found}", "| arrastrar y soltar:", HAS_DND)
+    return ok
+
+
+def main():
+    import sys
+    if "--selftest" in sys.argv:
+        sys.exit(0 if selftest() else 1)
+    root = TkinterDnD.Tk() if HAS_DND else tk.Tk()
+    build(root)
     root.mainloop()
 
 

@@ -26,3 +26,6 @@ python3 -m venv .venv
 - Windows: `build_windows.bat` → `dist\DocGuard\DocGuard.exe`
 
 PyInstaller no hace compilación cruzada: el .exe se genera en Windows y la .app en Mac.
+
+### Compilación automática
+Si subes este repositorio a GitHub, el workflow `.github/workflows/build.yml` compila la versión de Windows y la de macOS en cada push. Los ejecutables se descargan desde la pestaña *Actions* → *Artifacts*.

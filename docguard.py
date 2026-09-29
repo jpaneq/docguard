@@ -19,7 +19,7 @@ from functools import lru_cache
 import tkinter as tk
 from tkinter import colorchooser, filedialog, messagebox, ttk
 
-import fitz  # PyMuPDF
+import pymupdf as fitz
 from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageTk
 
 APP_NAME = "DocGuard"

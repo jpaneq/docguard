@@ -261,12 +261,14 @@ const Edit = {
       for (const s of st.spans) {
         const d = v.box(s.bbox, 'span' + (this.selSpans.has(s.i) ? ' sel' : ''));
         d.dataset.i = s.i;
-        d.title = `${s.font} · ${s.size} pt — doble clic para escribir`;
+        d.title = `${s.font} · ${s.size} pt — doble clic para escribir; seleccionado, la esquina del marco cambia el tamaño`;
         d.addEventListener('mousedown', e => (t === 'text' ? (e.stopPropagation(), e.button === 0 && this.startInline(s, e)) : this.spanDown(e, s)));
         d.addEventListener('dblclick', e => { e.stopPropagation(); this.startInline(s, e); });
         d.addEventListener('contextmenu', e => { if (!this.selSpans.has(s.i)) { this.selSpans = new Set([s.i]); this.sel = { type: 'spans' }; this.draw(); } this.contextMenu(e, s); });
       }
     }
+    // marco de la selección de texto, con tirador para cambiar el tamaño
+    if (t === 'select' && this.selSpans.size && !this.inline) this.drawSpanFrame();
     // anotaciones y formas
     if (['select', 'shape', 'annot'].includes(t)) {
       const fixed = ['Highlight', 'Underline', 'StrikeOut', 'Squiggly'];
@@ -285,7 +287,7 @@ const Edit = {
     if (this.region && this.region.n === v.n) v.box(this.region.r, 'region');
     (this.hits || []).forEach((hit, i) => { if (hit.n === v.n) v.box(hit.r, 'hit' + (i === this.hitIdx ? ' cur' : '')); });
     this.hint({
-      select: 'Clic: seleccionar · Doble clic en un texto: escribir (Intro = nueva línea) · Arrastrar: mover, o seleccionar zona en vacío · ⌘C/⌘X/⌘V · Supr · Clic derecho: más opciones',
+      select: 'Clic: seleccionar · Doble clic en un texto: escribir (Intro = nueva línea) · Arrastrar: mover · Esquina del marco: cambiar el tamaño · Arrastrar en vacío: seleccionar zona · ⌘C/⌘X/⌘V · Supr · Clic derecho: más opciones',
       text: 'Clic en la página para escribir texto nuevo, o en un texto existente para modificarlo. ⌘+Intro o clic fuera para fijarlo.',
       image: 'Arrastra en la página el recuadro donde colocar la imagen.',
       shape: 'Arrastra para dibujar la forma. Clic en una forma para moverla o cambiar su tamaño.',
@@ -357,14 +359,15 @@ const Edit = {
   renderBar() {
     const b = this.bar;
     b.innerHTML = '';
+    const add = (...xs) => b.append(...xs.flat().filter(x => x != null && x !== false));  // sin «null» sueltos
     const label = t => h('span', { class: 'blabel' }, t);
     const t = this.tool;
     const sel = this.st?.spans.filter(s => this.selSpans.has(s.i)) || [];
     if (this.inline?.isNew || t === 'text') {
-      b.append(label('Texto'), ...this.textControls(this.textOpts, async () => {
+      add(label('Texto'), ...this.textControls(this.textOpts, async () => {
         if (this.inline?.isNew) { await this.styleNew(this.inline.el); this.inline.el.focus(); }
       }, { lists: true }));
-      if (this.inline?.isNew) b.append(h('span', { class: 'grow' }), h('button', { class: 'primary', onmousedown: e => e.preventDefault(), onclick: () => this.commitInline() }, 'Fijar texto'));
+      if (this.inline?.isNew) add(h('span', { class: 'grow' }), h('button', { class: 'primary', onmousedown: e => e.preventDefault(), onclick: () => this.commitInline() }, 'Fijar texto'));
       return;
     }
     if (sel.length) {
@@ -372,20 +375,20 @@ const Edit = {
       const o = { font: 'auto', size: s0.size, color: s0.color, bold: s0.bold, italic: s0.italic };
       const apply = () => this.op('format_spans', { indices: sel.map(s => s.i), font: o.font, size: o.size, color: o.color, bold: o.bold, italic: o.italic }, 'Aplicando…', true)
         .then(ok => ok && this.reselectMoved(sel.length, 0, 0));
-      b.append(label(sel.length > 1 ? `${sel.length} textos` : 'Texto'), ...this.textControls(o, apply, { auto: `Original (${s0.font})` }),
+      add(label(sel.length > 1 ? `${sel.length} textos` : 'Texto'), ...this.textControls(o, apply, { auto: `Original (${s0.font})` }),
         h('span', { class: 'sep' }),
         sel.length === 1 ? h('button', { onclick: () => this.startInline(s0) }, 'Escribir') : null,
         ibtn('copy', 'Copiar', () => this.copyAny()), ibtn('trash', 'Borrar', () => this.deleteSel()));
       return;
     }
     if (this.sel?.type === 'image') {
-      b.append(label('Imagen'), h('span', { class: 'muted' }, 'Arrastra para mover · esquina para redimensionar'),
+      add(label('Imagen'), h('span', { class: 'muted' }, 'Arrastra para mover · esquina para redimensionar'),
         h('span', { class: 'sep' }), ibtn('copy', 'Copiar como imagen', () => this.copyAny()), ibtn('trash', 'Borrar imagen', () => this.deleteSel()));
       return;
     }
     if (this.sel?.type === 'annot') {
       const a = this.st.annots.find(x => x.xref === this.sel.id);
-      b.append(label(a?.label || 'Anotación'), a?.content ? h('span', { class: 'muted' }, a.content.slice(0, 60)) : null,
+      add(label(a?.label || 'Anotación'), a?.content ? h('span', { class: 'muted' }, a.content.slice(0, 60)) : null,
         h('span', { class: 'sep' }), ibtn('trash', 'Borrar', () => this.deleteSel()));
       return;
     }
@@ -394,7 +397,7 @@ const Edit = {
       if (!w) return;
       const name = h('input', { value: w.name, class: 'mid', title: 'Nombre del campo' });
       name.onchange = () => this.op('update_widget', { xref: w.xref, name: name.value });
-      b.append(label('Campo'), name,
+      add(label('Campo'), name,
         ['combobox', 'listbox'].includes(w.type) ? h('button', {
           onclick: async () => {
             const s = await ask('Opciones', 'Una opción por línea', w.options.join('\n'), { textarea: true });
@@ -405,14 +408,14 @@ const Edit = {
       return;
     }
     if (this.region) {
-      b.append(label('Zona'), h('span', { class: 'muted' }, 'Zona seleccionada'),
+      add(label('Zona'), h('span', { class: 'muted' }, 'Zona seleccionada'),
         h('button', { onclick: () => this.copyAny() }, 'Copiar'),
         h('button', { onclick: () => this.copyAny(false, true) }, 'Copiar como captura'));
       return;
     }
     if (t === 'shape') {
       const sh = this.shape;
-      b.append(label('Forma'), ...['rect', 'ellipse', 'line', 'arrow'].map(k =>
+      add(label('Forma'), ...['rect', 'ellipse', 'line', 'arrow'].map(k =>
         ibtn(k, { rect: 'Rectángulo', ellipse: 'Elipse', line: 'Línea', arrow: 'Flecha' }[k], () => { sh.kind = k; this.renderBar(); }, sh.kind === k)),
       h('span', { class: 'sep' }), label('Borde'), h('input', { type: 'color', value: sh.stroke, onchange: e => { sh.stroke = e.target.value; } }),
       h('input', { type: 'number', value: sh.width, min: 0.5, max: 20, step: 0.5, class: 'num', title: 'Grosor', onchange: e => { sh.width = +e.target.value; } }),
@@ -424,7 +427,7 @@ const Edit = {
       const a = this.ann;
       const kinds = { highlight: 'Resaltar (fosforito)', underline: 'Subrayar', strikeout: 'Tachar', note: 'Nota', freetext: 'Cuadro de texto', ink: 'Dibujo a mano' };
       const neon = { '#fff200': 'Amarillo flúor', '#39ff14': 'Verde flúor', '#ff3fa4': 'Rosa flúor', '#ff9a1f': 'Naranja flúor', '#1ee3ff': 'Azul flúor', '#c86bff': 'Lila flúor' };
-      b.append(label('Anotar'), ...Object.entries(kinds).map(([k, l]) => ibtn(k, l, () => { a.kind = k; this.draw(); }, a.kind === k)),
+      add(label('Anotar'), ...Object.entries(kinds).map(([k, l]) => ibtn(k, l, () => { a.kind = k; this.draw(); }, a.kind === k)),
         h('span', { class: 'sep' }),
         ...Object.entries(neon).map(([c, t]) => h('button', { class: 'swatch' + (a.color === c ? ' on' : ''), title: t, style: `--c:${c}`, onmousedown: e => e.preventDefault(), onclick: () => { a.color = c; this.renderBar(); } })),
         h('input', { type: 'color', value: a.color, title: 'Otro color', onchange: e => { a.color = e.target.value; this.renderBar(); } }),
@@ -433,7 +436,7 @@ const Edit = {
     }
     if (t === 'form') {
       const types = { text: 'Texto', checkbox: 'Casilla', radio: 'Opción', combobox: 'Desplegable', listbox: 'Lista' };
-      b.append(label('Nuevo campo'), ...Object.entries(types).map(([k, l]) =>
+      add(label('Nuevo campo'), ...Object.entries(types).map(([k, l]) =>
         h('button', { class: this.widgetType === k ? 'on' : '', onclick: () => { this.widgetType = k; this.renderBar(); } }, l)),
       h('span', { class: 'grow' }), ibtn('flatten', 'Aplanar formulario y anotaciones', async () => {
         if (await confirmBox('Aplanar', 'Los campos y anotaciones pasarán a ser contenido fijo. ¿Continuar?', 'Aplanar')) this.op('flatten', {});
@@ -446,7 +449,7 @@ const Edit = {
         g.append(h('div', { class: 'sig-item' + (it.id === this.sig ? ' sel' : ''), title: 'Usar esta firma', onclick: () => { this.sig = it.id; this.renderBar(); } },
           h('img', { src: Sigs.src(it) })));
       }
-      b.append(label('Firma'), g, ibtn('plus', 'Nueva firma', async () => { const id = await Sigs.create(); if (id) { this.sig = id; this.renderBar(); } }),
+      add(label('Firma'), g, ibtn('plus', 'Nueva firma', async () => { const id = await Sigs.create(); if (id) { this.sig = id; this.renderBar(); } }),
         h('span', { class: 'sep' }), h('button', { onclick: () => this.marginDialog() }, icon('margin'), ' Al margen (todas las páginas)…'),
         this.sig ? ibtn('trash', 'Borrar la firma guardada', async () => {
           if (await confirmBox('Borrar firma', '¿Borrar esta firma guardada?', 'Borrar')) { await api('sigimg/delete', { id: this.sig }); this.sig = null; Sigs.load(); }
@@ -454,11 +457,11 @@ const Edit = {
       return;
     }
     if (t === 'image') {
-      b.append(label('Imagen'), h('button', { onclick: () => this.pickImage() }, 'Elegir imagen…'),
+      add(label('Imagen'), h('button', { onclick: () => this.pickImage() }, 'Elegir imagen…'),
         h('span', { class: 'muted' }, this.pendingImage ? 'Arrastra en la página dónde colocarla.' : ''));
       return;
     }
-    b.append(h('span', { class: 'muted' }, this.info ? 'Selecciona algo en la página para ver sus opciones.' : ''));
+    add(h('span', { class: 'muted' }, this.info ? 'Selecciona algo en la página para ver sus opciones.' : ''));
   },
 
   /* ---- teclado ---- */
@@ -626,6 +629,62 @@ const Edit = {
       if (moved) this.moveSel(dx, dy);
       else if (wasOnly && !e.shiftKey) this.startInline(s, ev);
     }, { once: true });
+  },
+  /** Marco alrededor de los textos seleccionados; su esquina cambia el tamaño (letra e interlineado). */
+  drawSpanFrame() {
+    const sel = this.st.spans.filter(s => this.selSpans.has(s.i));
+    if (!sel.length) return;
+    const u = sel.map(s => s.bbox).reduce((a, b) => [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])]);
+    const v = this.viewer, pad = 2;
+    const fr = v.box([u[0] - pad, u[1] - pad, u[2] + pad, u[3] + pad], 'span-frame');
+    const handle = h('div', { class: 'handle', title: 'Arrastra para cambiar el tamaño del texto' });
+    fr.append(handle);
+    handle.addEventListener('mousedown', e => this.scaleDrag(e, sel, u, fr));
+  },
+  scaleDrag(e, sel, u, fr) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const v = this.viewer, p0 = v.pt(e), z = v.zoom, pad = 2;
+    const w = u[2] - u[0], hh = u[3] - u[1], diag2 = w * w + hh * hh;
+    const boxes = $$('.bx.span.sel', v.ov);
+    const label = h('div', { class: 'scale-label' });
+    fr.append(label);
+    let f = 1;
+    const mv = ev => {
+      const p = v.pt(ev);
+      f = clamp(1 + ((p[0] - p0[0]) * w + (p[1] - p0[1]) * hh) / diag2, 0.2, 8);  // a lo largo de la diagonal
+      v.place(fr, [u[0] - pad, u[1] - pad, u[0] + w * f + pad, u[1] + hh * f + pad]);
+      boxes.forEach(b => {
+        b.style.transformOrigin = `${u[0] * z - parseFloat(b.style.left)}px ${u[1] * z - parseFloat(b.style.top)}px`;
+        b.style.transform = `scale(${f})`;
+      });
+      const sizes = [...new Set(sel.map(s => Math.round(s.size * f * 10) / 10))];
+      label.textContent = `${sizes.length === 1 ? sizes[0] + ' pt' : Math.round(f * 100) + ' %'}`;
+    };
+    window.addEventListener('mousemove', mv);
+    window.addEventListener('mouseup', async () => {
+      window.removeEventListener('mousemove', mv);
+      if (Math.abs(f - 1) < 0.02) { this.draw(); return; }
+      const ok = await this.op('scale_spans', { indices: sel.map(s => s.i), factor: Math.round(f * 1000) / 1000, anchor: u.slice(0, 2) },
+        'Cambiando el tamaño…', true);
+      if (ok) this.reselectScaled(u, f);
+    }, { once: true });
+  },
+  reselectScaled(u, f) {
+    const found = new Set();
+    for (const b of this.lastSel || []) {
+      const r = [u[0] + (b[0] - u[0]) * f, u[1] + (b[1] - u[1]) * f];
+      let best = null, bd = 1e9;
+      for (const s of this.st.spans) {
+        const d = Math.abs(s.bbox[0] - r[0]) + Math.abs(s.bbox[1] - r[1]);
+        if (d < bd) { bd = d; best = s; }
+      }
+      if (best && bd < 8 * Math.max(1, f)) found.add(best.i);
+    }
+    this.selSpans = found;
+    this.sel = found.size ? { type: 'spans' } : null;
+    this.draw();
   },
   async moveSel(dx, dy) {
     const indices = [...this.selSpans];

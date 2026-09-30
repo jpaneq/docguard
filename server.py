@@ -1018,6 +1018,7 @@ EDIT_OPS = {
         sorted({p for g in core.parse_ranges(r["ranges"], len(doc)) for p in g}) if r.get("ranges") else None,
         r.get("filename", "")),
     "move_spans": lambda doc, r: editor.move_spans(doc, r["n"], r["indices"], float(r["dx"]), float(r["dy"])),
+    "scale_spans": lambda doc, r: editor.scale_spans(doc, r["n"], r["indices"], float(r["factor"]), r["anchor"]),
     "format_spans": lambda doc, r: editor.format_spans(doc, r["n"], r["indices"], r.get("font", "auto"), r.get("size"),
                                                       r.get("color"), r.get("bold"), r.get("italic")),
     "delete_spans": lambda doc, r: editor.delete_spans(doc, r["n"], r["indices"]),

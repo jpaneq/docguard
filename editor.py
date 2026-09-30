@@ -298,6 +298,22 @@ def move_spans(doc, pno, indices, dx, dy):
                          color=rgb(s["color"]), rotate=page.rotation, **kw)
 
 
+def scale_spans(doc, pno, indices, factor, anchor):
+    """Cambia el tamaño de los fragmentos indicados (letra e interlineado) por `factor`,
+    dejando fija la esquina `anchor` (x, y de pantalla) de la selección."""
+    factor = max(0.2, min(8.0, float(factor)))
+    page = doc[pno]
+    all_spans = spans(page)
+    sel = [all_spans[i] for i in sorted(set(indices))]
+    fonts = [resolve_font(doc, page, s["rawfont"], s["flags"], s["text"])[0] for s in sel]
+    a = point_from_view(page, float(anchor[0]), float(anchor[1]))
+    _erase_spans(page, sel)
+    for s, kw in zip(sel, fonts):
+        o = fitz.Point(s["origin"])
+        page.insert_text(a + (o - a) * factor, s["text"], fontsize=max(1.0, s["size"] * factor),
+                         color=rgb(s["color"]), rotate=page.rotation, **kw)
+
+
 def format_spans(doc, pno, indices, font="auto", size=None, color=None, bold=None, italic=None):
     """Cambia el formato de varios fragmentos manteniendo su texto y posición."""
     page = doc[pno]

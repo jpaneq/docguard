@@ -86,6 +86,9 @@ main { flex: 1; min-width: 0; position: relative; }
 .bx.mark { background: var(--mark); outline: 1px solid #e33; }
 .bx.sigbox { border: 2px solid var(--ok); background: rgba(31, 157, 85, .1); }
 .bx.point { width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--accent); }
+.bx.span-frame { border: 1px dashed var(--accent); pointer-events: none; }
+.bx.span-frame .handle { pointer-events: auto; }
+.bx.span-frame .scale-label { position: absolute; right: -4px; bottom: -26px; background: var(--accent); color: #fff; font-size: 11px; padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
 .bx .handle { position: absolute; right: -6px; bottom: -6px; width: 12px; height: 12px; background: var(--accent); border: 2px solid #fff; border-radius: 3px; cursor: nwse-resize; }
 .bx.widget { border: 1px solid rgba(90, 90, 200, .7); background: #eef2ff; display: flex; }
 .bx.widget.sel { border-color: var(--accent); }

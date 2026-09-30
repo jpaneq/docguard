@@ -196,6 +196,10 @@ def selftest():
         "marca de agua": call("wm/preview", {"id": info["id"], "n": 0, "params": {"text": "x"}})[:2] == b"\xff\xd8",
         "detección": "DNI / NIE" in call("detect", {"id": info["id"]})["found"],
         "edición": call("edit/state", {"id": info["id"], "n": 0})["spans"][0]["text"] == "DNI 12345678Z",
+        "cambiar el tamaño del texto": (call("edit/scale_spans", {"id": info["id"], "n": 0, "indices": [0], "factor": 1.5,
+                                                                  "anchor": [50, 60]}) is not None
+                                        and call("edit/state", {"id": info["id"], "n": 0})["spans"][0]["size"] == 21.0
+                                        and call("edit/undo", {"id": info["id"]}) is not None),
     }
     pix = doc[0].get_pixmap(dpi=200)
     scan = call("open", raw=pix.tobytes("png"), name="scan.png")

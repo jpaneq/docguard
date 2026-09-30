@@ -1092,6 +1092,51 @@ def op_sign(req):
     return res
 
 
+def op_sign_batch(req):
+    """Firma varios PDF con una sola sesión (el PIN del DNIe se usa una vez). Si el sello de tiempo
+    o la validación fallan en uno, el resto se firma sin ellos (para no esperar a cada archivo)."""
+    place = req.get("place", "margin_last")
+    tsa, ltv = req.get("tsa") or None, bool(req.get("ltv"))
+    files, errors, notes, names = [], [], [], set()
+    with signing.open_signer(req) as signer:
+        for did in req["ids"]:
+            d = DOCS.get(did)
+            if not d:
+                continue
+            try:
+                doc = need_pdf(d)
+                data, warn = d.pdf_bytes(), []
+                opts = dict(reason=req.get("reason", ""), location=req.get("location", ""), contact=req.get("contact", ""),
+                            tsa_url=tsa, ltv=ltv, notes=warn)
+                if place.startswith("margin"):
+                    if any(f["signed"] for f in signing.list_signature_fields(data)):
+                        raise ValueError("ya tiene firmas y el margen las invalidaría (fírmalo dentro de la página)")
+                    n = 0 if place == "margin_first" else len(doc) - 1
+                    m = signing.band_metrics(doc[n].rect.width)
+                    data, band = signing.add_margin(data, n, m["h"])
+                    opts.update(page=n, font_size=max(5, round(m["fs"])), view_rect=[
+                        band[2] - m["pad"] - m["sig_w"], band[1] + m["pad"] * 0.55, band[2] - m["pad"], band[3] - m["pad"] * 0.55])
+                out = signing.sign_pdf(data, None, None, signer=signer, **opts)
+                if warn:
+                    notes.append(f"{d.name}: {'; '.join(warn)}; los siguientes se firman sin ello")
+                    tsa, ltv = (None, False) if any("sello" in w for w in warn) else (tsa, False)
+                base = d.base if d.base.endswith("_firmado") else d.base + "_firmado"
+                name, k = f"{base}.pdf", 2
+                while name in names:
+                    name, k = f"{base}_{k}.pdf", k + 1
+                names.add(name)
+                files.append((name, out))
+            except Exception as ex:
+                if isinstance(ex, signing._PinError) or type(ex).__module__.split(".")[0] == "pkcs11":
+                    raise  # PIN o tarjeta: se detiene todo
+                errors.append(f"{d.name}: {ex}")
+    if not files:
+        raise ValueError("No se ha podido firmar ningún archivo. " + " · ".join(errors))
+    res = store_result(files)
+    res.update(errors=errors, notes=[f"{len(files)} PDF firmado(s)"] + notes)
+    return res
+
+
 def op_sign_test(req):
     """«Probar mi firma»: firma un PDF de prueba con el sello y la validación elegidos y
     devuelve un informe. No se anota en ningún historial."""
@@ -1167,7 +1212,7 @@ OPS = {
     "compress": op_compress, "toimages": op_toimages, "topdf": op_topdf, "sanitize": op_sanitize, "merge": op_merge, "merge_pages": op_merge_pages,
     "edit/state": op_edit_state, "fonts": op_fonts, "outline": op_outline, "edit/undo": op_undo, "edit/redo": op_redo, "edit/export": op_edit_export,
     "sigimgs": op_sigimgs, "sigimg/save": op_sigimg_save, "sigimg/delete": op_sigimg_delete,
-    "sigimg/place": op_place_sigimg, "sigimg/margin": op_sign_margin, "edit/copy": op_copy, "edit/copy_spans": op_copy_spans, "certinfo": op_certinfo, "sign": op_sign, "sign/test": op_sign_test,
+    "sigimg/place": op_place_sigimg, "sigimg/margin": op_sign_margin, "edit/copy": op_copy, "edit/copy_spans": op_copy_spans, "certinfo": op_certinfo, "sign": op_sign, "sign/test": op_sign_test, "sign/batch": op_sign_batch,
     "p11/modules": op_p11_modules, "p11/list": op_p11_list, "p11/login": op_p11_login, "verify": op_verify,
 }
 for _name in EDIT_OPS:

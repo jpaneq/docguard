@@ -26,6 +26,7 @@ const Sign = {
     act('signmail', () => this.sign('mail'));
     act('verify', () => this.verify());
     act('testsign', () => this.testSign());
+    act('batch', () => this.batch());
     act('prepfields', () => this.togglePrep());
     this.fields = []; this.field = null; this.prep = null;
     // sello de tiempo y validación: se recuerda lo último que se eligió
@@ -97,6 +98,45 @@ const Sign = {
     const pw = await ask('Contraseña del certificado', `Contraseña de ${this.certName || 'tu certificado'} (no se guarda)`, '', { password: true });
     if (pw === null) return null;
     return { source: 'file', p12: this.p12, password: pw };
+  },
+  /** Firma por lotes: varios PDF con el PIN o la contraseña una sola vez. */
+  async batch() {
+    const files = await pickFiles(ACCEPT_PDF, true);
+    if (!files.length) return;
+    const infos = [];
+    busy(true, 'Abriendo…');
+    try {
+      for (const f of files) {
+        try {
+          const i = await uploadFile(f);
+          if (i.kind === 'pdf' && !i.encrypted && i.pages.length) infos.push(i);
+          else toast(`${f.name}: no se puede firmar (no es un PDF o tiene contraseña).`, 'err');
+        } catch (e) { toast(e.message, 'err'); }
+      }
+    } finally { busy(false); }
+    if (!infos.length) return;
+    const close = () => infos.forEach(i => api('close', { id: i.id }).catch(() => {}));
+    const place = h('select', {},
+      h('option', { value: 'margin_last' }, 'En un margen añadido abajo, en la última página'),
+      h('option', { value: 'margin_first' }, 'En un margen añadido abajo, en la primera página'),
+      h('option', { value: 'invisible' }, 'Invisible (va en el PDF, sin recuadro)'));
+    const go = await new Promise(res => modal({
+      title: `Firmar ${infos.length} PDF`,
+      body: h('div', {}, h('ul', { class: 'help' }, infos.map(i => h('li', {}, i.name))), h('label', {}, 'Dónde va la firma', place),
+        h('small', {}, 'Se usan el certificado o DNIe, el motivo, el lugar, el sello de tiempo y la validación de esta pestaña. El PIN o la contraseña se piden una sola vez. Los PDF que ya tengan firmas no admiten el margen: fírmalos de uno en uno.')),
+      actions: [{ label: 'Cancelar', fn: () => res(false) }, { label: 'Firmar todos', primary: true, fn: () => res(true) }],
+    }));
+    if (!go) return close();
+    const cred = await this.credential();
+    if (!cred) return close();
+    const tsa = this.k('tsa').value === 'custom' ? this.k('tsa_custom').value.trim() : this.k('tsa').value;
+    const res = await run(`Firmando ${infos.length} PDF…`, () => api('sign/batch', {
+      ids: infos.map(i => i.id), place: place.value, ...cred, tsa, ltv: this.k('ltv').checked,
+      reason: this.k('reason').value, location: this.k('location').value, contact: this.k('contact').value,
+    }));
+    close();
+    if (this.source === 'card' && !res && this.card.state === 'ok') this.setCard('found', this.card.text);
+    if (res) saveResult(res);
   },
   /** «Probar mi firma»: firma un PDF de prueba y explica qué funciona y qué no. */
   async testSign() {

@@ -81,6 +81,7 @@ def test_document():
             <p>Ábrelo en Adobe Acrobat Reader o en Autofirma: debería indicar que la firma es válida y que el
             documento no se ha modificado desde que se firmó.</p>""",
                             css="* {font-family: sans-serif; font-size: 13px; line-height: 1.4} h1 {font-size: 26px}")
+        doc.subset_fonts()
         return doc.tobytes(garbage=3, deflate=True)
 
 
@@ -469,6 +470,7 @@ def prepare_copy(pdf_bytes, info, ack=False):
             css = (f"* {{font-family: sans-serif; font-size: {fs}px; line-height: 1.25; color: #3a3f4a; margin: 0}}"
                    " b {color: #111}")
             page.insert_htmlbox(text_r, "<br>".join(lines), css=css)
+        doc.subset_fonts()
         out = doc.tobytes(garbage=3, deflate=True)
     return out, layout
 
@@ -593,7 +595,8 @@ def _appearance(path, box, name, fs, tsa, opaque=False, image_png=None, lines=()
                 + (" · con sello de tiempo" if tsa else "")
                 + "".join(f"<br>{html.escape(_short(x, 80))}" for x in lines))
         page.insert_htmlbox(text_r, body, css=css)
-        doc.save(path)
+        doc.subset_fonts()  # solo las letras usadas: de ~500 KB a unas decenas
+        doc.save(path, garbage=3, deflate=True)
 
 
 @contextlib.contextmanager

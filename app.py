@@ -197,6 +197,13 @@ def selftest():
     prueba = call("sign/test", {"source": "file", "p12": _b64.b64encode(_test_p12("Prueba de firma")).decode(), "password": "x"})
     checks["probar mi firma"] = bool(prueba["signature"]["intact"] and prueba["signature"]["valid"]
                                      and prueba["profile"]["subject"] == "Prueba de firma")
+    import signing as _signing
+    lote_ids = [call("open", raw=doc.tobytes(), name=f"lote{i}.pdf")["id"] for i in range(2)]
+    lote = call("sign/batch", {"ids": lote_ids, "place": "margin_last", "source": "file", "password": "x",
+                               "p12": _b64.b64encode(_test_p12("Lote")).decode()})
+    firmados = server.RESULTS[lote["rid"]]
+    checks["firma por lotes"] = len(firmados) == 2 and all(
+        len(v := _signing.verify_pdf(b)) == 1 and v[0]["intact"] and v[0]["valid"] for _, b in firmados)
     import protect
     from PIL import Image
     card = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)

@@ -344,6 +344,15 @@ class NeedsPassword(ValueError):
     pass
 
 
+def _covered_end(sig):
+    """Hasta qué byte del archivo llega lo que cubre la firma (su versión del documento)."""
+    try:
+        br = [int(x) for x in sig.sig_object["/ByteRange"]]
+        return br[2] + br[3]
+    except Exception:
+        return None
+
+
 def _plain(value):
     """Texto de un objeto PDF (en un PDF cifrado llega como proxy aún sin descifrar)."""
     value = getattr(value, "decrypted", value)
@@ -391,6 +400,7 @@ def verify_pdf(pdf_bytes, password=None):
             "reason": _plain(sig.sig_object.get("/Reason")),
             "certified": sig.docmdp_level is not None,
             "timestamp": tsa, "ltv": dss,
+            "covered_end": _covered_end(sig),
             "error": error,
         })
     return results

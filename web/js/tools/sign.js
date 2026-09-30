@@ -27,6 +27,7 @@ const Sign = {
     act('verify', () => this.verify());
     act('testsign', () => this.testSign());
     act('batch', () => this.batch());
+    act('tracklist', () => this.trackList());
     act('prepfields', () => this.togglePrep());
     this.fields = []; this.field = null; this.prep = null;
     // sello de tiempo y validación: se recuerda lo último que se eligió
@@ -272,6 +273,48 @@ const Sign = {
     this.viewer.load(info);
     this.listSignatures(info.id);
     this.loadFields();
+    this.trackCheck(info.id);
+  },
+  /** ¿Es un documento que enviaste a firmar? Qué ha pasado desde entonces. */
+  async trackCheck(id) {
+    const box = $('.track-box', this.root);
+    box.hidden = true;
+    const r = await api('track/check', { id }).catch(() => null);
+    if (!r || (!r.match && !r.mismatch) || id !== this.info?.id) return;
+    box.hidden = false;
+    if (r.mismatch) {
+      box.className = 'track-box bad';
+      box.replaceChildren(h('b', {}, '⚠ Se llama como un documento que enviaste a firmar'),
+        h('div', {}, `(${r.record.archivo}, ${r.record.fecha}), pero no contiene intacto lo que enviaste: puede que se haya editado, vuelto a guardar o «impreso como PDF», y entonces las firmas anteriores ya no valen. Revísalo con «Verificar firmas».`));
+      return;
+    }
+    box.className = 'track-box ' + (r.all_ok ? 'ok' : 'bad');
+    box.replaceChildren(
+      h('b', {}, `📨 Documento que enviaste a firmar el ${r.record.fecha}`),
+      h('div', {}, r.exact ? 'Es exactamente lo que enviaste: todavía no ha firmado nadie más.' : 'Lo que enviaste sigue intacto.'),
+      r.after.length ? h('div', {}, 'Han firmado después: ', r.after.map((a, i) => h('span', {}, i ? ', ' : '', h('b', { class: a.ok ? 'ok' : 'bad' }, a.ok ? '✔ ' : '✘ '), `${a.signer}${a.time ? ' (' + a.time + ')' : ''}`))) : null,
+      r.pending.length ? h('div', {}, `Falta: ${r.pending.join(', ')}`) : h('div', {}, h('b', { class: 'ok' }, 'Todas las firmas están completas.')),
+      r.all_ok ? null : h('div', { class: 'bad' }, 'Alguna firma no es válida: revisa «Verificar firmas».'));
+  },
+  async trackList() {
+    const r = await run('Cargando…', () => api('track/list'));
+    if (!r) return;
+    let close;
+    const del = async x => {
+      if (!(await confirmBox('Quitar del seguimiento', `¿Quitar «${x.archivo}» de los documentos enviados a firmar?`, 'Quitar'))) return;
+      await api('track/delete', { key: x.key });
+      close();
+      this.trackList();
+    };
+    const estado = x => x.estado === 'completo' ? '✔ completo' : x.estado === 'pendiente' ? `pendiente (${x.recuadros.filter(n => !(x.firmados || []).includes(n)).join(', ') || '—'})` : 'enviado';
+    const body = r.items.length ? h('table', { class: 'reg' },
+      h('tr', {}, h('th', {}, 'Enviado'), h('th', {}, 'Archivo'), h('th', {}, 'Estado'), h('th', {}, 'Última comprobación'), h('th', {}, '')),
+      r.items.map(x => h('tr', {}, h('td', {}, x.fecha), h('td', {}, x.archivo), h('td', {}, estado(x)), h('td', {}, x.ultima_comprobacion || '—'),
+        h('td', {}, h('button', { class: 'mini', title: 'Quitar', onclick: () => del(x) }, '✕')))))
+      : h('p', {}, 'Todavía no has enviado documentos a firmar. Se anotan al usar «Firmar y enviar por correo» o al guardar un PDF con recuadros pendientes.');
+    close = modal({ title: 'Documentos enviados a firmar', body: h('div', {}, body,
+      h('p', { class: 'muted' }, 'Cuando te devuelvan uno, ábrelo aquí en Firma digital: DocGuard te dirá si lo que enviaste sigue intacto, quién ha firmado y quién falta.')),
+      actions: [{ label: 'Cerrar', primary: true }], wide: true });
   },
   draw() {
     const v = this.viewer;
@@ -355,7 +398,9 @@ const Sign = {
     this.prep = null;
     $('[data-act=prepfields]', this.root).textContent = 'Preparar recuadros para varios firmantes…';
     this.loadInfo(r.info);
-    toast('Recuadros creados. Cada firmante elige su recuadro y firma; puedes guardar esta versión y enviarla.', 'ok', [{ label: 'Guardar…', fn: () => saveResult({ rid: r.rid, files: [{ name: r.info.name, size: r.info.size }] }) }], 9000);
+    toast('Recuadros creados. Cada firmante elige su recuadro y firma; puedes guardar esta versión y enviarla.', 'ok', [{ label: 'Guardar…', fn: async () => {
+      if (await saveResult({ rid: r.rid, files: [{ name: r.info.name, size: r.info.size }] })) api('track/add', { rid: r.rid }).catch(() => {});
+    } }], 9000);
   },
   async certInfo() {
     if (!this.p12) return toast('Elige primero el archivo del certificado.', 'err');
@@ -387,7 +432,7 @@ const Sign = {
     const res = await run('Firmando…', () => api('sign', {
       id: this.info.id, ...cred, margin,
       n: margin ? this.viewer.n : (visible && this.rect ? this.rect.n : null), rect: visible && this.rect && !this.field ? this.rect.r : null,
-      field: margin ? null : this.field || null, sig: visible ? this.k('sig').value : '',
+      field: margin ? null : this.field || null, sig: visible ? this.k('sig').value : '', track: mode === 'mail',
       reason: this.k('reason').value, location: this.k('location').value, contact: this.k('contact').value, tsa,
       ltv: this.k('ltv').checked,
     }));

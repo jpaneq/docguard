@@ -32,6 +32,7 @@ import protect
 import records
 import scan
 import signing
+import tracking
 
 TOKEN = secrets.token_urlsafe(18)
 LOCK = threading.RLock()  # PyMuPDF no es seguro entre hilos: una operación a la vez
@@ -1143,8 +1144,33 @@ def op_sign(req):
         out = signing.sign_pdf(data, base64.b64decode(req["p12"]), req.get("password", ""), **opts)
     base = d.base if d.base.endswith("_firmado") else d.base + "_firmado"
     res = store_result([(f"{base}.pdf", out)])
+    # seguimiento: si se envía a otro o aún faltan firmas, se anota la huella de lo que sale
+    if req.get("track") or any(not f["signed"] for f in signing.list_signature_fields(out)):
+        tracking.register(f"{base}.pdf", out)
+        notes.append("anotado en «Documentos enviados a firmar»")
     res["notes"] = notes
     return res
+
+
+def op_track_add(req):
+    name, data = RESULTS[req["rid"]][0]
+    return {"key": tracking.register(name, data)}
+
+
+def op_track_check(req):
+    d = get_doc(req)
+    if d.kind != "pdf":
+        return {"match": False}
+    return tracking.check(d.name, d.pdf_bytes(), req.get("password"))
+
+
+def op_track_list(req):
+    return {"items": tracking.listing()}
+
+
+def op_track_delete(req):
+    tracking.delete(req["key"])
+    return {}
 
 
 def op_sign_batch(req):
@@ -1269,6 +1295,7 @@ OPS = {
     "edit/state": op_edit_state, "fonts": op_fonts, "outline": op_outline, "edit/undo": op_undo, "edit/redo": op_redo, "edit/export": op_edit_export,
     "sigimgs": op_sigimgs, "sigimg/save": op_sigimg_save, "sigimg/delete": op_sigimg_delete,
     "sigimg/place": op_place_sigimg, "sigimg/margin": op_sign_margin, "edit/copy": op_copy, "edit/copy_spans": op_copy_spans, "certinfo": op_certinfo, "sign": op_sign, "sign/test": op_sign_test, "sign/batch": op_sign_batch,
+    "track/add": op_track_add, "track/check": op_track_check, "track/list": op_track_list, "track/delete": op_track_delete,
     "p11/modules": op_p11_modules, "p11/list": op_p11_list, "p11/login": op_p11_login, "verify": op_verify,
 }
 for _name in EDIT_OPS:

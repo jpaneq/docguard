@@ -259,6 +259,16 @@ def selftest():
         checks["historial: copia, exportar e importar"] = (ref_h in copia["entregas"] and imp["merged"] >= 1
                                                            and set(protect.lookup(ref_h)["sha256"]) == {"a" * 64, "b" * 64})
         records.set_backup_folder("")
+        # seguimiento: se envía con un recuadro pendiente y vuelve firmado por otra persona
+        contrato = _signing.add_signature_fields(doc.tobytes(), [{"name": "Yo", "page": 0, "rect": [60, 700, 260, 760]},
+                                                                 {"name": "Otro", "page": 0, "rect": [330, 700, 530, 760]}])
+        c_id = call("open", raw=contrato, name="contrato.pdf")["id"]
+        enviado = server.RESULTS[call("sign", {"id": c_id, "source": "file", "password": "x", "field": "Yo", "track": True,
+                                               "p12": _b64.b64encode(_test_p12("Yo")).decode()})["rid"]][0][1]
+        vuelta = _signing.sign_pdf(enviado, _test_p12("Otro"), "x", field_name="Otro")
+        seg = call("track/check", {"id": call("open", raw=vuelta, name="contrato_firmado.pdf")["id"]})
+        checks["seguimiento de envíos a firmar"] = bool(seg["match"] and not seg["pending"] and len(seg["after"]) == 1
+                                                        and seg["record"]["estado"] == "completo")
     finally:
         if previo is None:
             os.environ.pop("DOCGUARD_CONFIG", None)

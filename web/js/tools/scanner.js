@@ -12,6 +12,7 @@ const Scanner = {
     this.res = $('.scan-result-img img', this.root);
     const act = (a, f) => { $(`[data-act=${a}]`, this.root).onclick = f; };
     act('add', async () => this.add(await pickFiles(ACCEPT_DOCS, true)));
+    act('mobile', () => this.mobile());
     act('export', () => this.export());
     act('redetect', () => this.redetect());
     act('full', () => { const it = this.item; if (it) { it.quad = [[0, 0], [1, 0], [1, 1], [0, 1]]; this.drawQuad(); this.schedule(); } });
@@ -53,6 +54,40 @@ const Scanner = {
     if (render) this.render();
     const low = this.items.filter(i => i.conf < 0.3).length;
     if (low) toast(`${low} imagen(es) sin bordes claros: ajusta las esquinas a mano (o usa «Toda la imagen»).`, '', [], 6000);
+  },
+  /** Escanear con el móvil: un QR abre en el móvil una página para hacer la foto, que llega aquí por la wifi. */
+  async mobile() {
+    const r = await run('Preparando…', () => api('mobile/start'));
+    if (!r) return;
+    const count = h('b', {}, '0');
+    const left = h('span', {}, 'caduca en 10 min');
+    let stop = false;
+    modal({
+      title: 'Escanear con el móvil',
+      body: h('div', { class: 'mobile' },
+        h('img', { src: 'data:image/png;base64,' + r.qr, class: 'mobile-qr', alt: 'Código QR' }),
+        h('ol', { class: 'help' },
+          h('li', {}, 'Conecta el móvil a la misma wifi que este ordenador.'),
+          h('li', {}, 'Escanea este código con la cámara del móvil y abre el enlace.'),
+          h('li', {}, 'Pulsa «Hacer foto» y fotografía el documento: aparecerá aquí solo, listo para enderezarlo.')),
+        h('p', {}, 'Fotos recibidas: ', count, ' · ', left),
+        h('p', { class: 'muted' }, 'La foto no pasa por internet, pero viaja sin cifrar por la wifi: úsalo solo en tu wifi de casa. El enlace deja de funcionar al cerrar esta ventana o a los 10 minutos. La primera vez, el ordenador puede preguntar si permites conexiones entrantes: acéptalo para que el móvil pueda enviar la foto.'),
+        h('p', { class: 'muted mono' }, r.url)),
+      actions: [{ label: 'Terminar', primary: true }],
+      onclose: () => { stop = true; api('mobile/stop').catch(() => {}); },
+    });
+    const tick = async () => {
+      if (stop) return;
+      const s = await api('mobile/status').catch(() => null);
+      if (s) {
+        for (const info of s.items) await this.addInfo(info);
+        count.textContent = s.count;
+        left.textContent = s.alive ? `caduca en ${Math.max(1, Math.ceil(s.left / 60))} min` : 'enlace caducado';
+        if (!s.alive) return;
+      }
+      setTimeout(tick, 1500);
+    };
+    tick();
   },
   async redetect() {
     const it = this.item;

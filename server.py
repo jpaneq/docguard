@@ -737,6 +737,41 @@ def op_scan_export(req):
     return store_result(files)
 
 
+MOBILE = None  # sesión de «Escanear con el móvil» (servidor temporal aparte, solo en la red local)
+
+
+def op_mobile_start(req):
+    global MOBILE
+    import mobile
+    if MOBILE:
+        MOBILE.stop()
+    MOBILE = mobile.Session()
+    import qrcode
+    buf = io.BytesIO()
+    qrcode.make(MOBILE.url, box_size=8, border=2).save(buf)
+    return {"url": MOBILE.url, "qr": base64.b64encode(buf.getvalue()).decode(), "left": mobile.LIFETIME}
+
+
+def op_mobile_status(req):
+    if not MOBILE:
+        return {"alive": False, "left": 0, "count": 0, "items": []}
+    items = []
+    for name, data in MOBILE.take():
+        did = secrets.token_urlsafe(8)
+        DOCS[did] = Doc(name, data)
+        items.append(DOCS[did].info(did))
+    import time
+    return {"alive": MOBILE.alive, "left": int(max(0, MOBILE.expires - time.time())), "count": MOBILE.count, "items": items}
+
+
+def op_mobile_stop(req):
+    global MOBILE
+    if MOBILE:
+        MOBILE.stop()
+        MOBILE = None
+    return {}
+
+
 def op_redact_preview(req):
     """Aplica la censura a una copia y la abre como documento para verla antes de guardar."""
     res = op_redact(req)
@@ -1306,7 +1341,8 @@ OPS = {
     "words": op_words, "pages_without_text": op_pages_without_text, "ocr": op_ocr, "detect": op_detect,
     "search": op_search, "redact": op_redact, "redact/marks/load": op_marks_load, "redact/marks/save": op_marks_save,
     "compare": op_compare, "search_many": op_search_many,
-    "scan/detect": op_scan_detect, "scan/preview": op_scan_preview, "scan/export": op_scan_export, "sign/fields": op_sig_fields, "sign/fields/add": op_sig_fields_add,
+    "scan/detect": op_scan_detect, "scan/preview": op_scan_preview, "scan/export": op_scan_export,
+    "mobile/start": op_mobile_start, "mobile/status": op_mobile_status, "mobile/stop": op_mobile_stop, "sign/fields": op_sig_fields, "sign/fields/add": op_sig_fields_add,
     "todocx": op_todocx, "doctopdf": op_doctopdf, "redact/preview": op_redact_preview,
     "pages/save": op_pages_save, "encrypt": op_encrypt, "decrypt": op_decrypt,
     "compress": op_compress, "toimages": op_toimages, "topdf": op_topdf, "sanitize": op_sanitize, "merge": op_merge, "merge_pages": op_merge_pages,

@@ -20,6 +20,7 @@
   <button data-tool="convert"><span class="ic">⇄</span>Comprimir y convertir</button>
   <button data-tool="sanitize"><span class="ic">✧</span>Limpiar metadatos</button>
   <button data-tool="merge"><span class="ic">⊕</span>Unir PDFs</button>
+  <button data-tool="compare"><span class="ic">⇆</span>Comparar versiones</button>
   <div class="card-status nav-card off" hidden><span class="dot"></span><span class="txt"></span></div>
   <div class="nav-foot">Todo se procesa en tu equipo.<br>Ningún archivo sale de él.</div>
 </aside>
@@ -55,6 +56,9 @@
       </div>
       <span class="sep"></span>
       <button data-act="ocr" data-i="ocr" title="Reconocer texto de escaneos (OCR)"></button>
+      <span class="sep"></span>
+      <div class="findbox"><input data-k="find" placeholder="Buscar… (⌘F)"><span class="findcount"></span>
+        <button data-act="findprev" title="Anterior (⇧Intro)">▲</button><button data-act="findnext" title="Siguiente (Intro)">▼</button></div>
       <span class="grow"></span>
       <button class="primary" data-act="export" disabled>Guardar PDF…</button>
     </div>
@@ -68,6 +72,14 @@
     <div class="work">
       <div class="side-panel">
         <div class="files" data-role="files"></div>
+        <div class="quick">
+          <b>Modo rápido DNI / pasaporte</b>
+          <small>Oculta los datos innecesarios, añade marca reforzada, microtexto, QR y marca de rastreo, y lo guarda como PDF (con contraseña si quieres), en un paso.</small>
+          <input data-k="q_recipient" placeholder="Para quién (p. ej. Inmobiliaria Sol S.L.)">
+          <input data-k="q_purpose" placeholder="Finalidad (p. ej. alquiler piso C/ Mayor 3)">
+          <input data-k="q_password" type="password" placeholder="Contraseña para abrirlo (opcional)">
+          <button class="primary wide" data-act="quick">Proteger y guardar</button>
+        </div>
         <label>Plantilla
           <div class="row"><select data-k="preset"><option value="">—</option></select>
           <button data-act="preset-save" title="Guardar ajustes como plantilla">Guardar</button>
@@ -127,6 +139,8 @@
           <label class="inline"><input type="radio" name="wmfmt" value="png"> PNG</label></div>
         <div class="row">Tamaño px <input data-k="width" class="num" placeholder="ancho"> × <input data-k="height" class="num" placeholder="alto"></div>
         <small>Vacío = original. Solo uno = mantiene la proporción.</small>
+        <label>Contraseña para abrir el PDF (opcional) <input type="password" data-k="password" autocomplete="off"></label>
+        <small>{destinatario} y {finalidad} en el texto se rellenan con los datos del QR.</small>
         <button class="primary wide" data-act="export">Guardar con marca de agua…</button>
         <small>Si has abierto varios archivos, se marcan todos a la vez.</small>
         <div class="row" style="margin-top:12px">
@@ -215,6 +229,9 @@
               <li>Sirve igual para otras tarjetas criptográficas (FNMT en tarjeta, colegios profesionales…) con su módulo PKCS#11.</li>
             </ul></details>
         </div>
+        <h3>Recuadros de firma</h3>
+        <div class="field-list muted">Sin recuadros preparados.</div>
+        <button class="wide" data-act="prepfields">Preparar recuadros para varios firmantes…</button>
         <h3>Aspecto</h3>
         <label class="inline"><input type="checkbox" data-k="visible" checked> Firma visible</label>
         <small>Arrastra sobre la página para colocar el recuadro de la firma.</small>
@@ -248,6 +265,7 @@
       <button data-act="rotl">↺ Girar</button>
       <button data-act="rotr">↻ Girar</button>
       <button data-act="del">Eliminar</button>
+      <button data-act="number">Numerar y encabezados…</button>
       <span class="grow"></span>
       <button data-act="extract">Extraer seleccionadas…</button>
       <button data-act="each">Una por archivo…</button>
@@ -281,7 +299,7 @@
   <!-- COMPRIMIR Y CONVERTIR -->
   <section class="tool" id="tool-convert">
     <div class="form-page">
-      <p>Comprime PDFs para enviarlos por email, convierte las páginas de un PDF en imágenes o cada imagen en un PDF.</p>
+      <p>Comprime PDFs para enviarlos por email y convierte entre PDF, Word e imágenes.</p>
       <div class="files" data-role="files"></div>
       <fieldset><legend>Comprimir PDF</legend>
         <select data-k="level"><option>Baja (mejor calidad)</option><option selected>Media</option><option>Alta (menor tamaño)</option></select>
@@ -291,6 +309,11 @@
         <select data-k="fmt"><option value="png">PNG</option><option value="jpg">JPG</option></select>
         <input data-k="dpi" type="number" value="200" min="50" max="600" class="num"> ppp
         <button class="primary" data-act="toimages">Convertir…</button>
+      </fieldset>
+      <fieldset><legend>Word ↔ PDF</legend>
+        <button class="primary" data-act="todocx">PDF → Word (.docx)…</button>
+        <button class="primary" data-act="doctopdf">Word, RTF, ODT, TXT, HTML → PDF…</button>
+        <small>PDF → Word mantiene texto, tablas e imágenes para poder editarlo. Para máxima fidelidad Word → PDF, instala LibreOffice (gratuito); si no, se usa la conversión integrada.</small>
       </fieldset>
       <fieldset><legend>Imágenes → PDF</legend>
         <button class="primary" data-act="topdf">Un PDF por imagen…</button>
@@ -327,6 +350,22 @@
     </div>
     <div class="merge-grid" data-pane="grid" hidden></div>
   </section>
+  <!-- COMPARAR -->
+  <section class="tool" id="tool-compare">
+    <div class="toolbar">
+      <button data-act="opena">Original…</button><span class="doc-name" data-role="na">—</span>
+      <span class="muted">frente a</span>
+      <button data-act="openb">Nueva versión…</button><span class="doc-name" data-role="nb">—</span>
+      <button class="primary" data-act="run">Comparar</button>
+      <label class="inline"><input type="checkbox" data-k="sync" checked> Desplazar juntos</label>
+      <span class="grow"></span><span class="muted" data-role="summary"></span>
+    </div>
+    <div class="work">
+      <div class="cmp-col"><div class="cmp-title">Original <span class="lg-del">quitado / cambiado</span></div><div class="viewer-host" data-role="a"></div></div>
+      <div class="cmp-col"><div class="cmp-title">Nueva versión <span class="lg-add">añadido / cambiado</span></div><div class="viewer-host" data-role="b"></div></div>
+      <div class="props cmp-list"><h3>Cambios</h3><p class="muted">Abre las dos versiones y pulsa «Comparar».</p></div>
+    </div>
+  </section>
 </main>
 
 <div id="busy"><div class="spinner"></div><div class="busy-text"></div></div>
@@ -342,6 +381,7 @@
 <script src="js/tools/pages.js"></script>
 <script src="js/tools/misc.js"></script>
 <script src="js/tools/merge.js"></script>
+<script src="js/tools/compare.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

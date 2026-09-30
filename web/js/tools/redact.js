@@ -48,6 +48,7 @@ const Redact = {
     $('.doc-name', this.root).textContent = info.name;
     this.viewer.load(info);
     this.ensureWords(0);
+    this.restoreMarks();
   },
   async ensureWords(n) {
     if (!this.words[n]) {
@@ -62,6 +63,7 @@ const Redact = {
   draw() {
     const v = this.viewer;
     if (!this.info) return;
+    if (!this.preview) this.persist();
     const pages = v.pages ? v.pages.length : 1;
     for (let n = 0; n < pages; n++) {
       const ov = v.pageOv(n);
@@ -77,6 +79,25 @@ const Redact = {
         if (isSel) d.append(h('div', { class: 'x', title: 'Quitar esta zona', onmousedown: e => { e.stopPropagation(); this.removeMark(); } }, '✕'));
       }));
     }
+  },
+  /** Recupera las zonas marcadas la última vez en este mismo documento. */
+  async restoreMarks() {
+    const id = this.info.id;
+    const r = await api('redact/marks/load', { id }).catch(() => null);
+    if (!r || this.info?.id !== id || !r.marks || !Object.keys(r.marks).length) return;
+    this.marks = {};
+    for (const [n, groups] of Object.entries(r.marks)) this.marks[+n] = groups;
+    if (r.style) $('[data-k=style]', this.root).value = r.style;
+    this.restoring = true;
+    this.draw();
+    this.restoring = false;
+    toast(`Se han recuperado ${this.count()} zona(s) marcadas la última vez en este documento.`, 'ok',
+      [{ label: 'Descartarlas', fn: () => { this.marks = {}; this.draw(); } }], 8000);
+  },
+  persist() {
+    if (!this.info || this.restoring) return;
+    clearTimeout(this._pt);
+    this._pt = setTimeout(() => api('redact/marks/save', { id: this.info.id, marks: this.marks, style: $('[data-k=style]', this.root).value }).catch(() => {}), 400);
   },
   collectMarks() {
     const marks = {};

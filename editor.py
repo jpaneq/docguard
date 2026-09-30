@@ -755,3 +755,45 @@ def sign_margin(doc, png, side="derecha", length_pct=22, pages=None, ratio=3.0):
         page.insert_image(from_view(page, rect), stream=png, keep_proportion=True, rotate=rot)
         count += 1
     return count
+
+
+# --------------------------------------------------------------------------
+# Numeración de páginas, encabezados y pies
+# --------------------------------------------------------------------------
+
+def header_footer(doc, number="Página {n} de {total}", number_pos="abajo-centro", header="", header_align="centro",
+                  footer="", footer_align="izquierda", size=9, color="#444444", start=1, skip_first=False,
+                  pages=None, filename=""):
+    """Escribe numeración, encabezado y pie en las páginas indicadas.
+    Admite {n}, {total}, {fecha} y {archivo} en los textos."""
+    import datetime
+    fecha = datetime.date.today().strftime("%d/%m/%Y")
+    targets = list(pages) if pages is not None else list(range(len(doc)))
+    if skip_first and targets and targets[0] == 0:
+        targets = targets[1:]
+    total = len(targets) + start - 1
+    col = rgb(color)
+    count = 0
+    for k, pno in enumerate(targets):
+        page = doc[pno]
+        W, H = page.rect.width, page.rect.height
+        m = max(18.0, min(W, H) * 0.035)
+        fill = lambda t: (t.replace("{n}", str(start + k)).replace("{total}", str(total))
+                          .replace("{fecha}", fecha).replace("{archivo}", filename))
+        items = []
+        if number:
+            v, hpos = number_pos.split("-")
+            items.append((fill(number), v, hpos))
+        if header:
+            items.append((fill(header), "arriba", header_align))
+        if footer:
+            items.append((fill(footer), "abajo", footer_align))
+        for text, v, hpos in items:
+            kw, _ = resolve_font(doc, page, "", 0, text, "base:helv")
+            font = fitz.Font(fontfile=kw["fontfile"]) if "fontfile" in kw else fitz.Font(kw["fontname"])
+            tw = font.text_length(text, fontsize=size)
+            x = {"izquierda": m, "centro": (W - tw) / 2, "derecha": W - m - tw}[hpos]
+            y = m + size if v == "arriba" else H - m
+            page.insert_text(point_from_view(page, x, y), text, fontsize=size, color=col, rotate=page.rotation, **kw)
+        count += 1
+    return f"{count} páginas"

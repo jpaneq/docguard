@@ -31,6 +31,8 @@ const Sign = {
     act('signnext', () => this.sign('next'));
     act('signmail', () => this.sign('mail'));
     act('verify', () => this.verify());
+    act('prepfields', () => this.togglePrep());
+    this.fields = []; this.field = null; this.prep = null;
     k('tsa').onchange = () => { k('tsa_custom').hidden = k('tsa').value !== 'custom'; };
     this.source = 'file';
     $$('[data-src]', this.root).forEach(b => b.onclick = () => {
@@ -144,20 +146,87 @@ const Sign = {
     $('.doc-name', this.root).textContent = info.name;
     this.viewer.load(info);
     this.listSignatures(info.id);
+    this.loadFields();
   },
   draw() {
     const v = this.viewer;
     if (!this.info) return;
     (v.pages || []).forEach((p, i) => { p.ov.replaceChildren(); p.ov.classList.add('draw'); });
+    // recuadros preparados (y los que se están preparando)
+    for (const f of [...this.fields, ...(this.prep || []).map(p => ({ ...p, pending: true }))]) {
+      const ov = v.pageOv(f.page);
+      if (!ov) continue;
+      const d = v.box(f.rect, 'sigfield' + (f.signed ? ' signed' : '') + (this.field === f.name ? ' cur' : ''), ov);
+      d.append(h('span', { class: 'lbl' }, (f.signed ? '✔ ' : '') + f.name + (f.pending ? ' (sin crear)' : '')));
+      if (!f.pending && !f.signed) d.addEventListener('mousedown', e => { e.stopPropagation(); this.pickField(f.name); });
+    }
     if (this.rect && this.k('visible').checked) {
       const ov = v.pageOv(this.rect.n);
       if (ov) v.box(this.rect.r, 'sigbox', ov);
     }
   },
   async down(e) {
-    if (e.button !== 0 || !this.info || !this.k('visible').checked) return;
+    if (e.button !== 0 || !this.info) return;
+    if (this.prep) {
+      const d = await this.viewer.drag(e);
+      if (!d.moved) return;
+      const name = await ask('Recuadro de firma', 'Nombre del firmante (o su papel)', `Firmante ${this.fields.length + this.prep.length + 1}`);
+      if (name) { this.prep.push({ name, page: this.viewer.n, rect: d.rect }); this.renderFields(); this.draw(); }
+      return;
+    }
+    if (!this.k('visible').checked) return;
     const d = await this.viewer.drag(e);
-    if (d.moved) { this.rect = { n: this.viewer.n, r: d.rect }; this.draw(); }
+    if (d.moved) { this.rect = { n: this.viewer.n, r: d.rect }; this.field = null; this.renderFields(); this.draw(); }
+  },
+
+  /* ---- recuadros de firma para varios firmantes ---- */
+  async loadFields() {
+    if (!this.info) return;
+    const r = await api('sign/fields', { id: this.info.id }).catch(() => ({ fields: [] }));
+    this.fields = r.fields;
+    const pending = this.fields.filter(f => !f.signed);
+    if (!this.fields.some(f => f.name === this.field && !f.signed)) this.field = pending[0]?.name || null;
+    if (this.field) this.rect = null;
+    this.renderFields();
+    this.draw();
+  },
+  pickField(name) { this.field = name; this.rect = null; this.renderFields(); this.draw(); },
+  renderFields() {
+    const box = $('.field-list', this.root);
+    box.innerHTML = '';
+    if (this.prep) {
+      box.append(h('p', {}, 'Arrastra en la página el recuadro de cada firmante.'),
+        ...this.prep.map((p, i) => h('div', { class: 'field-row' }, `✎ ${p.name} · pág. ${p.page + 1}`,
+          h('button', { onclick: () => { this.prep.splice(i, 1); this.renderFields(); this.draw(); } }, '✕'))),
+        h('div', { class: 'row' },
+          h('button', { class: 'primary', disabled: !this.prep.length, onclick: () => this.createFields() }, `Crear ${this.prep.length} recuadro(s)`),
+          h('button', { onclick: () => this.togglePrep() }, 'Cancelar')));
+      return;
+    }
+    if (!this.fields.length) { box.append(h('span', { class: 'muted' }, 'Sin recuadros preparados: la firma irá donde dibujes.')); return; }
+    for (const f of this.fields) {
+      box.append(h('div', { class: 'field-row' + (this.field === f.name ? ' cur' : '') },
+        f.signed ? h('b', { class: 'ok' }, '✔') : h('input', { type: 'radio', name: 'sigfield', checked: this.field === f.name, onchange: () => this.pickField(f.name) }),
+        h('span', {}, `${f.name} · pág. ${f.page + 1}`), f.signed ? h('small', {}, 'firmado') : null));
+    }
+    const left = this.fields.filter(f => !f.signed).length;
+    box.append(h('small', {}, left ? `Faltan ${left} firma(s). Firma ahora: ${this.field || '—'}.` : 'Todas las firmas están completas.'));
+  },
+  togglePrep() {
+    if (!this.info) return toast('Abre primero un PDF.', 'err');
+    this.prep = this.prep ? null : [];
+    $('[data-act=prepfields]', this.root).textContent = this.prep ? 'Terminar de preparar' : 'Preparar recuadros para varios firmantes…';
+    this.renderFields();
+    this.draw();
+  },
+  async createFields() {
+    const specs = this.prep.map(p => ({ name: p.name, page: p.page, rect: p.rect }));
+    const r = await run('Creando recuadros…', () => api('sign/fields/add', { id: this.info.id, fields: specs }));
+    if (!r) return;
+    this.prep = null;
+    $('[data-act=prepfields]', this.root).textContent = 'Preparar recuadros para varios firmantes…';
+    this.loadInfo(r.info);
+    toast('Recuadros creados. Cada firmante elige su recuadro y firma; puedes guardar esta versión y enviarla.', 'ok', [{ label: 'Guardar…', fn: () => saveResult({ rid: r.rid, files: [{ name: r.info.name, size: r.info.size }] }) }], 9000);
   },
   async certInfo() {
     if (!this.p12) return toast('Elige primero el archivo del certificado.', 'err');
@@ -181,11 +250,12 @@ const Sign = {
       cred = { source: 'file', p12: this.p12, password: this.k('password').value };
     }
     const visible = this.k('visible').checked;
-    if (visible && !this.rect) return toast('Arrastra en la página el recuadro donde irá la firma (o desmarca «Firma visible»).', 'err');
+    if (visible && !this.rect && !this.field) return toast('Arrastra en la página el recuadro donde irá la firma, elige un recuadro preparado o desmarca «Firma visible».', 'err');
     const tsa = this.k('tsa').value === 'custom' ? this.k('tsa_custom').value.trim() : this.k('tsa').value;
     const res = await run('Firmando…', () => api('sign', {
       id: this.info.id, ...cred,
-      n: visible ? this.rect.n : null, rect: visible ? this.rect.r : null, sig: visible ? this.k('sig').value : '',
+      n: visible && this.rect ? this.rect.n : null, rect: visible && this.rect && !this.field ? this.rect.r : null,
+      field: this.field || null, sig: visible ? this.k('sig').value : '',
       reason: this.k('reason').value, location: this.k('location').value, contact: this.k('contact').value, tsa,
     }));
     if (this.source === 'card' && !res && this.card.state === 'ok') this.setCard('found', this.card.text);
@@ -219,7 +289,9 @@ const Sign = {
     const info = await api('open_result', { rid: res.rid }).catch(() => null);
     if (!info) return;
     if (open) { this.loadInfo(info); this.rect = null; this.draw(); }
+    else if (this.fields.length) { this.loadInfo(info); }
     this.listSignatures(info.id);
+    this.loadFields();
   },
   async mailResult(res) {
     if (window.pywebview?.api?.save_result) {

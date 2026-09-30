@@ -64,7 +64,7 @@ main { flex: 1; min-width: 0; position: relative; }
 
 /* visor */
 .viewer-host { flex: 1; min-width: 0; position: relative; display: flex; flex-direction: column; }
-.viewer { flex: 1; overflow: auto; background: var(--canvas); padding: 20px; }
+.viewer { position: relative; flex: 1; overflow: auto; background: var(--canvas); padding: 20px; }
 .viewer .empty, .preview .empty, .thumbs .empty { margin: 60px auto; text-align: center; color: var(--muted); border: 2px dashed var(--line); border-radius: 12px; padding: 50px 30px; max-width: 480px; }
 .page-wrap { position: relative; margin: 0 auto; box-shadow: var(--shadow); background: #fff; user-select: none; }
 .page-wrap img { display: block; width: 100%; height: 100%; pointer-events: none; }
@@ -272,3 +272,37 @@ body.resizing iframe, body.resizing img { pointer-events: none; }
 .splitter { flex: none; width: 6px; cursor: col-resize; background: var(--line); position: relative; z-index: 3; }
 .splitter:hover, body.resizing .splitter { background: var(--accent); }
 .splitter[hidden] { display: none; }
+
+/* buscar en Editar */
+.findbox { display: inline-flex; align-items: center; gap: 2px; }
+.findbox input { width: 150px !important; padding: 4px 8px !important; }
+.findbox .findcount { font-size: 11px; color: var(--muted); min-width: 38px; text-align: center; }
+.findbox button { padding: 2px 6px; font-size: 11px; }
+.bx.hit { background: rgba(255, 200, 0, .35); outline: 1px solid rgba(230, 160, 0, .9); pointer-events: none; }
+.bx.hit.cur { background: rgba(255, 140, 0, .45); outline: 2px solid #e67e00; }
+/* modo rápido */
+.quick { border: 2px solid var(--accent); border-radius: 10px; padding: 10px 12px; margin: 0 0 12px; display: flex; flex-direction: column; gap: 6px; background: var(--panel2); }
+/* recuadros de firma */
+.bx.sigfield { border: 2px dashed #7c3aed; background: rgba(124, 58, 237, .08); }
+.bx.sigfield.signed { border-style: solid; border-color: var(--ok); background: rgba(31, 157, 85, .08); }
+.bx.sigfield.cur { border-color: var(--accent); background: rgba(37, 99, 217, .15); }
+.bx.sigfield .lbl { position: absolute; top: -16px; left: -2px; font-size: 10px; background: #7c3aed; color: #fff; padding: 1px 5px; border-radius: 3px; white-space: nowrap; }
+.bx.sigfield.signed .lbl { background: var(--ok); }
+.field-row { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 6px; }
+.field-row.cur { background: var(--panel2); }
+/* comparar */
+#tool-compare .work { gap: 0; }
+.cmp-col { flex: 1; min-width: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); }
+.cmp-title { padding: 5px 10px; font-size: 12px; font-weight: 600; background: var(--panel2); display: flex; gap: 10px; align-items: center; }
+.lg-del, .lg-add { font-weight: 400; padding: 1px 6px; border-radius: 4px; }
+.lg-del { background: rgba(220, 38, 38, .2); } .lg-add { background: rgba(22, 163, 74, .22); }
+.bx.dmark { pointer-events: none; mix-blend-mode: multiply; }
+.bx.dmark.del { background: rgba(220, 38, 38, .3); } .bx.dmark.add { background: rgba(22, 163, 74, .32); }
+.bx.dmark.flash { outline: 3px solid var(--accent); }
+.cmp-list .chg { padding: 6px 8px; border-radius: 8px; margin: 4px 0; cursor: pointer; font-size: 12px; background: var(--panel2); }
+.cmp-list .chg:hover { outline: 1px solid var(--accent); }
+.cmp-list .chg .t { font-weight: 700; font-size: 11px; text-transform: uppercase; }
+.cmp-list .chg del { color: #dc2626; } .cmp-list .chg ins { color: #16a34a; text-decoration: none; }
+
+html, body { overflow: hidden; }
+.cmp-col, .cmp-col .viewer-host, .viewer-host { min-height: 0; } .cmp-col .viewer-host { flex: 1; }

@@ -23,7 +23,8 @@ function syncTool(name) {
     else if (fl.items.length <= 1) { fl.items = [CURRENT]; fl.cur = 0; fl.render(); }
     else { fl.items.unshift(CURRENT); fl.cur = 0; fl.render(); }
     if (name === 'watermark') { t.n = 0; t.preview(); }
-  } else if (t.files && !t.files.items.length) { t.files.items = [CURRENT]; t.files.render(); }
+  } else if (name === 'compare') { if (!t.a && !t.b) t.set('a', CURRENT); }
+  else if (t.files && !t.files.items.length) { t.files.items = [CURRENT]; t.files.render(); }
 }
 
 function showTool(name) {
@@ -38,7 +39,9 @@ function init() {
   Edit.init(); Wm.init(); Redact.init(); Sign.init(); Pages.init(); Protect.init();
   Object.assign(TOOLS, { edit: Edit, watermark: Wm, redact: Redact, sign: Sign, pages: Pages, protect: Protect });
   $('.cd-close').onclick = clearCurrent;
-  TOOLS.convert = batchTool('tool-convert', ACCEPT_DOCS, {
+  TOOLS.convert = batchTool('tool-convert', '', {
+    todocx: f => api('todocx', { ids: f.ids }),
+    doctopdf: f => api('doctopdf', { ids: f.ids }),
     compress: (f, r) => api('compress', { ids: f.ids, level: $('[data-k=level]', r).value }),
     toimages: (f, r) => api('toimages', { ids: f.ids, fmt: $('[data-k=fmt]', r).value, dpi: +$('[data-k=dpi]', r).value }),
     topdf: f => api('topdf', { ids: f.ids }),
@@ -46,6 +49,8 @@ function init() {
   TOOLS.sanitize = batchTool('tool-sanitize', '', { clean: f => api('sanitize', { ids: f.ids }) });
   Merge.init();
   TOOLS.merge = Merge;
+  Compare.init();
+  TOOLS.compare = Compare;
   $$('.nav button').forEach(b => b.onclick = () => showTool(b.dataset.tool));
   Sigs.load();
 }

@@ -79,6 +79,14 @@ const Edit = {
     act('paste', () => this.pasteAny());
     act('delete', () => this.deleteSel());
     act('ocr', () => this.ocrDialog());
+    const find = $('[data-k=find]', this.root);
+    find.addEventListener('keydown', e => {
+      e.stopPropagation();
+      if (e.key === 'Enter') { e.preventDefault(); if (find.value.trim() !== this.findTerm) this.find(find.value.trim()); else this.findStep(e.shiftKey ? -1 : 1); }
+      if (e.key === 'Escape') { find.value = ''; this.find(''); find.blur(); }
+    });
+    act('findnext', () => this.findStep(1));
+    act('findprev', () => this.findStep(-1));
     act('export', async () => saveResult(await run('Preparando…', () => api('edit/export', { id: this.info.id }))));
     dropTarget(this.viewer.el, f => this.openFile(f[0]));
     document.addEventListener('keydown', e => this.key(e));
@@ -140,6 +148,29 @@ const Edit = {
     if (!this.info) return;
     await run('Rehaciendo…', () => api('edit/redo', { id: this.info.id }));
     this.clearSel(false); this.refresh(true);
+  },
+
+  /* ---- buscar ---- */
+  async find(term) {
+    this.findTerm = term;
+    this.hits = [];
+    this.hitIdx = -1;
+    if (term && this.info) {
+      const r = await run('Buscando…', () => api('search', { id: this.info.id, term }));
+      for (const hit of r?.hits || []) for (const rect of hit.rects) this.hits.push({ n: hit.n, r: rect });
+    }
+    $('.findcount', this.root).textContent = term ? (this.hits.length ? '' : '0') : '';
+    if (this.hits.length) this.findStep(1); else this.draw();
+  },
+  findStep(d) {
+    if (!this.hits?.length) return;
+    this.hitIdx = (this.hitIdx + d + this.hits.length) % this.hits.length;
+    const hit = this.hits[this.hitIdx];
+    $('.findcount', this.root).textContent = `${this.hitIdx + 1}/${this.hits.length}`;
+    const v = this.viewer;
+    if (v.n !== hit.n) v.go(hit.n);
+    v.el.scrollTop = v.pages[hit.n].wrap.offsetTop + hit.r[1] * v.zoom - v.el.clientHeight / 3;
+    this.draw();
   },
 
   /* ---- panel de miniaturas e índice ---- */
@@ -252,6 +283,7 @@ const Edit = {
     // campos de formulario: se rellenan directamente
     if (t === 'select' || t === 'form') this.drawWidgets(st);
     if (this.region && this.region.n === v.n) v.box(this.region.r, 'region');
+    (this.hits || []).forEach((hit, i) => { if (hit.n === v.n) v.box(hit.r, 'hit' + (i === this.hitIdx ? ' cur' : '')); });
     this.hint({
       select: 'Clic: seleccionar · Doble clic en un texto: escribir (Intro = nueva línea) · Arrastrar: mover, o seleccionar zona en vacío · ⌘C/⌘X/⌘V · Supr · Clic derecho: más opciones',
       text: 'Clic en la página para escribir texto nuevo, o en un texto existente para modificarlo. ⌘+Intro o clic fuera para fijarlo.',
@@ -429,6 +461,7 @@ const Edit = {
   /* ---- teclado ---- */
   key(e) {
     if (!this.root.classList.contains('active')) return;
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') { e.preventDefault(); const f = $('[data-k=find]', this.root); f.focus(); f.select(); return; }
     const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName) || document.activeElement.isContentEditable;
     if (typing) return;
     const mod = e.metaKey || e.ctrlKey, k = e.key.toLowerCase();

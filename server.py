@@ -5,6 +5,7 @@ así ninguna otra web ni otro usuario del equipo puede usarlo.
 """
 
 import base64
+import hashlib
 import contextlib
 import io
 import json
@@ -22,6 +23,8 @@ import pymupdf as fitz
 from PIL import Image
 
 import core
+import compare
+import convert
 import editor
 import idfields
 import protect
@@ -160,6 +163,9 @@ def op_info(req):
 
 def wm_params(req):
     p = req["params"]
+    q = p.get("qr") or {}
+    p = dict(p, text=(p.get("text", "").replace("{destinatario}", q.get("recipient", "").strip())
+                      .replace("{finalidad}", q.get("purpose", "").strip())))
     base = wm_basic(p)
     base.update(level=p.get("level", "reforzada"), strike=bool(p.get("strike", True)))
     return base
@@ -260,9 +266,27 @@ def op_wm_export(req):
             os.makedirs(os.path.dirname(dst))
             core.export_watermarked(path, dst, extra, w, h, painter=painter)
             files += read_outputs(os.path.dirname(dst))
+    pw = (p.get("password") or "").strip()
+    if pw:
+        enc = []
+        for name, data in files:
+            if name.lower().endswith(".pdf"):
+                with tempfile.TemporaryDirectory() as tmp:
+                    a, b = os.path.join(tmp, "a.pdf"), os.path.join(tmp, "b.pdf")
+                    with open(a, "wb") as fh:
+                        fh.write(data)
+                    core.encrypt_pdf(a, b, pw, allow_print=True, allow_copy=False, allow_edit=False)
+                    with open(b, "rb") as fh:
+                        data = fh.read()
+            enc.append((name, data))
+        files = enc
     res = store_result(files)
+    notes = []
     if refs:
-        res["notes"] = ["Referencia: " + ", ".join(refs)]
+        notes.append("Referencia: " + ", ".join(refs))
+    if pw:
+        notes.append("protegido con contraseña")
+    res["notes"] = notes
     return res
 
 
@@ -358,6 +382,33 @@ def op_search(req):
         if rs:
             hits.append({"n": n, "rects": [editor.to_view(page, r) for r in rs]})
     return {"hits": hits}
+
+
+def marks_file(d):
+    folder = os.path.join(core.config_dir(), "censuras")
+    os.makedirs(folder, exist_ok=True)
+    return os.path.join(folder, hashlib.sha256(d.orig).hexdigest()[:24] + ".json")
+
+
+def op_marks_load(req):
+    d = get_doc(req)
+    try:
+        with open(marks_file(d), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {"marks": {}}
+
+
+def op_marks_save(req):
+    d = get_doc(req)
+    path = marks_file(d)
+    if not any(req.get("marks", {}).values()):
+        if os.path.exists(path):
+            os.remove(path)
+        return {}
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"marks": req["marks"], "style": req.get("style", "")}, f)
+    return {}
 
 
 def op_redact_preview(req):
@@ -474,6 +525,27 @@ def op_topdf(req):
     return batch(req, f)
 
 
+def op_todocx(req):
+    def f(d, path, out):
+        if core.ext_of(path) != ".pdf":
+            raise ValueError("no es un PDF")
+        convert.pdf_to_docx(path, os.path.join(out, d.base + ".docx"))
+    return batch(req, f)
+
+
+def op_doctopdf(req):
+    def f(d, path, out):
+        if core.ext_of(path) == ".pdf":
+            raise ValueError("ya es un PDF")
+        src = os.path.join(os.path.dirname(path), d.name)
+        if not os.path.exists(src):
+            with open(src, "wb") as fh:
+                fh.write(d.orig)
+        how = convert.document_to_pdf(src, os.path.join(out, d.base + ".pdf"))
+        return f"{d.name}: {how}"
+    return batch(req, f)
+
+
 def op_sanitize(req):
     def f(d, path, out):
         src = path
@@ -531,6 +603,11 @@ def op_outline(req):
     return {"toc": [[lvl, title, page] for lvl, title, page in need_pdf(d).get_toc(simple=True) if page > 0]}
 
 
+def op_compare(req):
+    a, b = DOCS[req["a"]], DOCS[req["b"]]
+    return compare.compare(need_pdf(a), need_pdf(b))
+
+
 def op_fonts(req):
     return {"fonts": editor.font_choices()}
 
@@ -548,6 +625,12 @@ EDIT_OPS = {
                                                      r.get("color", "#ffd400"), float(r.get("size", 12))),
     "add_ink": lambda doc, r: editor.add_ink(doc, r["n"], r["strokes"], r.get("color", "#1a4fd6"),
                                             float(r.get("width", 2))),
+    "header_footer": lambda doc, r: editor.header_footer(
+        doc, r.get("number", ""), r.get("number_pos", "abajo-centro"), r.get("header", ""), r.get("header_align", "centro"),
+        r.get("footer", ""), r.get("footer_align", "izquierda"), float(r.get("size", 9)), r.get("color", "#444444"),
+        int(r.get("start", 1)), bool(r.get("skip_first")),
+        sorted({p for g in core.parse_ranges(r["ranges"], len(doc)) for p in g}) if r.get("ranges") else None,
+        r.get("filename", "")),
     "move_spans": lambda doc, r: editor.move_spans(doc, r["n"], r["indices"], float(r["dx"]), float(r["dy"])),
     "format_spans": lambda doc, r: editor.format_spans(doc, r["n"], r["indices"], r.get("font", "auto"), r.get("size"),
                                                       r.get("color"), r.get("bold"), r.get("italic")),
@@ -703,8 +786,8 @@ def op_sign(req):
     d = get_doc(req)
     need_pdf(d)
     img = sigimg_bytes(req["sig"]) if req.get("sig") else None
-    visible = req.get("rect") is not None
-    opts = dict(page=int(req["n"]) if visible else None, view_rect=req.get("rect"),
+    visible = req.get("rect") is not None or bool(req.get("field"))
+    opts = dict(page=int(req["n"]) if req.get("rect") is not None else None, view_rect=req.get("rect"), field_name=req.get("field") or None,
                 reason=req.get("reason", ""), location=req.get("location", ""),
                 contact=req.get("contact", ""), image_png=img, tsa_url=req.get("tsa") or None)
     if req.get("source") == "card":
@@ -715,6 +798,23 @@ def op_sign(req):
         out = signing.sign_pdf(d.pdf_bytes(), base64.b64decode(req["p12"]), req.get("password", ""), **opts)
     base = d.base if d.base.endswith("_firmado") else d.base + "_firmado"
     return store_result([(f"{base}.pdf", out)])
+
+
+def op_sig_fields(req):
+    d = get_doc(req)
+    if d.kind != "pdf" or d.edited:
+        return {"fields": signing.list_signature_fields(d.pdf_bytes())} if d.doc else {"fields": []}
+    return {"fields": signing.list_signature_fields(d.orig)}
+
+
+def op_sig_fields_add(req):
+    d = get_doc(req)
+    need_pdf(d)
+    out = signing.add_signature_fields(d.pdf_bytes(), req["fields"])
+    res = store_result([(f"{d.base}_para_firmar.pdf", out)])
+    did = secrets.token_urlsafe(8)
+    DOCS[did] = Doc(res["files"][0]["name"], out)
+    return {"info": DOCS[did].info(did), "rid": res["rid"]}
 
 
 def op_p11_modules(req):
@@ -751,7 +851,9 @@ OPS = {
     "wm/preview": op_wm_preview, "wm/export": op_wm_export, "wm/check": op_wm_check,
     "wm/registry": op_wm_registry, "idfields": op_idfields,
     "words": op_words, "pages_without_text": op_pages_without_text, "ocr": op_ocr, "detect": op_detect,
-    "search": op_search, "redact": op_redact, "redact/preview": op_redact_preview,
+    "search": op_search, "redact": op_redact, "redact/marks/load": op_marks_load, "redact/marks/save": op_marks_save,
+    "compare": op_compare, "sign/fields": op_sig_fields, "sign/fields/add": op_sig_fields_add,
+    "todocx": op_todocx, "doctopdf": op_doctopdf, "redact/preview": op_redact_preview,
     "pages/save": op_pages_save, "encrypt": op_encrypt, "decrypt": op_decrypt,
     "compress": op_compress, "toimages": op_toimages, "topdf": op_topdf, "sanitize": op_sanitize, "merge": op_merge, "merge_pages": op_merge_pages,
     "edit/state": op_edit_state, "fonts": op_fonts, "outline": op_outline, "edit/undo": op_undo, "edit/redo": op_redo, "edit/export": op_edit_export,

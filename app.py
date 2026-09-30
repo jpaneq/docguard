@@ -137,6 +137,14 @@ def selftest():
     for i, l in enumerate(["IDESPCAA123456499999999R<<<<<<", "9003141F3107229ESP<<<<<<<<<<<6"]):
         dr.text((80, 700 + i * 90), l, font=_core.get_font(56), fill=(20, 20, 30))
     kinds = {it["kind"] for it in idfields.detect(back)["items"]}
+    import tempfile as _tf
+    import convert
+    with _tf.TemporaryDirectory() as tmp:
+        src = os.path.join(tmp, "a.pdf")
+        doc.save(src)
+        convert.pdf_to_docx(src, os.path.join(tmp, "a.docx"))
+        convert.document_to_pdf(os.path.join(tmp, "a.docx"), os.path.join(tmp, "b.pdf"))
+        checks["conversión PDF ↔ Word"] = "12345678Z" in fitz.open(os.path.join(tmp, "b.pdf"))[0].get_text()
     checks["detección DNI/pasaporte"] = {"mrz", "domicilio"} <= kinds
     try:
         import pkcs11  # noqa: F401

@@ -22,6 +22,7 @@ const Pages = {
       this.items = keep; this.render();
     });
     act('save', () => this.save('one', this.items, 'editado'));
+    act('number', () => this.numberDialog());
     act('extract', () => {
       const s = this.items.filter(i => i.sel);
       if (!s.length) return toast('Selecciona alguna página (clic en la miniatura).', 'err');
@@ -42,6 +43,47 @@ const Pages = {
     this.items = info.pages.map((_, i) => ({ idx: i, rot: 0, sel: false }));
     $('.doc-name', this.root).textContent = `${info.name} (${info.pages.length} págs.)`;
     this.render();
+  },
+  numberDialog() {
+    if (!this.info) return toast('Abre primero un PDF.', 'err');
+    const f = {
+      number: h('input', { value: 'Página {n} de {total}' }),
+      pos: h('select', {}, ['abajo-centro', 'abajo-derecha', 'abajo-izquierda', 'arriba-centro', 'arriba-derecha', 'arriba-izquierda']
+        .map(v => h('option', { value: v }, v.replace('-', ' ')))),
+      header: h('input', { placeholder: 'Ej.: Contrato de arrendamiento – {fecha}' }),
+      halign: h('select', {}, ['centro', 'izquierda', 'derecha'].map(v => h('option', { value: v }, v))),
+      footer: h('input', { placeholder: 'Ej.: Ref. EXP-2026-14' }),
+      falign: h('select', {}, ['izquierda', 'centro', 'derecha'].map(v => h('option', { value: v }, v))),
+      size: h('input', { type: 'number', value: 9, min: 6, max: 24, class: 'num' }),
+      color: h('input', { type: 'color', value: '#444444' }),
+      start: h('input', { type: 'number', value: 1, min: 0, class: 'num' }),
+      skip: h('input', { type: 'checkbox' }),
+      ranges: h('input', { placeholder: 'Todas (o p. ej. 2-10)' }),
+    };
+    modal({
+      title: 'Numerar páginas y añadir encabezado / pie',
+      body: h('div', {},
+        h('label', {}, 'Numeración (vacío = sin número)', f.number), h('label', {}, 'Posición del número', f.pos),
+        h('label', {}, 'Encabezado', f.header), h('label', {}, 'Alineación del encabezado', f.halign),
+        h('label', {}, 'Pie de página', f.footer), h('label', {}, 'Alineación del pie', f.falign),
+        h('div', { class: 'row' }, 'Tamaño', f.size, 'Color', f.color, 'Empezar en', f.start),
+        h('label', { class: 'inline' }, f.skip, 'No numerar la primera página (portada)'),
+        h('label', {}, 'Páginas', f.ranges),
+        h('small', {}, 'Puedes usar {n}, {total}, {fecha} y {archivo}. Se aplica al documento actual (se puede deshacer en Editar).')),
+      actions: [{ label: 'Cancelar' }, {
+        label: 'Aplicar', primary: true, fn: async () => {
+          const r = await run('Numerando…', () => api('edit/header_footer', {
+            id: this.info.id, n: 0, number: f.number.value, number_pos: f.pos.value, header: f.header.value, header_align: f.halign.value,
+            footer: f.footer.value, footer_align: f.falign.value, size: +f.size.value, color: f.color.value, start: +f.start.value,
+            skip_first: f.skip.checked, ranges: f.ranges.value.trim(), filename: this.info.name,
+          }));
+          if (r === undefined) return false;
+          this.v++;
+          this.render();
+          toast(`Aplicado a ${r.message}. Guarda el PDF cuando quieras.`, 'ok');
+        },
+      }],
+    });
   },
   rotate(d) {
     const s = this.items.filter(i => i.sel);

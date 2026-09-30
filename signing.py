@@ -48,7 +48,7 @@ def _signer_name(signer):
 
 
 def sign_pdf(pdf_bytes, p12_bytes, password, page=None, view_rect=None, reason="", location="",
-             contact="", image_png=None, tsa_url=None, signer=None):
+             contact="", image_png=None, tsa_url=None, signer=None, field_name=None):
     """Firma el PDF. Si se indica página y rectángulo (coordenadas de pantalla),
     la firma es visible, con el texto del firmante y opcionalmente la imagen
     de la firma manuscrita. Devuelve los bytes del PDF firmado."""
@@ -64,7 +64,17 @@ def sign_pdf(pdf_bytes, p12_bytes, password, page=None, view_rect=None, reason="
         existing = {w.field_name for p in doc for w in (p.widgets() or ())}
         # PyMuPDF normaliza el archivo para que pyHanko pueda añadir la firma de forma incremental.
         box = None
-        if page is not None and view_rect:
+        existing_box = None
+        if field_name:
+            for p in doc:
+                for w in p.widgets() or ():
+                    if w.field_name == field_name and w.field_type == fitz.PDF_WIDGET_TYPE_SIGNATURE:
+                        r = fitz.Rect(w.rect) * ~p.transformation_matrix
+                        r.normalize()
+                        existing_box = (r.x0, r.y0, r.x1, r.y1)
+            if existing_box is None:
+                raise ValueError(f"No existe el recuadro de firma «{field_name}».")
+        if page is not None and view_rect and not field_name:
             pg = doc[page]
             r = fitz.Rect(view_rect) * pg.derotation_matrix * ~pg.transformation_matrix
             r.normalize()
@@ -75,10 +85,11 @@ def sign_pdf(pdf_bytes, p12_bytes, password, page=None, view_rect=None, reason="
     n = 1
     while f"Firma{n}" in existing:
         n += 1
-    field = f"Firma{n}"
-    writer = IncrementalPdfFileWriter(io.BytesIO(clean))
+    field = field_name or f"Firma{n}"
+    writer = IncrementalPdfFileWriter(io.BytesIO(clean if not field_name else pdf_bytes))
     if box:
         fields.append_signature_field(writer, fields.SigFieldSpec(field, on_page=page, box=box))
+    box = box or existing_box
 
     meta = signers.PdfSignatureMetadata(field_name=field, reason=reason or None, location=location or None,
                                         contact_info=contact or None, md_algorithm="sha256")
@@ -226,6 +237,49 @@ def sign_pdf_pkcs11(pdf_bytes, module, token_label, cert_id, pin, **kwargs):
         return sign_pdf(pdf_bytes, None, None, signer=signer, **kwargs)
     finally:
         session.close()
+
+
+def add_signature_fields(pdf_bytes, specs):
+    """Crea recuadros de firma vacíos, uno por firmante: specs = [{name, page, rect (pantalla)}]."""
+    from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
+    from pyhanko.sign import fields
+    with fitz.open("pdf", pdf_bytes) as doc:
+        has_sigs = any(w.field_type == fitz.PDF_WIDGET_TYPE_SIGNATURE and w.field_value
+                       for p in doc for w in (p.widgets() or ()))
+        boxes = []
+        for sp in specs:
+            pg = doc[int(sp["page"])]
+            r = fitz.Rect(sp["rect"]) * pg.derotation_matrix * ~pg.transformation_matrix
+            r.normalize()
+            boxes.append((sp["name"], int(sp["page"]), (r.x0, r.y0, r.x1, r.y1)))
+        base = pdf_bytes if has_sigs else doc.tobytes(garbage=1, deflate=True)
+    writer = IncrementalPdfFileWriter(io.BytesIO(base))
+    for name, page, box in boxes:
+        fields.append_signature_field(writer, fields.SigFieldSpec(name, on_page=page, box=box))
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def list_signature_fields(pdf_bytes):
+    """Recuadros de firma del documento y si ya están firmados."""
+    from pyhanko.pdf_utils.reader import PdfFileReader
+    from pyhanko.sign.fields import enumerate_sig_fields
+    signed = {}
+    try:
+        for name, value, _ref in enumerate_sig_fields(PdfFileReader(io.BytesIO(pdf_bytes))):
+            signed[name] = value is not None
+    except Exception:
+        pass
+    out = []
+    with fitz.open("pdf", pdf_bytes) as doc:
+        for n, p in enumerate(doc):
+            for w in p.widgets() or ():
+                if w.field_type == fitz.PDF_WIDGET_TYPE_SIGNATURE:
+                    r = fitz.Rect(w.rect) * p.rotation_matrix
+                    out.append({"name": w.field_name, "page": n, "rect": [r.x0, r.y0, r.x1, r.y1],
+                                "signed": signed.get(w.field_name, False)})
+    return out
 
 
 def verify_pdf(pdf_bytes):

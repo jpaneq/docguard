@@ -46,6 +46,10 @@ const Wm = {
     qrMode();
     this.k('level').addEventListener('change', () => { this.k('strike').disabled = this.k('level').value === 'basica'; });
     $('[data-act=check]', this.root).onclick = () => this.check();
+    $('[data-act=quick]', this.root).onclick = () => this.quick();
+    for (const [q, t] of [['q_recipient', 'qr_recipient'], ['q_purpose', 'qr_purpose'], ['q_password', 'password']]) {
+      this.k(q).addEventListener('input', () => { this.k(t).value = this.k(q).value; this.schedule(); });
+    }
     $('[data-act=registry]', this.root).onclick = () => this.registry();
     new ResizeObserver(() => this.schedule()).observe($('.preview-img', this.root));
     makeResizable($('.side-panel', this.root), 'right', 'wm-side', 260, 620);
@@ -71,6 +75,7 @@ const Wm = {
     for (const k of ['text', 'angle', 'size', 'gap_x', 'gap_y', 'opacity', 'color', 'level']) p[k] = this.k(k).value;
     for (const k of ['hardened', 'strike', 'mark']) p[k] = this.k(k).checked;
     p.autohide = this.k('autohide').checked;
+    p.password = this.k('password').value;
     const cur = this.files.current;
     p.hide_page = cur ? this.activeRects(cur.id, this.n).map(x => x.r) : [];
     p.hide = {};
@@ -112,6 +117,25 @@ const Wm = {
     }));
     saveResult(res);
   },
+  /** Modo rápido: configuración recomendada para DNI/pasaporte y guardar en un paso. */
+  async quick() {
+    if (!this.files.items.length) return toast('Abre o arrastra primero el DNI o pasaporte.', 'err');
+    const who = this.k('q_recipient').value.trim();
+    if (!who) { this.k('q_recipient').focus(); return toast('Indica para quién es la copia.', 'err'); }
+    this.k('text').value = 'Solo para {destinatario} – {fecha}';
+    this.k('level').value = 'reforzada';
+    for (const k of ['strike', 'mark', 'autohide', 'qr']) this.k(k).checked = true;
+    $('[data-role=qr]', this.root).hidden = false;
+    this.k('qr_recipient').value = who;
+    this.k('qr_purpose').value = this.k('q_purpose').value.trim();
+    this.k('password').value = this.k('q_password').value;
+    $('input[name=wmfmt][value=pdf]', this.root).checked = true;
+    this.outputs();
+    await this.preview();
+    // se asegura de que todas las páginas tengan revisados sus datos ocultos
+    await this.export();
+  },
+
   /* ---- ocultar datos del documento de identidad ---- */
   hidePage(id, n) { return this.hideData[id]?.[n]; },
   ensureHide() {

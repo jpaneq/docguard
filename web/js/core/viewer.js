@@ -277,8 +277,8 @@ class ContViewer extends Viewer {
   go(n) {
     if (!this.info) return;
     n = clamp(n, 0, this.pages.length - 1);
-    this.pages[n].wrap.scrollIntoView({ block: 'start' });
-    this.el.scrollTop -= 10;
+    // solo se desplaza el visor (scrollIntoView movería también la ventana)
+    this.el.scrollTop = this.pages[n].wrap.offsetTop - 10;
     this.setActive(n);
   }
   pageOv(i) { return this.pages[i]?.ov || null; }

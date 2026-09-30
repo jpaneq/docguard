@@ -5,3 +5,4 @@ dist/
 *.spec
 icon.ico
 icon.icns
+dist-github/

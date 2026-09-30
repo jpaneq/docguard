@@ -1080,7 +1080,8 @@ def op_sign(req):
     if req.get("source") == "card":
         if not req.get("pin"):
             raise ValueError("Escribe el PIN de la tarjeta.")
-        out = signing.sign_pdf_pkcs11(data, req["module"], req["token"], req["cert_id"], req["pin"], **opts)
+        out = signing.sign_pdf_pkcs11(data, req["module"], req["token"], req["cert_id"], req["pin"],
+                                      token_serial=req.get("serial"), **opts)
     else:
         out = signing.sign_pdf(data, base64.b64decode(req["p12"]), req.get("password", ""), **opts)
     base = d.base if d.base.endswith("_firmado") else d.base + "_firmado"
@@ -1109,7 +1110,7 @@ def op_p11_modules(req):
 
 
 def op_p11_login(req):
-    return signing.pkcs11_login(req["module"], req["token"], req["cert_id"], req["pin"])
+    return signing.pkcs11_login(req["module"], req["token"], req["cert_id"], req["pin"], req.get("serial"))
 
 
 def op_p11_list(req):

@@ -203,7 +203,9 @@ def pkcs11_list(module):
                         "signing": "firma" in obj[Attribute.LABEL].lower() or "sign" in obj[Attribute.LABEL].lower(),
                     })
             certs.sort(key=lambda c: not c["signing"])  # primero el certificado de firma
-            tokens.append({"token": token.label.strip(), "certs": certs})
+            # todos los DNIe se llaman igual: el número de serie distingue cada tarjeta
+            serial = token.serial.decode("ascii", "ignore").strip() if isinstance(token.serial, bytes) else str(token.serial)
+            tokens.append({"token": token.label.strip(), "serial": serial, "certs": certs})
         except pkcs11.exceptions.PKCS11Error:
             continue
     return tokens
@@ -213,13 +215,28 @@ class _PinError(ValueError):
     pass
 
 
-def pkcs11_signer(module, token_label, cert_id, pin):
+def _find_token(lib, token_label, token_serial=None):
+    import pkcs11
+    if token_serial:
+        for slot in lib.get_slots(token_present=True):
+            token = slot.get_token()
+            if token.serial.decode("ascii", "ignore").strip() == token_serial:
+                return token
+        raise pkcs11.exceptions.NoSuchToken()
+    try:
+        return lib.get_token(token_label=token_label)
+    except pkcs11.exceptions.MultipleTokensReturned:
+        raise ValueError("Hay varias tarjetas conectadas con el mismo nombre: pulsa «Detectar» y elige el "
+                         "certificado de quien firma (o deja solo su tarjeta en el lector).")
+
+
+def pkcs11_signer(module, token_label, cert_id, pin, token_serial=None):
     """Abre la tarjeta con el PIN y devuelve (firmante, sesión). Cierra la sesión al terminar."""
     import pkcs11
     from pyhanko.sign.pkcs11 import PKCS11Signer
     lib = _lib(module)
     try:
-        token = lib.get_token(token_label=token_label)
+        token = _find_token(lib, token_label, token_serial)
         session = token.open(user_pin=pin)
     except pkcs11.exceptions.PinIncorrect:
         raise _PinError("PIN incorrecto. Cuidado: el DNIe se bloquea tras 3 intentos fallidos.")
@@ -231,9 +248,9 @@ def pkcs11_signer(module, token_label, cert_id, pin):
     return PKCS11Signer(session, cert_id=cid, key_id=cid), session
 
 
-def pkcs11_login(module, token_label, cert_id, pin):
+def pkcs11_login(module, token_label, cert_id, pin, token_serial=None):
     """Comprueba el PIN abriendo sesión en la tarjeta (y la cierra)."""
-    signer, session = pkcs11_signer(module, token_label, cert_id, pin)
+    signer, session = pkcs11_signer(module, token_label, cert_id, pin, token_serial)
     try:
         c = signer.signing_cert
         return {"subject": c.subject.native.get("common_name") or c.subject.human_friendly}
@@ -241,8 +258,8 @@ def pkcs11_login(module, token_label, cert_id, pin):
         session.close()
 
 
-def sign_pdf_pkcs11(pdf_bytes, module, token_label, cert_id, pin, **kwargs):
-    signer, session = pkcs11_signer(module, token_label, cert_id, pin)
+def sign_pdf_pkcs11(pdf_bytes, module, token_label, cert_id, pin, token_serial=None, **kwargs):
+    signer, session = pkcs11_signer(module, token_label, cert_id, pin, token_serial)
     try:
         return sign_pdf(pdf_bytes, None, None, signer=signer, **kwargs)
     finally:
@@ -502,7 +519,7 @@ def open_signer(cred):
     if cred.get("source") == "card":
         if not cred.get("pin"):
             raise ValueError("Escribe el PIN de la tarjeta.")
-        signer, session = pkcs11_signer(cred["module"], cred["token"], cred["cert_id"], cred["pin"])
+        signer, session = pkcs11_signer(cred["module"], cred["token"], cred["cert_id"], cred["pin"], cred.get("serial"))
         try:
             yield signer
         finally:

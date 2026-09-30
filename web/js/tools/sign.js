@@ -78,8 +78,8 @@ const Sign = {
       if (!c) { toast('No se detecta el DNIe. Insértalo en el lector (ver «Firma digital» para instalar el módulo).', 'err', [], 8000); return null; }
       const pin = await ask('PIN del DNIe', 'PIN de la tarjeta (se bloquea tras 3 intentos fallidos; no se guarda)', '', { password: true });
       if (!pin) return null;
-      const { token, id } = JSON.parse(c);
-      return { source: 'card', module: this.module(), token, cert_id: id, pin };
+      const { token, serial, id } = JSON.parse(c);
+      return { source: 'card', module: this.module(), token, serial, cert_id: id, pin };
     }
     if (!this.p12 && !(await this.pickCert())) return null;
     const pw = await ask('Contraseña del certificado', `Contraseña de ${this.certName || 'tu certificado'} (no se guarda)`, '', { password: true });
@@ -121,13 +121,20 @@ const Sign = {
     try {
       const r = await api('p11/list', { module });
       const present = r.tokens.some(t => t.certs.length);
+      const serials = r.tokens.filter(t => t.certs.length).map(t => t.serial).join();
+      const changed = present && this.cardSerials !== undefined && serials !== this.cardSerials;
+      this.cardSerials = serials;
       if (!present && this.card.state !== 'off') {
         this.setCard('off');
         this.k('pin').value = '';
         toast('Se ha retirado la tarjeta.', '');
-      } else if (present && this.card.state === 'off') {
+      } else if (present && (this.card.state === 'off' || changed)) {
+        // otra tarjeta (p. ej. el DNIe del siguiente firmante): sus certificados y PIN nuevo
         this.fillCerts(r.tokens);
+        this.k('pin').value = '';
         this.setCard('found', r.tokens[0].token);
+        const who = r.tokens.find(t => t.certs.length)?.certs[0]?.subject;
+        if (changed && who) toast(`Tarjeta detectada: ${who}. Escribe su PIN.`, '');
       }
     } catch (e) { /* lector no disponible: se ignora en el sondeo */ } finally { this.polling = false; }
   },
@@ -136,7 +143,7 @@ const Sign = {
     const cur = s.value;
     s.innerHTML = '';
     for (const t of tokens) for (const c of t.certs) {
-      s.append(h('option', { value: JSON.stringify({ token: t.token, id: c.id }) },
+      s.append(h('option', { value: JSON.stringify({ token: t.token, serial: t.serial, id: c.id }) },
         `${c.signing ? '✍ ' : ''}${c.subject} · ${c.label} (${t.token}, caduca ${c.valid_to})`));
     }
     if ([...s.options].some(o => o.value === cur)) s.value = cur;
@@ -146,8 +153,8 @@ const Sign = {
     const c = this.k('p11cert').value;
     if (!c) return toast('Detecta primero la tarjeta.', 'err');
     if (!this.k('pin').value) return toast('Escribe el PIN.', 'err');
-    const { token, id } = JSON.parse(c);
-    const r = await run('Verificando el PIN…', () => api('p11/login', { module: this.module(), token, cert_id: id, pin: this.k('pin').value }));
+    const { token, serial, id } = JSON.parse(c);
+    const r = await run('Verificando el PIN…', () => api('p11/login', { module: this.module(), token, serial, cert_id: id, pin: this.k('pin').value }));
     if (!r) { this.k('pin').value = ''; return; }
     this.setCard('ok', r.subject);
     toast(`DNIe conectado: ${r.subject}`, 'ok');
@@ -285,8 +292,8 @@ const Sign = {
       const c = this.k('p11cert').value;
       if (!c) return toast('Detecta la tarjeta y elige un certificado.', 'err');
       if (!this.k('pin').value) return toast('Escribe el PIN de la tarjeta.', 'err');
-      const { token, id } = JSON.parse(c);
-      cred = { source: 'card', module: this.module(), token, cert_id: id, pin: this.k('pin').value };
+      const { token, serial, id } = JSON.parse(c);
+      cred = { source: 'card', module: this.module(), token, serial, cert_id: id, pin: this.k('pin').value };
     } else {
       if (!this.p12) return toast('Elige el certificado (.p12 / .pfx).', 'err');
       cred = { source: 'file', p12: this.p12, password: this.k('password').value };

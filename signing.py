@@ -39,6 +39,51 @@ def _load_signer(p12_bytes, password):
         cert_registry=SimpleCertificateStore.from_certs([cert_asn1] + others))
 
 
+QC_COMPLIANCE, QC_SSCD = "0.4.0.1862.1.1", "0.4.0.1862.1.4"  # declaraciones de certificado cualificado (ETSI)
+
+
+def cert_profile(cert):
+    """Datos del certificado del firmante y nivel legal de la firma que produce (eIDAS)."""
+    from asn1crypto import core as asn1_core
+
+    class _QcStatement(asn1_core.Sequence):
+        _fields = [("statement_id", asn1_core.ObjectIdentifier), ("statement_info", asn1_core.Any, {"optional": True})]
+
+    class _QcStatements(asn1_core.SequenceOf):
+        _child_spec = _QcStatement
+    qualified = qscd = False
+    for ext in cert["tbs_certificate"]["extensions"] or ():
+        if ext["extn_id"].dotted == "1.3.6.1.5.5.7.1.3":  # qcStatements (asn1crypto no lo conoce)
+            with contextlib.suppress(Exception):
+                ids = {st["statement_id"].dotted for st in _QcStatements.load(ext["extn_value"].contents)}
+                qualified, qscd = QC_COMPLIANCE in ids, QC_SSCD in ids
+    validity = cert["tbs_certificate"]["validity"]
+    level = ("cualificada (equivale a la firma manuscrita)" if qualified and qscd else
+             "avanzada basada en certificado cualificado" if qualified else "avanzada (certificado no cualificado)")
+    return {"subject": cert.subject.native.get("common_name") or cert.subject.human_friendly,
+            "issuer": cert.issuer.native.get("common_name") or cert.issuer.human_friendly,
+            "valid_from": validity["not_before"].native.strftime("%d/%m/%Y"),
+            "valid_to": validity["not_after"].native.strftime("%d/%m/%Y"),
+            "expired": validity["not_after"].native < datetime.datetime.now(datetime.timezone.utc),
+            "qualified": qualified, "qscd": qscd, "level": level}
+
+
+def test_document():
+    """PDF de prueba que dice claramente que no vale para nada más."""
+    with fitz.open() as doc:
+        page = doc.new_page()
+        now = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+        page.insert_htmlbox(fitz.Rect(60, 70, 535, 420), f"""
+            <h1 style="color:#b91c1c">DOCUMENTO DE PRUEBA</h1>
+            <p><b>No tiene ningún valor ni sirve para ningún trámite.</b></p>
+            <p>Solo sirve para comprobar que tu certificado o tu DNIe firman correctamente con DocGuard
+            ({html.escape(now)}).</p>
+            <p>Ábrelo en Adobe Acrobat Reader o en Autofirma: debería indicar que la firma es válida y que el
+            documento no se ha modificado desde que se firmó.</p>""",
+                            css="* {font-family: sans-serif; font-size: 13px; line-height: 1.4} h1 {font-size: 26px}")
+        return doc.tobytes(garbage=3, deflate=True)
+
+
 def cert_info(p12_bytes, password):
     signer = _load_signer(p12_bytes, password)
     c = signer.signing_cert

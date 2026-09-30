@@ -25,6 +25,7 @@ const Sign = {
     act('signnext', () => this.sign('next'));
     act('signmail', () => this.sign('mail'));
     act('verify', () => this.verify());
+    act('testsign', () => this.testSign());
     act('prepfields', () => this.togglePrep());
     this.fields = []; this.field = null; this.prep = null;
     // sello de tiempo y validación: se recuerda lo último que se eligió
@@ -96,6 +97,36 @@ const Sign = {
     const pw = await ask('Contraseña del certificado', `Contraseña de ${this.certName || 'tu certificado'} (no se guarda)`, '', { password: true });
     if (pw === null) return null;
     return { source: 'file', p12: this.p12, password: pw };
+  },
+  /** «Probar mi firma»: firma un PDF de prueba y explica qué funciona y qué no. */
+  async testSign() {
+    const cred = await this.credential();
+    if (!cred) return;
+    const tsa = this.k('tsa').value === 'custom' ? this.k('tsa_custom').value.trim() : this.k('tsa').value;
+    const r = await run('Firmando el PDF de prueba…', () => api('sign/test', { ...cred, tsa, ltv: this.k('ltv').checked }));
+    if (this.source === 'card' && !r && this.card.state === 'ok') this.setCard('found', this.card.text);
+    if (!r) return;
+    const p = r.profile, s = r.signature;
+    const line = (good, yes, no) => h('div', { class: 'test-line' }, h('b', { class: good ? 'ok' : 'bad' }, good ? '✔ ' : '✘ '), good ? yes : no);
+    const body = h('div', {},
+      line(s.intact && s.valid, 'Tu firma funciona: el PDF queda firmado y la firma es íntegra.', 'La firma no es válida.'),
+      h('div', { class: 'kv' },
+        h('b', {}, 'Titular'), h('span', {}, p.subject),
+        h('b', {}, 'Emisor'), h('span', {}, p.issuer),
+        h('b', {}, 'Válido'), h('span', {}, `${p.valid_from} – ${p.valid_to}${p.expired ? ' (CADUCADO)' : ''}`),
+        h('b', {}, 'Tipo de firma'), h('span', {}, p.level)),
+      r.tsa_requested ? line(!!s.timestamp, `Sello de tiempo: ${s.timestamp?.time || ''} (${s.timestamp?.by || ''})`, 'No se ha podido añadir el sello de tiempo.')
+        : h('div', { class: 'muted' }, 'Sello de tiempo desactivado (se elige en «Sello de tiempo»).'),
+      r.ltv_requested ? line(s.ltv, 'Validación a largo plazo incluida.', 'No se ha podido añadir la validación a largo plazo.')
+        : h('div', { class: 'muted' }, 'Validación a largo plazo desactivada.'),
+      line(s.trusted, 'Este equipo reconoce la autoridad que emitió tu certificado.',
+        'Este equipo no reconoce la autoridad que emitió tu certificado (pasa con certificados de prueba o si falta su certificado raíz en el sistema). La firma es válida igualmente; Adobe y Autofirma usan sus propias listas.'),
+      r.notes?.length ? h('p', { class: 'muted' }, 'Avisos: ' + r.notes.join(' · ')) : null,
+      h('p', { class: 'muted' }, 'Ábrelo también en Adobe Acrobat Reader o Autofirma para confirmarlo allí. Este PDF no tiene ningún valor y no se anota en ningún historial.'));
+    const actions = [];
+    if (window.pywebview?.api?.open_result) actions.push({ label: 'Abrir el PDF de prueba', fn: () => { window.pywebview.api.open_result(r.rid); return false; } });
+    actions.push({ label: 'Guardar el PDF…', fn: () => { saveResult(r); return false; } }, { label: 'Cerrar', primary: true });
+    modal({ title: 'Prueba de firma', body, actions });
   },
   async loadModules() {
     this.modulesLoaded = true;

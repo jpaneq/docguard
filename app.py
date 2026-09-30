@@ -56,6 +56,22 @@ class Api:
         self.reveal(path)
         return "reveal"
 
+    def open_result(self, rid):
+        """Abre un resultado (p. ej. el PDF de prueba de firma) con el programa predeterminado."""
+        import tempfile
+        files = server.RESULTS.get(rid)
+        if not files:
+            return None
+        folder = tempfile.mkdtemp(prefix="docguard_")
+        path = server.save_result_to(rid, folder, True)[0]
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", path])
+        elif sys.platform == "win32":
+            os.startfile(path)
+        else:
+            subprocess.Popen(["xdg-open", path])
+        return path
+
     def compose(self, url):
         """Abre un correo nuevo (mailto:) en el programa de correo predeterminado; no lo envía."""
         if not str(url).startswith("mailto:"):
@@ -177,6 +193,10 @@ def selftest():
     call("ocr", {"id": scan["id"], "n": 0})
     checks["OCR"] = "DNI / NIE" in call("detect", {"id": scan["id"]})["found"]
     checks["firma digital"] = _selftest_signing(doc.tobytes())
+    import base64 as _b64
+    prueba = call("sign/test", {"source": "file", "p12": _b64.b64encode(_test_p12("Prueba de firma")).decode(), "password": "x"})
+    checks["probar mi firma"] = bool(prueba["signature"]["intact"] and prueba["signature"]["valid"]
+                                     and prueba["profile"]["subject"] == "Prueba de firma")
     import protect
     from PIL import Image
     card = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)

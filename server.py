@@ -1092,6 +1092,22 @@ def op_sign(req):
     return res
 
 
+def op_sign_test(req):
+    """«Probar mi firma»: firma un PDF de prueba con el sello y la validación elegidos y
+    devuelve un informe. No se anota en ningún historial."""
+    notes = []
+    tsa = req.get("tsa") or None
+    with signing.open_signer(req) as signer:
+        profile = signing.cert_profile(signer.signing_cert)
+        out = signing.sign_pdf(signing.test_document(), None, None, signer=signer, page=0,
+                               view_rect=[330, 700, 555, 770], reason="Prueba de firma", tsa_url=tsa,
+                               ltv=bool(req.get("ltv")), notes=notes)
+    sig = signing.verify_pdf(out)[0]
+    res = store_result([("prueba_de_firma_DocGuard.pdf", out)])
+    res.update(profile=profile, signature=sig, notes=notes, tsa_requested=bool(tsa), ltv_requested=bool(req.get("ltv")))
+    return res
+
+
 def op_sig_fields(req):
     d = get_doc(req)
     if d.kind != "pdf" or d.edited:
@@ -1151,7 +1167,7 @@ OPS = {
     "compress": op_compress, "toimages": op_toimages, "topdf": op_topdf, "sanitize": op_sanitize, "merge": op_merge, "merge_pages": op_merge_pages,
     "edit/state": op_edit_state, "fonts": op_fonts, "outline": op_outline, "edit/undo": op_undo, "edit/redo": op_redo, "edit/export": op_edit_export,
     "sigimgs": op_sigimgs, "sigimg/save": op_sigimg_save, "sigimg/delete": op_sigimg_delete,
-    "sigimg/place": op_place_sigimg, "sigimg/margin": op_sign_margin, "edit/copy": op_copy, "edit/copy_spans": op_copy_spans, "certinfo": op_certinfo, "sign": op_sign,
+    "sigimg/place": op_place_sigimg, "sigimg/margin": op_sign_margin, "edit/copy": op_copy, "edit/copy_spans": op_copy_spans, "certinfo": op_certinfo, "sign": op_sign, "sign/test": op_sign_test,
     "p11/modules": op_p11_modules, "p11/list": op_p11_list, "p11/login": op_p11_login, "verify": op_verify,
 }
 for _name in EDIT_OPS:

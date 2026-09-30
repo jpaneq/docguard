@@ -25,12 +25,49 @@ El **documento actual** (arriba en la barra lateral) se mantiene al cambiar de h
 - **DNIe:** necesitas un lector de tarjetas y el módulo PKCS#11 oficial ([dnielectronico.es](https://www.dnielectronico.es), área de descargas) u [OpenSC](https://github.com/OpenSC/OpenSC/releases). DocGuard busca el módulo automáticamente en las rutas habituales. Si está en otra ruta, se puede indicar a mano o con la variable de entorno `DOCGUARD_PKCS11`.
 - El PIN solo se usa en el momento de firmar y no se guarda. El DNIe se bloquea tras 3 PIN erróneos.
 
+## DNI y pasaporte: qué datos se ocultan
+En «Marca de agua» → «Ocultar datos», DocGuard propone tapar automáticamente (OCR + etiquetas + patrones):
+- **DNI, anverso:** firma, número de soporte (IDESP) y CAN.
+- **DNI, reverso:** zona MRZ, equipo de expedición, progenitores, domicilio y lugar de nacimiento.
+- **Pasaporte:** firma, MRZ, número personal, lugar de nacimiento y autoridad de expedición.
+
+Los recuadros se revisan sobre la vista previa: clic y ✕ para quitar uno, o arrastrar para tapar otra zona. Son propuestas: revisa siempre el resultado.
+
+## Código QR
+Al escanearlo puede mostrar:
+- una **ficha** (tarjeta de contacto que el móvil enseña sin internet);
+- una **página web de verificación**. Hay que publicar `docs/verificar.html`, por ejemplo con `publicar_github.sh`; los datos van dentro del enlace, tras `#`, y el servidor nunca los recibe;
+- **texto plano**.
+
 ## Protección frente a IA
-Ninguna marca visible es imposible de quitar para una IA generativa. DocGuard combina capas para que quitarla sea costoso, deje huella y que el origen se pueda demostrar igualmente:
-1. **Marca principal difícil de aislar:** cada letra con giro, tamaño, altura y tono aleatorios, una trama de líneas finas por todo el documento y, en nivel máximo, una segunda capa cruzada.
-2. **Microtexto sobre los datos:** el OCR localiza cada línea (nombre, número, fechas…) y la atraviesa con microtexto del color de la tinta. Para eliminarlo hay que reescribir los datos, y una IA tiende a alterarlos al hacerlo, con lo que la copia queda falseada.
-3. **Código QR:** muestra a quién se autoriza, la finalidad, la fecha y la referencia.
-4. **Marca invisible de rastreo:** una referencia oculta en la imagen que resiste compresión JPEG y cambios de tamaño (probado hasta el 30 %). Aunque se borren la marca visible y el QR, «Comprobar un documento» identifica la copia en el historial local. No resiste recortes fuertes ni que la imagen se regenere por completo.
+**Lo importante, medido y sin exagerar:** ninguna marca visible impide que una IA generativa (ChatGPT, Gemini…) redibuje un DNI limpio si los datos se pueden leer. Por eso DocGuard combina tres objetivos:
+1. **Que quitar la marca estropee los datos.** Es el caso de los eliminadores «de relleno» (LaMa, usado por muchas webs de quitar marcas).
+2. **Que, aunque la IA deje la copia limpia, se pueda demostrar a quién se entregó.**
+3. **Disuadir y reducir lo que se comparte.**
+
+Capas (en «Marca de agua»; el **modo rápido DNI/pasaporte** las activa todas):
+- **Marca principal** con variaciones por letra, trama de seguridad y **microtexto sobre los datos**.
+- **Rastreo reforzado:** marca invisible de baja frecuencia, propia de cada entrega, que **resiste la regeneración por IA**.
+- **Huella en las zonas ocultas:** cada entrega tapa los datos con medidas únicas (sin descubrir nunca un dato); las IA conservan esos recuadros al redibujar.
+- **Rótulos «OCULTO · SOLO PARA… · REF»** dentro de las zonas ocultas y **MRZ señuelo**: una MRZ falsa con aspecto real que dice para quién es la copia.
+- **Sello sobre la foto**, como los oficiales: para quitarlo hay que redibujar parte de la cara.
+- **Aviso contra la edición**, también dirigido a los asistentes de IA.
+- **Resolución máxima** (1600 px en el modo rápido): legible, pero menos útil para falsificar.
+- **QR en posición automática**, sin tapar datos.
+
+**«Comprobar una copia»** identifica a quién se entregó con cuatro métodos independientes (marca invisible, rastreo reforzado, huella de las zonas ocultas y referencia escrita). Además avisa si el archivo lleva metadatos de edición con IA (C2PA, IPTC).
+
+### Resultados del banco de pruebas (`tools/benchmark_ia.py`)
+DNI ficticio, protección de la v1.8 (modo rápido). «Identificada» significa que DocGuard sigue sabiendo a quién se entregó la copia:
+
+| Ataque | Marca visible | Datos tras el ataque | ¿Identificada? |
+|---|---|---|---|
+| Redes sociales (reducción + JPEG) | intacta | legibles | sí (varios métodos) |
+| LaMa con la máscara perfecta de la marca | quitada en gran parte | **destrozados** (p. ej. «DNI 90099909R», «LUOIA») | sí (3 métodos) |
+| Regeneración de la imagen (VAE de Stable Diffusion) | se conserva | legibles | sí (rastreo reforzado; a menudo también la huella) |
+| LaMa + regeneración | quitada en gran parte | destrozados | sí (rastreo reforzado) |
+
+Antes (v1.7) la regeneración borraba el rastreo por completo. No se ha podido probar contra ChatGPT o Gemini directamente: su regeneración es más agresiva que la del banco, así que la identificación tras pasar por ellos no está garantizada.
 
 ## Ejecutar desde el código
 Necesitas Python 3.10–3.12. Se recomienda instalarlo con [uv](https://docs.astral.sh/uv/) o desde python.org.
@@ -62,6 +99,7 @@ Cada módulo se puede trabajar por separado. El servidor expone cada función co
 | `idfields.py` | Datos de DNI y pasaporte que conviene ocultar (MRZ, CAN, soporte, firma, domicilio…). |
 | `compare.py` | Comparación de versiones (diferencias de texto con posición). |
 | `convert.py` | PDF → Word y documentos → PDF. |
+| `tools/benchmark_ia.py` | Banco de pruebas contra eliminadores de marcas con IA (no forma parte de la app). |
 | `signing.py` | Firma digital PAdES con `.p12/.pfx` o DNIe/tarjeta (PKCS#11) y verificación. |
 
 **Interfaz (`web/`)**
@@ -80,6 +118,7 @@ Cada módulo se puede trabajar por separado. El servidor expone cada función co
 - `v1.1`: protección reforzada, QR y marca invisible; documento compartido entre herramientas.
 - `v1.2`: edición directa, formas, copiar/pegar, OCR en Editar, firma al margen, ocultar datos de DNI/pasaporte.
 - `v1.3`: Editar estilo Acrobat/Word (barra de iconos, formato contextual, selección unificada, menú contextual, ⌘C/⌘X/⌘V, rehacer), listas, visor continuo con miniaturas e índice, varios firmantes y firmar y enviar, interfaz dividida en módulos.
+- `v1.8`: capas contra la IA generativa (rastreo reforzado, huella en zonas ocultas, rótulos y MRZ señuelo, sello sobre la foto, aviso, resolución máxima, QR automático), «Comprobar una copia» con cuatro métodos e indicios de IA, y banco de pruebas `tools/benchmark_ia.py`.
 - `v1.7`: resaltado tipo rotulador fosforito con colores flúor y Visor PDF con búsqueda en varios documentos.
 - `v1.6`: zonas de censura guardadas, comparar versiones, numeración y encabezados, recuadros para varios firmantes, buscar en Editar, modo rápido DNI/pasaporte con contraseña, conversión Word ↔ PDF y script de publicación en GitHub (versión de Windows).
 - `v1.5`: vista previa de la censura, desplazamiento continuo en Censurar y Firma (y por rueda en la vista previa de Marca de agua), paneles laterales redimensionables.

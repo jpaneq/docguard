@@ -155,6 +155,15 @@ def selftest():
     for i, l in enumerate(["IDESPCAA123456499999999R<<<<<<", "9003141F3107229ESP<<<<<<<<<<<6"]):
         dr.text((80, 700 + i * 90), l, font=_core.get_font(56), fill=(20, 20, 30))
     kinds = {it["kind"] for it in idfields.detect(back)["items"]}
+    # escáner: una tarjeta clara fotografiada sobre fondo oscuro
+    import scan
+    from PIL import ImageDraw as _ID
+    foto = Image.new("RGB", (1200, 900), (60, 45, 35))
+    _ID.Draw(foto).polygon([(250, 200), (950, 160), (1000, 640), (220, 700)], fill=(225, 232, 238))
+    q, _c = scan.detect_quad(foto)
+    esperado = [(250, 200), (950, 160), (1000, 640), (220, 700)]
+    checks["escáner (bordes y perspectiva)"] = all(abs(x * 1200 - ex) < 15 and abs(y * 900 - ey) < 15
+                                                    for (x, y), (ex, ey) in zip(q, esperado))
     import tempfile as _tf
     import convert
     with _tf.TemporaryDirectory() as tmp:

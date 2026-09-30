@@ -333,3 +333,26 @@ html, body { overflow: hidden; }
 @keyframes rin { from { transform: scale(.98); opacity: .6; } to { transform: none; opacity: 1; } }
 .reader-bar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
 .reader-host { flex: 1; min-height: 0; }
+
+/* escáner */
+#tool-scanner { position: absolute; }
+.scan-list { width: 150px; flex: none; overflow: auto; background: var(--panel); border-right: 1px solid var(--line); padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+.scan-item { position: relative; cursor: pointer; border: 2px solid transparent; border-radius: 6px; padding: 3px; background: var(--panel2); }
+.scan-item.on { border-color: var(--accent); }
+.scan-item img { width: 100%; display: block; border-radius: 3px; }
+.scan-item .n { font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; align-items: center; margin-top: 2px; }
+.scan-item .n button { padding: 0 5px; font-size: 11px; }
+.scan-item .low { position: absolute; top: 6px; left: 6px; background: #f0b400; color: #000; font-size: 10px; padding: 0 5px; border-radius: 4px; }
+.scan-edit { flex: 1.2; min-width: 0; display: flex; flex-direction: column; background: var(--canvas); }
+.scan-stage { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; padding: 18px; min-height: 0; }
+.scan-stage img { max-width: 100%; max-height: 100%; display: block; box-shadow: var(--shadow); user-select: none; }
+.scan-svg { position: absolute; overflow: visible; }
+.scan-svg polygon { fill: rgba(37, 99, 217, .15); stroke: #2563d9; stroke-width: 2; }
+.scan-svg circle { fill: #fff; stroke: #2563d9; stroke-width: 3; cursor: grab; }
+.scan-svg circle:hover { fill: #2563d9; }
+.scan-tools { display: flex; gap: 8px; align-items: center; padding: 6px 12px; background: var(--panel); border-top: 1px solid var(--line); flex-wrap: wrap; }
+.scan-result { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--panel2); border-left: 1px solid var(--line); }
+.scan-result-title { padding: 6px 12px; font-weight: 600; font-size: 12px; text-transform: uppercase; color: var(--muted); }
+.scan-result-img { flex: 1; display: flex; align-items: center; justify-content: center; padding: 14px; min-height: 0; }
+.scan-result-img img { max-width: 100%; max-height: 100%; box-shadow: var(--shadow); background: #fff; }
+.scan-empty { position: absolute; top: 120px; left: 50%; transform: translateX(-50%); width: min(560px, 80%); }

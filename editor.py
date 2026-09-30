@@ -748,10 +748,10 @@ def ocr_page(doc, pno, mode="editable"):
     if not lines:
         return 0
     if mode == "invisible":
-        for _r, _t, words in lines:
-            for r, w in words:
-                page.insert_text(fitz.Point(r.x0, r.y1 - r.height * 0.2), w,
-                                 fontsize=_fit_size(w, r.width, r.height), render_mode=3)
+        # una línea completa (con sus espacios) por línea reconocida: así buscar y copiar funcionan bien
+        for r, text, _words in lines:
+            page.insert_text(fitz.Point(r.x0, r.y1 - r.height * 0.2), text,
+                             fontsize=_fit_size(text, r.width, r.height), render_mode=3)
         return len(lines)
     zoom = 2
     pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)

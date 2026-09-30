@@ -48,6 +48,13 @@ const Wm = {
     $('[data-act=check]', this.root).onclick = () => this.check();
     for (const k of ['robust', 'fingerprint', 'labels', 'stamp', 'notice', 'maxside']) this.k(k).addEventListener('change', () => this.schedule());
     $('[data-act=quick]', this.root).onclick = () => this.quick();
+    $('[data-act=toscan]', this.root).onclick = () => {
+      const cur = this.files.current;
+      if (!cur) return toast('Abre primero la foto del documento.', 'err');
+      showTool('scanner');
+      Scanner.items = [];
+      Scanner.addInfo(cur);
+    };
     for (const [q, t] of [['q_recipient', 'qr_recipient'], ['q_purpose', 'qr_purpose'], ['q_password', 'password']]) {
       this.k(q).addEventListener('input', () => { this.k(t).value = this.k(q).value; this.schedule(); });
     }

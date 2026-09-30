@@ -28,6 +28,7 @@ import convert
 import editor
 import idfields
 import protect
+import scan
 import signing
 
 TOKEN = secrets.token_urlsafe(18)
@@ -443,6 +444,61 @@ def op_marks_save(req):
     with open(path, "w", encoding="utf-8") as f:
         json.dump({"marks": req["marks"], "style": req.get("style", "")}, f)
     return {}
+
+
+# ---- escáner ----
+
+def scan_source(d, n):
+    """Imagen original a buena resolución para escanear (en caché)."""
+    if not hasattr(d, "scanimg"):
+        d.scanimg = {}
+    if n not in d.scanimg:
+        d.scanimg[n] = doc_image(d, n, maxside=3200)
+    return d.scanimg[n]
+
+
+def op_scan_detect(req):
+    d = get_doc(req)
+    n = int(req.get("n", 0))
+    img = scan_source(d, n)
+    quad, conf = scan.detect_quad(img)
+    return {"quad": quad, "conf": conf, "kind": scan.guess_kind(img, quad)}
+
+
+def op_scan_preview(req):
+    d = get_doc(req)
+    n = int(req.get("n", 0))
+    out, _ = scan.process(scan_source(d, n), req["quad"], req.get("kind", "auto"), req.get("mode", "auto"),
+                          int(req.get("rot", 0)), max_side=int(req.get("maxw", 900)))
+    buf = io.BytesIO()
+    out.save(buf, "JPEG", quality=88)
+    return ("image/jpeg", buf.getvalue())
+
+
+def op_scan_export(req):
+    pages, names = [], []
+    for it in req["pages"]:
+        d = DOCS[it["id"]]
+        img, kind = scan.process(scan_source(d, int(it.get("n", 0))), it["quad"], req.get("kind", "auto"),
+                                 req.get("mode", "auto"), int(it.get("rot", 0)), max_side=3000)
+        pages.append((img, kind))
+        names.append(d.base)
+    base = (names[0] if len(set(names)) == 1 else "escaneo") + "_escaneado"
+    fmt = req.get("fmt", "pdf")
+    if fmt == "pdf":
+        data = scan.digitalize(pages, req.get("layout", "paginas"), bool(req.get("ocr", True)))
+        res = store_result([(base + ".pdf", data)])
+        import pymupdf as _f
+        with _f.open("pdf", data) as _d:
+            hojas = len(_d)
+        res["notes"] = [f"{len(pages)} imagen(es) en {hojas} hoja(s)" + (" con texto reconocido" if req.get("ocr", True) else "")]
+        return res
+    files = []
+    for k, (img, _kind) in enumerate(pages):
+        buf = io.BytesIO()
+        img.save(buf, "PNG" if fmt == "png" else "JPEG", **({} if fmt == "png" else {"quality": 92}))
+        files.append((f"{base}{'_' + str(k + 1) if len(pages) > 1 else ''}.{fmt}", buf.getvalue()))
+    return store_result(files)
 
 
 def op_redact_preview(req):
@@ -911,7 +967,8 @@ OPS = {
     "wm/registry": op_wm_registry, "idfields": op_idfields,
     "words": op_words, "pages_without_text": op_pages_without_text, "ocr": op_ocr, "detect": op_detect,
     "search": op_search, "redact": op_redact, "redact/marks/load": op_marks_load, "redact/marks/save": op_marks_save,
-    "compare": op_compare, "search_many": op_search_many, "sign/fields": op_sig_fields, "sign/fields/add": op_sig_fields_add,
+    "compare": op_compare, "search_many": op_search_many,
+    "scan/detect": op_scan_detect, "scan/preview": op_scan_preview, "scan/export": op_scan_export, "sign/fields": op_sig_fields, "sign/fields/add": op_sig_fields_add,
     "todocx": op_todocx, "doctopdf": op_doctopdf, "redact/preview": op_redact_preview,
     "pages/save": op_pages_save, "encrypt": op_encrypt, "decrypt": op_decrypt,
     "compress": op_compress, "toimages": op_toimages, "topdf": op_topdf, "sanitize": op_sanitize, "merge": op_merge, "merge_pages": op_merge_pages,

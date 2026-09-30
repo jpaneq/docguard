@@ -13,6 +13,7 @@
   <div class="current-doc" hidden><small>Documento actual</small><span class="cd-name"></span><button class="cd-close" title="Cerrar documento">✕</button></div>
   <button data-tool="edit" class="active"><span class="ic">✎</span>Editar PDF</button>
   <button data-tool="library"><span class="ic">📚</span>Visor PDF</button>
+  <button data-tool="scanner"><span class="ic">⎙</span>Escáner</button>
   <button data-tool="watermark"><span class="ic">≋</span>Marca de agua</button>
   <button data-tool="redact"><span class="ic">▇</span>Censurar</button>
   <button data-tool="sign"><span class="ic">✍</span>Firma digital</button>
@@ -80,6 +81,7 @@
           <input data-k="q_purpose" placeholder="Finalidad (p. ej. alquiler piso C/ Mayor 3)">
           <input data-k="q_password" type="password" placeholder="Contraseña para abrirlo (opcional)">
           <button class="primary wide" data-act="quick">Proteger y guardar</button>
+          <button class="wide" data-act="toscan" title="Si es una foto hecha con el móvil, primero enderézala y límpiala">¿Es una foto? Pasarla antes a modo escáner</button>
         </div>
         <label>Plantilla
           <div class="row"><select data-k="preset"><option value="">—</option></select>
@@ -366,6 +368,41 @@
     </div>
     <div class="merge-grid" data-pane="grid" hidden></div>
   </section>
+  <!-- ESCÁNER -->
+  <section class="tool" id="tool-scanner">
+    <div class="toolbar">
+      <button class="primary" data-act="add">Añadir fotos o PDFs…</button>
+      <span class="muted" data-role="count"></span>
+      <span class="sep"></span>
+      <label class="inline">Tipo <select data-k="kind">
+        <option value="auto">Automático</option><option value="tarjeta">Tarjeta (DNI, carné)</option>
+        <option value="pasaporte">Pasaporte (página de datos)</option><option value="a4">A4</option><option value="carta">Carta</option></select></label>
+      <label class="inline">Acabado <select data-k="mode">
+        <option value="auto">Escáner en color (fondo blanco)</option><option value="natural">Color natural</option>
+        <option value="grises">Escala de grises</option><option value="bn">Blanco y negro</option><option value="original">Sin retoques</option></select></label>
+      <label class="inline">Hojas <select data-k="layout">
+        <option value="paginas">Una por foto, a tamaño real</option><option value="a4">DNI: anverso y reverso en un A4</option></select></label>
+      <label class="inline"><input type="checkbox" data-k="ocr" checked> Reconocer texto (OCR)</label>
+      <label class="inline">Formato <select data-k="fmt"><option value="pdf">PDF</option><option value="png">PNG</option><option value="jpg">JPG</option></select></label>
+      <span class="grow"></span>
+      <button class="primary" data-act="export">Digitalizar y guardar…</button>
+    </div>
+    <div class="work">
+      <div class="scan-list"></div>
+      <div class="scan-edit">
+        <div class="scan-stage"><img alt=""><svg class="scan-svg"></svg></div>
+        <div class="scan-tools">
+          <small>Arrastra las esquinas azules para ajustar el borde del documento.</small>
+          <button data-act="redetect">Detectar de nuevo</button>
+          <button data-act="full">Toda la imagen</button>
+          <button data-act="rotate">↻ Girar</button>
+        </div>
+      </div>
+      <div class="scan-result"><div class="scan-result-title">Resultado</div><div class="scan-result-img"><img alt=""></div></div>
+    </div>
+    <div class="empty scan-empty">Añade o arrastra aquí fotos de documentos (DNI, pasaporte, folios…) hechas con el móvil, o PDFs escaneados. DocGuard detecta los bordes, endereza, quita sombras y lo digitaliza.</div>
+  </section>
+
   <!-- VISOR PDF -->
   <section class="tool" id="tool-library">
     <div class="toolbar">
@@ -427,6 +464,7 @@
 <script src="js/tools/merge.js"></script>
 <script src="js/tools/compare.js"></script>
 <script src="js/tools/library.js"></script>
+<script src="js/tools/scanner.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

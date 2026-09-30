@@ -254,3 +254,21 @@ textarea.inline-edit { resize: none; border: 0; background: rgba(255, 255, 255, 
 .ins { width: 22px; height: 60px; margin: 0 5px; padding: 0; border-radius: 11px; border: 2px dashed transparent; background: transparent; color: var(--muted); font-size: 18px; opacity: .35; }
 .ins:hover, .ins.over { opacity: 1; border-color: var(--accent); color: var(--accent); background: var(--panel); }
 #tool-merge .form-page { flex: 1; }
+
+/* paneles redimensionables */
+.resizable { position: relative; }
+.rz { position: absolute; top: 0; bottom: 0; width: 7px; cursor: col-resize; z-index: 6; }
+.rz-right { right: -4px; } .rz-left { left: -4px; }
+.rz:hover, body.resizing .rz { background: var(--accent); opacity: .5; }
+body.resizing { cursor: col-resize; user-select: none; }
+body.resizing iframe, body.resizing img { pointer-events: none; }
+.thumb-list .tp { width: 100%; }
+.thumb-list .tp img { width: 100%; height: auto; }
+.pages-side { min-width: 120px; }
+/* vista previa de la censura */
+.preview-banner { background: #1f9d55; color: #fff; padding: 6px 12px; display: flex; gap: 10px; align-items: center; font-weight: 600; }
+.preview-banner button { background: rgba(255,255,255,.15); color: #fff; border-color: rgba(255,255,255,.5); }
+
+.splitter { flex: none; width: 6px; cursor: col-resize; background: var(--line); position: relative; z-index: 3; }
+.splitter:hover, body.resizing .splitter { background: var(--accent); }
+.splitter[hidden] { display: none; }

@@ -8,11 +8,10 @@
 const Redact = {
   init() {
     this.root = $('#tool-redact');
-    this.viewer = new Viewer($('.viewer-host', this.root));
+    this.viewer = new ContViewer($('.viewer-host', this.root), { keepOverlays: true, firstClickActivates: false });
     this.viewer.onrender = () => this.draw();
-    this.viewer.onpage = n => this.ensureWords(n);
-    this.viewer.ov.addEventListener('mousedown', e => this.down(e));
-    this.viewer.ov.classList.add('draw');
+    this.viewer.onpage = n => { if (!this.preview) this.ensureWords(n); };
+    this.viewer.on('mousedown', e => this.down(e));
     this.mode = 'text'; this.marks = {}; this.words = {};
     dropTarget(this.viewer.el, f => this.openFile(f[0]));
     const act = (a, f) => { $(`[data-act=${a}]`, this.root).onclick = f; };
@@ -28,7 +27,12 @@ const Redact = {
       if (e.key === 'Escape' && this.selMark) { this.selMark = null; this.draw(); }
     });
     act('clear', () => { delete this.marks[this.viewer.n]; this.draw(); });
+    // cambiar marcas o estilo invalida la vista previa
+    $('[data-k=style]', this.root).addEventListener('change', () => { if (this.preview) { this.exitPreview(false); this.showPreview(); } });
     act('save', () => this.save());
+    act('preview', () => this.showPreview());
+    act('back', () => this.exitPreview());
+    act('savepreview', () => saveResult(this.preview?.res));
     $$('[data-mode]', this.root).forEach(b => b.onclick = () => {
       $$('[data-mode]', this.root).forEach(x => x.classList.toggle('on', x === b));
       this.mode = b.dataset.mode;
@@ -38,6 +42,7 @@ const Redact = {
   async openFile(f) { const info = await run('Abriendo…', () => uploadFile(f)); if (info) this.loadInfo(info); },
   loadInfo(info) {
     if (info.encrypted || !info.pages.length) return toast('No se puede abrir: tiene contraseña o no es un PDF/imagen.', 'err');
+    this.exitPreview(false);
     this.info = info; this.marks = {}; this.words = {};
     setCurrent(info);
     $('.doc-name', this.root).textContent = info.name;
@@ -56,14 +61,52 @@ const Redact = {
   count() { return Object.values(this.marks).reduce((a, g) => a + g.reduce((b, x) => b + x.length, 0), 0); },
   draw() {
     const v = this.viewer;
-    v.clear();
-    (this.marks[v.n] || []).forEach((g, gi) => g.forEach((r, ri) => {
-      const isSel = this.selMark && this.selMark.n === v.n && this.selMark.gi === gi && this.selMark.ri === ri;
-      const d = v.box(r, 'mark' + (isSel ? ' sel' : ''));
-      d.title = 'Clic para seleccionar; ✕ o Supr para quitar esta zona';
-      d.addEventListener('mousedown', e => { e.stopPropagation(); this.selMark = { n: v.n, gi, ri }; this.draw(); });
-      if (isSel) d.append(h('div', { class: 'x', title: 'Quitar esta zona', onmousedown: e => { e.stopPropagation(); this.removeMark(); } }, '✕'));
-    }));
+    if (!this.info) return;
+    const pages = v.pages ? v.pages.length : 1;
+    for (let n = 0; n < pages; n++) {
+      const ov = v.pageOv(n);
+      if (!ov) continue;
+      ov.replaceChildren();
+      ov.classList.add('draw');
+      if (this.preview) { ov.classList.remove('draw'); continue; }
+      (this.marks[n] || []).forEach((g, gi) => g.forEach((r, ri) => {
+        const isSel = this.selMark && this.selMark.n === n && this.selMark.gi === gi && this.selMark.ri === ri;
+        const d = v.box(r, 'mark' + (isSel ? ' sel' : ''), ov);
+        d.title = 'Clic para seleccionar; ✕ o Supr para quitar esta zona';
+        d.addEventListener('mousedown', e => { e.stopPropagation(); this.selMark = { n, gi, ri }; this.draw(); });
+        if (isSel) d.append(h('div', { class: 'x', title: 'Quitar esta zona', onmousedown: e => { e.stopPropagation(); this.removeMark(); } }, '✕'));
+      }));
+    }
+  },
+  collectMarks() {
+    const marks = {};
+    for (const [n, gs] of Object.entries(this.marks)) { const f = gs.flat(); if (f.length) marks[n] = f; }
+    return marks;
+  },
+  /** Aplica la censura a una copia y la muestra en su lugar, en la misma página. */
+  async showPreview() {
+    if (!this.info) return;
+    if (this.preview) return this.exitPreview();
+    const marks = this.collectMarks();
+    if (!Object.keys(marks).length) return toast('No hay nada marcado para censurar.', 'err');
+    const r = await run('Preparando la vista previa…', () => api('redact/preview', { id: this.info.id, marks, style: $('[data-k=style]', this.root).value }));
+    if (!r) return;
+    this.preview = { info: r.info, res: { rid: r.rid, files: [{ name: r.info.name, size: r.info.size }] } };
+    this.selMark = null;
+    $('.preview-banner', this.root).hidden = false;
+    $('[data-act=preview]', this.root).classList.add('on');
+    $('[data-act=preview]', this.root).textContent = '✎ Volver a editar';
+    this.viewer.swap(r.info);
+    this.status('Vista previa. Comprueba que no se ve nada de lo tapado; vuelve a editar para cambiar zonas.');
+  },
+  exitPreview(swap = true) {
+    if (!this.preview) return;
+    api('close', { id: this.preview.info.id }).catch(() => {});
+    this.preview = null;
+    $('.preview-banner', this.root).hidden = true;
+    $('[data-act=preview]', this.root).classList.remove('on');
+    $('[data-act=preview]', this.root).textContent = '👁 Vista previa';
+    if (swap && this.info) { this.viewer.swap(this.info); this.ensureWords(this.viewer.n); }
   },
   removeMark() {
     const m = this.selMark;
@@ -77,7 +120,7 @@ const Redact = {
   },
   add(n, rects) { (this.marks[n] = this.marks[n] || []).push(rects); },
   async down(e) {
-    if (e.button !== 0 || !this.info) return;
+    if (e.button !== 0 || !this.info || this.preview) return;
     if (this.selMark) { this.selMark = null; this.draw(); }
     const d = await this.viewer.drag(e);
     if (!d.moved) return;
@@ -157,8 +200,8 @@ const Redact = {
   },
   async save() {
     if (!this.info) return;
-    const marks = {};
-    for (const [n, gs] of Object.entries(this.marks)) { const f = gs.flat(); if (f.length) marks[n] = f; }
+    if (this.preview) return saveResult(this.preview.res);
+    const marks = this.collectMarks();
     if (!Object.keys(marks).length) return toast('No hay nada marcado para censurar.', 'err');
     const res = await run('Censurando…', () => api('redact', { id: this.info.id, marks, style: $('[data-k=style]', this.root).value }));
     saveResult(res);

@@ -20,6 +20,7 @@ class Viewer {
     this.onpage = null; this.onrender = null;
     new ResizeObserver(() => { if (this.info && this.fitMode) this.fit(); }).observe(this.el);
   }
+  pageOv(i) { return i === this.n ? this._ov : null; }
   get wrap() { return this._wrap; }
   get img() { return this._img; }
   get ov() { return this._ov; }
@@ -199,8 +200,12 @@ function pageColorAt(viewer, x, y) {
 /** Visor con todas las páginas seguidas (desplazamiento con la rueda). La página
  *  activa es la que ocupa el centro de la vista o la última en la que se ha hecho clic. */
 class ContViewer extends Viewer {
-  constructor(host) {
+  /** keepOverlays: las marcas de cada página se conservan al cambiar de página (Censurar, Firma).
+   *  firstClickActivates: el primer clic en otra página solo la activa (Editar). */
+  constructor(host, { keepOverlays = false, firstClickActivates = true } = {}) {
     super(host);
+    this.keepOverlays = keepOverlays;
+    this.firstClickActivates = firstClickActivates;
     this._wrap.remove();
     this.stack = h('div', { class: 'stack' });
     this.el.append(this.stack);
@@ -220,7 +225,7 @@ class ContViewer extends Viewer {
     p.ov.addEventListener(type, e => {
       if (i !== this.n) {
         this.setActive(i);
-        if (type === 'mousedown' || type === 'contextmenu') { e.preventDefault(); return; }
+        if (this.firstClickActivates && (type === 'mousedown' || type === 'contextmenu')) { e.preventDefault(); return; }
       }
       fn(e);
     }, true);
@@ -241,6 +246,18 @@ class ContViewer extends Viewer {
     });
     this.el.scrollTop = 0;
     this.fit();
+  }
+  /** Cambia el documento mostrado manteniendo la página y el desplazamiento (vista previa). */
+  swap(info) {
+    const n = this.n, fit = this.fitMode, z = this.zoom;
+    const off = this.pages[n] ? this.el.scrollTop - this.pages[n].wrap.offsetTop : 0;
+    this.load(info);
+    if (!fit) { this.zoom = z; this.fitMode = false; this.render(); }
+    const restore = () => { if (this.pages[n]) this.el.scrollTop = this.pages[n].wrap.offsetTop + off; this.loadVisible(); };
+    restore();
+    requestAnimationFrame(() => { restore(); requestAnimationFrame(restore); });
+    this.n = -1;
+    this.setActive(n);
   }
   get size() { return this.info.pages[this.n]; }
   fit() {
@@ -264,9 +281,10 @@ class ContViewer extends Viewer {
     this.el.scrollTop -= 10;
     this.setActive(n);
   }
+  pageOv(i) { return this.pages[i]?.ov || null; }
   setActive(n) {
     if (n === this.n) return;
-    this.pages[this.n]?.ov.replaceChildren();
+    if (!this.keepOverlays) this.pages[this.n]?.ov.replaceChildren();
     this.n = n;
     this.lbl.textContent = `${n + 1} / ${this.pages.length}`;
     this.onpage?.(n);

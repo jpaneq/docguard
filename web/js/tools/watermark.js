@@ -48,6 +48,17 @@ const Wm = {
     $('[data-act=check]', this.root).onclick = () => this.check();
     $('[data-act=registry]', this.root).onclick = () => this.registry();
     new ResizeObserver(() => this.schedule()).observe($('.preview-img', this.root));
+    makeResizable($('.side-panel', this.root), 'right', 'wm-side', 260, 620);
+    // rueda del ratón sobre la vista previa: pasa a la página siguiente o anterior
+    let wheelLock = 0;
+    $('.preview-img', this.root).addEventListener('wheel', e => {
+      const box = e.currentTarget;
+      if (this.pages() < 2 || Date.now() < wheelLock) return;
+      const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 2;
+      const atTop = box.scrollTop <= 0;
+      if (e.deltaY > 20 && atBottom && this.n < this.pages() - 1) { this.n++; wheelLock = Date.now() + 450; this.preview(); }
+      else if (e.deltaY < -20 && atTop && this.n > 0) { this.n--; wheelLock = Date.now() + 450; this.preview(); }
+    }, { passive: true });
     this.outputs();
     this.loadPresets();
   },

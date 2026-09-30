@@ -360,6 +360,15 @@ def op_search(req):
     return {"hits": hits}
 
 
+def op_redact_preview(req):
+    """Aplica la censura a una copia y la abre como documento para verla antes de guardar."""
+    res = op_redact(req)
+    name, data = RESULTS[res["rid"]][0]
+    did = secrets.token_urlsafe(8)
+    DOCS[did] = Doc(name, data)
+    return {"info": DOCS[did].info(did), "rid": res["rid"]}
+
+
 def op_redact(req):
     d = get_doc(req)
     doc = need_pdf(d)
@@ -742,7 +751,7 @@ OPS = {
     "wm/preview": op_wm_preview, "wm/export": op_wm_export, "wm/check": op_wm_check,
     "wm/registry": op_wm_registry, "idfields": op_idfields,
     "words": op_words, "pages_without_text": op_pages_without_text, "ocr": op_ocr, "detect": op_detect,
-    "search": op_search, "redact": op_redact,
+    "search": op_search, "redact": op_redact, "redact/preview": op_redact_preview,
     "pages/save": op_pages_save, "encrypt": op_encrypt, "decrypt": op_decrypt,
     "compress": op_compress, "toimages": op_toimages, "topdf": op_topdf, "sanitize": op_sanitize, "merge": op_merge, "merge_pages": op_merge_pages,
     "edit/state": op_edit_state, "fonts": op_fonts, "outline": op_outline, "edit/undo": op_undo, "edit/redo": op_redo, "edit/export": op_edit_export,

@@ -8,10 +8,10 @@
 const Sign = {
   init() {
     this.root = $('#tool-sign');
-    this.viewer = new Viewer($('.viewer-host', this.root));
+    this.viewer = new ContViewer($('.viewer-host', this.root), { keepOverlays: true, firstClickActivates: false });
     this.viewer.onrender = () => this.draw();
-    this.viewer.ov.classList.add('draw');
-    this.viewer.ov.addEventListener('mousedown', e => this.down(e));
+    this.viewer.on('mousedown', e => this.down(e));
+    makeResizable($('.props', this.root), 'left', 'sign', 260, 620);
     this.rect = null; this.p12 = null;
     dropTarget(this.viewer.el, f => this.openFile(f[0]));
     const act = (a, f) => { $(`[data-act=${a}]`, this.root).onclick = f; };
@@ -147,8 +147,12 @@ const Sign = {
   },
   draw() {
     const v = this.viewer;
-    v.clear();
-    if (this.rect && this.rect.n === v.n && this.k('visible').checked) v.box(this.rect.r, 'sigbox');
+    if (!this.info) return;
+    (v.pages || []).forEach((p, i) => { p.ov.replaceChildren(); p.ov.classList.add('draw'); });
+    if (this.rect && this.k('visible').checked) {
+      const ov = v.pageOv(this.rect.n);
+      if (ov) v.box(this.rect.r, 'sigbox', ov);
+    }
   },
   async down(e) {
     if (e.button !== 0 || !this.info || !this.k('visible').checked) return;

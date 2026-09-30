@@ -62,6 +62,7 @@ const Edit = {
     this.viewer.on('mousemove', e => { this.mouse = { n: this.viewer.n, p: this.viewer.pt(e) }; });
     this.viewer.on('contextmenu', e => { if (e.target === this.viewer.ov) this.contextMenu(e); });
     this.side = $('.pages-side', this.root);
+    makeResizable(this.side, 'right', 'edit-side', 120, 520);
     $('[data-act=pages]', this.root).onclick = () => this.toggleSide();
     this.tool = 'select'; this.sel = null; this.selSpans = new Set(); this.st = null;
     this.textOpts = { font: 'base:helv', size: 12, color: '#000000', bold: false, italic: false, list: 'none' };
@@ -128,7 +129,7 @@ const Edit = {
   },
   refreshThumb() {
     const t = $$('.tp img', this.side)[this.viewer.n];
-    if (t) t.src = pageUrl(this.info.id, this.viewer.n, 0.22, Date.now());
+    if (t) t.src = pageUrl(this.info.id, this.viewer.n, 0.5, Date.now());
   },
   async undo() {
     if (!this.info) return;
@@ -160,7 +161,7 @@ const Edit = {
     if (tab === 'thumbs') {
       const list = h('div', { class: 'thumb-list' });
       this.info.pages.forEach((sz, i) => {
-        const img = h('img', { alt: '', loading: 'lazy', src: pageUrl(this.info.id, i, 0.22, this.viewer.v) });
+        const img = h('img', { alt: '', loading: 'lazy', src: pageUrl(this.info.id, i, 0.5, this.viewer.v) });
         list.append(h('div', { class: 'tp' + (i === this.viewer.n ? ' on' : ''), onclick: () => this.viewer.go(i) }, img, h('span', {}, i + 1)));
       });
       s.append(list);

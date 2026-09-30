@@ -158,8 +158,11 @@
       <button data-act="undo">↶ Deshacer</button>
       <button data-act="clear">Limpiar página</button>
       <select data-k="style"><option>Cuadro negro</option><option>Pixelado</option><option>Difuminado</option></select>
+      <button data-act="preview" title="Ver cómo queda antes de guardar">👁 Vista previa</button>
       <button class="primary" data-act="save">Aplicar censura…</button>
     </div>
+    <div class="preview-banner" hidden>Vista previa: así quedará el documento censurado (el texto tapado ya no existe).
+      <span class="grow"></span><button data-act="back">Volver a editar</button><button data-act="savepreview">Guardar esta versión…</button></div>
     <div class="work"><div class="viewer-host"></div></div>
     <div class="status"></div>
   </section>

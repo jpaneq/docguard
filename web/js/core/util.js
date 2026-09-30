@@ -210,3 +210,34 @@ function clearCurrent() {
   CURRENT = null;
   $('.current-doc').hidden = true;
 }
+
+/* ======================================================================
+   Paneles con anchura ajustable
+   ====================================================================== */
+
+/** Añade un tirador al borde (edge: 'right' o 'left') para cambiar la anchura del panel. */
+function makeResizable(panel, edge, key, min = 150, max = 700, onresize = null) {
+  try { const w = +localStorage.getItem('dg_w_' + key); if (w) panel.style.width = w + 'px'; } catch (e) { /* sin almacenamiento */ }
+  // separador entre el panel y el resto (así no se desplaza con el contenido del panel)
+  const grip = h('div', { class: 'splitter', title: 'Arrastra para cambiar el tamaño' });
+  if (edge === 'right') panel.after(grip); else panel.before(grip);
+  new MutationObserver(() => { grip.hidden = panel.hidden; }).observe(panel, { attributes: true, attributeFilter: ['hidden'] });
+  grip.hidden = panel.hidden;
+  grip.addEventListener('mousedown', e => {
+    e.preventDefault();
+    const x0 = e.clientX, w0 = panel.getBoundingClientRect().width;
+    document.body.classList.add('resizing');
+    const mv = ev => {
+      const w = clamp(w0 + (edge === 'right' ? ev.clientX - x0 : x0 - ev.clientX), min, max);
+      panel.style.width = w + 'px';
+      onresize?.(w);
+    };
+    window.addEventListener('mousemove', mv);
+    window.addEventListener('mouseup', () => {
+      window.removeEventListener('mousemove', mv);
+      document.body.classList.remove('resizing');
+      try { localStorage.setItem('dg_w_' + key, Math.round(panel.getBoundingClientRect().width)); } catch (err) { /* sin almacenamiento */ }
+      onresize?.(panel.getBoundingClientRect().width, true);
+    }, { once: true });
+  });
+}

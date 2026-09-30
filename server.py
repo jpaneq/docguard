@@ -168,7 +168,21 @@ def wm_params(req):
                       .replace("{finalidad}", q.get("purpose", "").strip())))
     base = wm_basic(p)
     base.update(level=p.get("level", "reforzada"), strike=bool(p.get("strike", True)))
+    # capas contra la IA generativa
+    who = q.get("recipient", "").strip()
+    base.update(robust=bool(p.get("robust", True)), fingerprint=bool(p.get("fingerprint", True)),
+                hide_label=(f"SOLO PARA {who.upper()}" if who else "USO RESTRINGIDO") if p.get("labels") else None,
+                decoy_mrz=bool(p.get("labels")), stamp=bool(p.get("stamp")),
+                stamp_text=f"Solo para {who}" if who else None, notice=bool(p.get("notice")))
     return base
+
+
+def limit_size(img, maxside):
+    """Reduce la imagen si supera el tamaño máximo: legible, pero menos útil para falsificar."""
+    if maxside and max(img.size) > maxside:
+        k = maxside / max(img.size)
+        img = img.resize((max(1, int(img.width * k)), max(1, int(img.height * k))), Image.LANCZOS)
+    return img
 
 
 def wm_qr(p, ref):
@@ -225,6 +239,7 @@ def op_wm_preview(req):
         img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
     img.thumbnail((maxw, maxw * 3))
     params = wm_params(req)
+    params["ref"] = "XXXXXXXX"  # la referencia real se asigna al guardar
     if params["strike"] and params["level"] != "basica" and n not in d.lines:
         d.lines[n] = protect.detect_lines(img)
     out = protect.watermark(img, seed=1000 + n, lines=d.lines.get(n), qr=wm_qr(req["params"], "(al guardar)"),
@@ -252,15 +267,19 @@ def op_wm_export(req):
         extra = dict(params, qr=wm_qr(p, ref), mark=ref if p.get("mark", True) else None)
         hide_doc = (p.get("hide") or {}).get(did)
 
-        def painter(img, seed, _d=d, _h=hide_doc, **kw):
+        def painter(img, seed, _d=d, _h=hide_doc, _ref=ref, **kw):
             page_no = seed - 1000
+            img = limit_size(img, int(p.get("maxside") or 0))
             if _h is not None and str(page_no) in _h:
                 hide = _h[str(page_no)]
             elif p.get("autohide"):
-                hide = [r for it in idfields.detect(img)["items"] for r in it["rects"]]
+                hide = [{"r": r, "k": it["kind"]} for it in idfields.detect(img)["items"] for r in it["rects"]]
             else:
                 hide = None
-            return protect.watermark(img, seed=seed, hide=hide, **kw)
+            out = protect.watermark(img, seed=seed, hide=hide, ref=_ref, **kw)
+            if _ref and kw.get("fingerprint") and protect.LAST_HIDE:
+                protect.register_fingerprint(_ref, protect.LAST_HIDE, page=page_no)
+            return out
         with as_file(d) as (path, tmp):
             dst = os.path.join(tmp, "out", f"{d.base}_marca.{fmt}")
             os.makedirs(os.path.dirname(dst))
@@ -291,9 +310,9 @@ def op_wm_export(req):
 
 
 def op_wm_check(req):
-    """Busca la marca invisible en un documento y la cruza con el registro."""
+    """Identifica a quién se entregó una copia con todos los métodos disponibles y busca
+    indicios de edición con IA en el propio archivo."""
     d = get_doc(req)
-    results = []
     if d.kind == "image" and not d.edited:
         imgs = [Image.open(io.BytesIO(d.orig)).convert("RGB")]
     else:
@@ -302,11 +321,26 @@ def op_wm_check(req):
         for page in list(doc)[:5]:
             pix = page.get_pixmap(dpi=150, alpha=False)
             imgs.append(Image.frombytes("RGB", (pix.width, pix.height), pix.samples))
+    found = {}
+
+    def add(ref, page, method, detail=""):
+        e = found.setdefault(ref, {"ref": ref, "page": page, "methods": [], "record": protect.lookup(ref)})
+        if method not in [m["name"] for m in e["methods"]]:
+            e["methods"].append({"name": method, "detail": detail})
     for i, img in enumerate(imgs):
         ref, conf = protect.detect_mark(img)
         if ref:
-            results.append({"page": i + 1, "ref": ref, "confidence": round(conf, 2), "record": protect.lookup(ref)})
-    return {"found": results}
+            add(ref, i + 1, "Marca invisible", f"coincidencia {conf:.0%}")
+        ids = protect.identify_robust(img)
+        if ids and ids[0][1] >= 4.5 and (len(ids) < 2 or ids[0][1] - ids[1][1] >= 1.5):
+            add(ids[0][0], i + 1, "Rastreo reforzado (resiste la regeneración por IA)",
+                "certeza muy alta" if ids[0][1] >= 8 else "certeza alta")
+        fps = protect.match_fingerprint(img)
+        if fps and fps[0]["score"] >= 0.6 and (len(fps) < 2 or fps[0]["score"] - fps[1]["score"] >= 0.08):
+            add(fps[0]["ref"], i + 1, "Huella de las zonas ocultas", f"coincidencia {fps[0]['score']:.0%}")
+        for r in protect.read_refs(img):
+            add(r, i + 1, "Referencia escrita en la copia")
+    return {"found": sorted(found.values(), key=lambda e: -len(e["methods"])), "hints": protect.provenance_hints(d.orig)}
 
 
 def op_wm_registry(req):

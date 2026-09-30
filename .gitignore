@@ -6,3 +6,4 @@ dist/
 icon.ico
 icon.icns
 dist-github/
+tools/bench_out/

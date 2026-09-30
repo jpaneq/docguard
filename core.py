@@ -37,6 +37,9 @@ def resource_path(name):
 
 
 def config_dir():
+    if os.environ.get("DOCGUARD_CONFIG"):  # pruebas: configuración aparte
+        os.makedirs(os.environ["DOCGUARD_CONFIG"], exist_ok=True)
+        return os.environ["DOCGUARD_CONFIG"]
     if sys.platform == "win32":
         base = os.environ.get("APPDATA", os.path.expanduser("~"))
     elif sys.platform == "darwin":

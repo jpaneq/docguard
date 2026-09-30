@@ -127,6 +127,24 @@ def selftest():
     out = protect.watermark(card, "Solo para prueba", level="maxima",
                             qr={"data": protect.qr_text("A", "B", "0000ABCD")}, mark="0000ABCD")
     checks["protección reforzada + QR + marca invisible"] = protect.detect_mark(out)[0] == "0000ABCD"
+    # rastreo reforzado y huella, con un historial temporal (no toca el del usuario)
+    import tempfile as _tmp
+    previo = os.environ.get("DOCGUARD_CONFIG")
+    os.environ["DOCGUARD_CONFIG"] = _tmp.mkdtemp(prefix="dg_selftest_")
+    try:
+        ref = protect.register("autotest", "", "", "")
+        zona = [{"r": [0.08, 0.3, 0.45, 0.42], "k": "soporte"}, {"r": [0.55, 0.6, 0.9, 0.75], "k": "can"}]
+        prot = protect.watermark(card, "Solo para prueba", level="reforzada", hide=zona, ref=ref, mark=ref, lines=[],
+                                 robust=True, fingerprint=True, hide_label="SOLO PARA PRUEBA")
+        protect.register_fingerprint(ref, protect.LAST_HIDE)
+        ids = protect.identify_robust(prot)
+        fps = protect.match_fingerprint(prot)
+        checks["rastreo reforzado + huella"] = bool(ids and ids[0][0] == ref and fps and fps[0]["ref"] == ref)
+    finally:
+        if previo is None:
+            os.environ.pop("DOCGUARD_CONFIG", None)
+        else:
+            os.environ["DOCGUARD_CONFIG"] = previo
     import idfields
     from PIL import ImageDraw
     back = Image.new("RGB", (1600, 1010), (225, 232, 228))

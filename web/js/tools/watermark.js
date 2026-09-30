@@ -46,6 +46,7 @@ const Wm = {
     qrMode();
     this.k('level').addEventListener('change', () => { this.k('strike').disabled = this.k('level').value === 'basica'; });
     $('[data-act=check]', this.root).onclick = () => this.check();
+    for (const k of ['robust', 'fingerprint', 'labels', 'stamp', 'notice', 'maxside']) this.k(k).addEventListener('change', () => this.schedule());
     $('[data-act=quick]', this.root).onclick = () => this.quick();
     for (const [q, t] of [['q_recipient', 'qr_recipient'], ['q_purpose', 'qr_purpose'], ['q_password', 'password']]) {
       this.k(q).addEventListener('input', () => { this.k(t).value = this.k(q).value; this.schedule(); });
@@ -76,12 +77,14 @@ const Wm = {
     for (const k of ['hardened', 'strike', 'mark']) p[k] = this.k(k).checked;
     p.autohide = this.k('autohide').checked;
     p.password = this.k('password').value;
+    for (const k of ['robust', 'fingerprint', 'labels', 'stamp', 'notice']) p[k] = this.k(k).checked;
+    p.maxside = this.k('maxside').value;
     const cur = this.files.current;
-    p.hide_page = cur ? this.activeRects(cur.id, this.n).map(x => x.r) : [];
+    p.hide_page = cur ? this.activeRects(cur.id, this.n).map(x => ({ r: x.r, k: x.kind })) : [];
     p.hide = {};
     for (const [id, pages] of Object.entries(this.hideData)) {
       p.hide[id] = {};
-      for (const n of Object.keys(pages)) p.hide[id][n] = this.activeRects(id, +n).map(x => x.r);
+      for (const n of Object.keys(pages)) p.hide[id][n] = this.activeRects(id, +n).map(x => ({ r: x.r, k: x.kind }));
     }
     p.qr = { enabled: this.k('qr').checked, recipient: this.k('qr_recipient').value, purpose: this.k('qr_purpose').value,
       size: +this.k('qr_size').value, pos: this.k('qr_pos').value, mode: this.k('qr_mode').value, base_url: this.k('qr_base').value };
@@ -124,7 +127,9 @@ const Wm = {
     if (!who) { this.k('q_recipient').focus(); return toast('Indica para quién es la copia.', 'err'); }
     this.k('text').value = 'Solo para {destinatario} – {fecha}';
     this.k('level').value = 'reforzada';
-    for (const k of ['strike', 'mark', 'autohide', 'qr']) this.k(k).checked = true;
+    for (const k of ['strike', 'mark', 'autohide', 'qr', 'robust', 'fingerprint', 'labels', 'stamp', 'notice']) this.k(k).checked = true;
+    this.k('qr_pos').value = 'auto';
+    if (!this.k('maxside').value) this.k('maxside').value = '1600';
     $('[data-role=qr]', this.root).hidden = false;
     this.k('qr_recipient').value = who;
     this.k('qr_purpose').value = this.k('q_purpose').value.trim();
@@ -157,7 +162,7 @@ const Wm = {
     const pg = this.hidePage(id, n);
     if (!pg || pg.loading) return [];
     const out = [];
-    if (this.k('autohide').checked) pg.items.forEach((it, ii) => { if (it.on) it.rects.forEach((r, ri) => out.push({ r, key: [ii, ri] })); });
+    if (this.k('autohide').checked) pg.items.forEach((it, ii) => { if (it.on) it.rects.forEach((r, ri) => out.push({ r, key: [ii, ri], kind: it.kind })); });
     pg.manual.forEach((r, mi) => out.push({ r, key: ['m', mi] }));
     return out;
   },
@@ -229,22 +234,33 @@ const Wm = {
   async check() {
     const [f] = await pickFiles(ACCEPT_DOCS);
     if (!f) return;
-    const r = await run('Buscando la marca invisible…', async () => {
+    const r = await run('Analizando la copia…', async () => {
       const info = await uploadFile(f);
       try { return await api('wm/check', { id: info.id }); } finally { api('close', { id: info.id }).catch(() => {}); }
     });
     if (!r) return;
-    const body = r.found.length ? h('div', {}, r.found.map(x => h('div', { class: 'sig-result' },
-      h('div', {}, h('b', { class: 'ok' }, `✔ Marca encontrada: ${x.ref}`), x.page > 1 ? ` (página ${x.page})` : ''),
-      x.record ? h('div', { class: 'kv' },
-        h('b', {}, 'Entregado a'), h('span', {}, x.record.destinatario || '—'),
-        h('b', {}, 'Finalidad'), h('span', {}, x.record.finalidad || '—'),
-        h('b', {}, 'Fecha'), h('span', {}, x.record.fecha),
-        h('b', {}, 'Texto'), h('span', {}, x.record.texto || '—'),
-        h('b', {}, 'Archivo'), h('span', {}, x.record.archivo || '—'))
-        : h('p', { class: 'muted' }, 'Esta referencia no está en el historial de este equipo (quizá se marcó en otro).'))))
-      : h('p', {}, 'No se ha encontrado ninguna marca invisible de DocGuard. Puede que no la tenga, o que la imagen se haya recortado, girado o regenerado por completo.');
-    modal({ title: 'Comprobar marca invisible', body, actions: [{ label: 'Cerrar', primary: true }] });
+    const body = h('div', {});
+    if (r.found.length) {
+      for (const x of r.found) {
+        body.append(h('div', { class: 'sig-result' },
+          h('div', {}, h('b', { class: 'ok' }, `✔ Copia identificada: ${x.ref}`), x.page > 1 ? ` (página ${x.page})` : ''),
+          h('ul', { class: 'help' }, x.methods.map(m => h('li', {}, m.name, m.detail ? h('small', {}, ` · ${m.detail}`) : null))),
+          x.record ? h('div', { class: 'kv' },
+            h('b', {}, 'Entregado a'), h('span', {}, x.record.destinatario || '—'),
+            h('b', {}, 'Finalidad'), h('span', {}, x.record.finalidad || '—'),
+            h('b', {}, 'Fecha'), h('span', {}, x.record.fecha),
+            h('b', {}, 'Texto'), h('span', {}, x.record.texto || '—'),
+            h('b', {}, 'Archivo'), h('span', {}, x.record.archivo || '—'))
+            : h('p', { class: 'muted' }, 'Esta referencia no está en el historial de este equipo (quizá se marcó en otro).')));
+      }
+      if (r.found.some(x => !x.methods.some(m => m.name === 'Marca invisible')))
+        body.append(h('p', { class: 'muted' }, 'La marca invisible clásica no está: la copia se ha alterado (quizá con IA), pero se ha podido identificar igualmente.'));
+    } else {
+      body.append(h('p', {}, 'No se ha podido identificar. Puede que la copia no sea de DocGuard, que sea de otro equipo, o que se haya recortado, girado o regenerado por completo.'));
+    }
+    if (r.hints?.length) body.append(h('div', { class: 'sig-result' }, h('b', { class: 'bad' }, '⚠ Indicios de edición con IA'),
+      h('ul', { class: 'help' }, r.hints.map(t => h('li', {}, t)))));
+    modal({ title: 'Comprobar una copia', body, actions: [{ label: 'Cerrar', primary: true }] });
   },
   async registry() {
     const r = await run('Cargando…', () => api('wm/registry'));
@@ -274,7 +290,8 @@ const Wm = {
     if (p.color) this.k('color').value = Array.isArray(p.color) ? '#' + p.color.map(c => (+c).toString(16).padStart(2, '0')).join('') : p.color;
     this.k('hardened').checked = p.hardened !== false;
     if (p.level) this.k('level').value = p.level;
-    for (const k of ['strike', 'mark']) if (p[k] != null) this.k(k).checked = p[k];
+    for (const k of ['strike', 'mark', 'robust', 'fingerprint', 'labels', 'stamp', 'notice']) if (p[k] != null) this.k(k).checked = p[k];
+    if (p.maxside != null) this.k('maxside').value = p.maxside;
     if (p.qr) {
       this.k('qr').checked = !!p.qr.enabled;
       $('[data-role=qr]', this.root).hidden = !p.qr.enabled;

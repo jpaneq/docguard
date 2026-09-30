@@ -75,7 +75,7 @@
         <div class="files" data-role="files"></div>
         <div class="quick">
           <b>Modo rápido DNI / pasaporte</b>
-          <small>Oculta los datos innecesarios, añade marca reforzada, microtexto, QR y marca de rastreo, y lo guarda como PDF (con contraseña si quieres), en un paso.</small>
+          <small>En un paso: oculta los datos innecesarios con rótulos y huella, añade marca reforzada, microtexto, sello sobre la foto, QR, aviso y rastreo resistente a la IA, y lo guarda como PDF (con contraseña si quieres).</small>
           <input data-k="q_recipient" placeholder="Para quién (p. ej. Inmobiliaria Sol S.L.)">
           <input data-k="q_purpose" placeholder="Finalidad (p. ej. alquiler piso C/ Mayor 3)">
           <input data-k="q_password" type="password" placeholder="Contraseña para abrirlo (opcional)">
@@ -108,6 +108,20 @@
         <small>Atraviesa cada línea de texto (nombre, número…) con microtexto del color de la tinta: para quitarlo hay que reescribir los datos.</small>
         <label class="inline"><input type="checkbox" data-k="mark" checked> Marca invisible de rastreo</label>
         <small>Oculta una referencia en la imagen. Si alguien borra la marca visible, DocGuard puede identificar a quién se entregó.</small>
+        <h3>Capas contra la IA</h3>
+        <label class="inline"><input type="checkbox" data-k="robust" checked> Rastreo reforzado</label>
+        <small>Marca invisible que resiste que una IA redibuje la imagen: permite saber a quién se entregó.</small>
+        <label class="inline"><input type="checkbox" data-k="fingerprint" checked> Huella en las zonas ocultas</label>
+        <small>Cada entrega tapa los datos con medidas únicas; las IA conservan esos recuadros.</small>
+        <label class="inline"><input type="checkbox" data-k="labels"> Rótulos «OCULTO · SOLO PARA…» y MRZ señuelo</label>
+        <small>Las zonas ocultas dicen para quién es la copia y su referencia; la MRZ se sustituye por una falsa que parece real.</small>
+        <label class="inline"><input type="checkbox" data-k="stamp"> Sello sobre la foto</label>
+        <small>Como los sellos oficiales: para quitarlo hay que redibujar parte de la cara.</small>
+        <label class="inline"><input type="checkbox" data-k="notice"> Aviso contra la edición</label>
+        <small>Aviso legal visible, también dirigido a asistentes como ChatGPT o Gemini (algunos se niegan a manipular documentos así marcados).</small>
+        <label>Resolución máxima
+          <select data-k="maxside"><option value="">Sin límite</option><option value="2000">2000 px</option>
+            <option value="1600">1600 px (recomendado para DNI)</option><option value="1200">1200 px</option></select></label>
         <h3>Ocultar datos (DNI / pasaporte)</h3>
         <label class="inline"><input type="checkbox" data-k="autohide" checked> Detectar y ocultar datos innecesarios</label>
         <small>Firma, nº de soporte (IDESP), CAN, MRZ, domicilio, progenitores, lugar de nacimiento, datos de expedición… En la vista previa: clic en un recuadro y ✕ (o Supr) para quitarlo; arrastra para tapar otra zona.</small>
@@ -129,6 +143,7 @@
           </div>
           <label>Tamaño <output></output><input type="range" data-k="qr_size" min="12" max="40" value="22"></label>
           <label>Posición <select data-k="qr_pos">
+            <option value="auto">Automática (sin tapar datos)</option>
             <option value="abajo-derecha">Abajo a la derecha</option><option value="abajo-izquierda">Abajo a la izquierda</option>
             <option value="arriba-derecha">Arriba a la derecha</option><option value="arriba-izquierda">Arriba a la izquierda</option>
             <option value="centro">Centro</option></select></label>

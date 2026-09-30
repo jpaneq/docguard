@@ -1,0 +1,12 @@
+torch
+simple-lama-inpainting
+diffusers
+safetensors
+scikit-image
+pymupdf
+pillow
+numpy
+rapidocr
+onnxruntime
+qrcode
+opencv-python-headless

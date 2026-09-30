@@ -503,8 +503,33 @@ def op_wm_check(req):
     for x in delivered:
         add(x["ref"], 1, "Huella exacta del archivo" if x["exact"] else "Huella exacta de la parte entregada",
             "idéntico a la copia guardada" if x["exact"] else "con cambios añadidos después (p. ej. el acuse de recibo)")
-    return {"found": sorted(found.values(), key=lambda e: -len(e["methods"])), "hints": protect.provenance_hints(d.orig),
-            "file": delivered, "signatures": sigs, "sig_error": sig_error}
+    result = {"found": sorted(found.values(), key=lambda e: -len(e["methods"])), "hints": protect.provenance_hints(d.orig),
+              "file": delivered, "signatures": sigs, "sig_error": sig_error}
+    # para el informe en PDF (sin volver a analizar)
+    thumb = imgs[0].copy() if imgs else None
+    if thumb is not None:
+        thumb.thumbnail((1200, 1200))
+        buf = io.BytesIO()
+        thumb.save(buf, "PNG")
+        d.check_img = buf.getvalue()
+    d.check = result
+    return result
+
+
+def op_wm_report(req):
+    """Informe de la última comprobación en PDF, con sello de tiempo si hay internet."""
+    d = get_doc(req)
+    if not getattr(d, "check", None):
+        raise ValueError("Comprueba primero la copia.")
+    import report
+    pdf = report.build(d.check, d.name, d.orig, getattr(d, "check_img", None))
+    stamped = False
+    if req.get("tsa"):
+        pdf, stamped = report.timestamp(pdf, req["tsa"])
+    res = store_result([(f"informe_comprobacion_{d.base}_{datetime.date.today():%Y-%m-%d}.pdf", pdf)])
+    res["notes"] = ["con sello de tiempo cualificado" if stamped else
+                    ("sin sello de tiempo (sin conexión)" if req.get("tsa") else "sin sello de tiempo")]
+    return res
 
 
 def op_wm_registry(req):
@@ -1231,7 +1256,7 @@ def op_presets_save(req):
 OPS = {
     "presets": op_presets, "presets/save": op_presets_save,
     "open_result": op_open_result, "close": op_close, "info": op_info,
-    "wm/preview": op_wm_preview, "wm/export": op_wm_export, "wm/check": op_wm_check,
+    "wm/preview": op_wm_preview, "wm/export": op_wm_export, "wm/check": op_wm_check, "wm/report": op_wm_report,
     "wm/registry": op_wm_registry, "idfields": op_idfields, "registry/export": op_registry_export,
     "registry/import": op_registry_import, "registry/delete": op_registry_delete, "registry/backup": op_registry_backup,
     "words": op_words, "pages_without_text": op_pages_without_text, "ocr": op_ocr, "detect": op_detect,

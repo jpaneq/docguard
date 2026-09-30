@@ -158,6 +158,8 @@ def _selftest_signed_copy(call, png):
     ok = ok and {"Huella exacta del archivo", "Huella de las zonas ocultas"} <= names
     ok = ok and any(n.startswith("Rastreo reforzado") for n in names)
     ok = ok and len(r2["signatures"]) == 1 and r2["signatures"][0]["intact"] and r2["signatures"][0]["valid"]
+    informe = server.RESULTS[call("wm/report", {"id": copy["id"]})["rid"]][0][1]  # informe en PDF (sin sello: sin red)
+    ok = ok and ref in "".join(p.get_text() for p in fitz.open("pdf", informe))
     w = IncrementalPdfFileWriter(io.BytesIO(data))
     w.encrypt("clave")
     acuse = signers.PdfSigner(signers.PdfSignatureMetadata(field_name=signing.ACK_FIELD),

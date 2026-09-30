@@ -79,9 +79,10 @@ async function run(text, fn) {
   try { return await fn(); } catch (e) { toast(e.message, 'err'); return undefined; } finally { busy(false); }
 }
 
-function modal({ title, body, actions = [], wide = false }) {
+function modal({ title, body, actions = [], wide = false, onclose = null }) {
   const bg = h('div', { class: 'modal-bg' });
-  const close = () => bg.remove();
+  let closed = false;
+  const close = () => { bg.remove(); if (!closed) { closed = true; onclose?.(); } };
   const box = h('div', { class: 'modal', style: wide ? 'min-width:560px' : '' }, title && h('h2', {}, title), body,
     h('div', { class: 'actions' }, actions.map(a => h('button', {
       class: a.primary ? 'primary' : (a.danger ? 'danger' : ''),

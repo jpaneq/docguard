@@ -329,16 +329,16 @@ const Wm = {
     if (!f) return;
     const info = await run('Abriendo…', () => uploadFile(f));
     if (!info) return;
-    try {
-      let r = await run('Analizando la copia…', () => api('wm/check', { id: info.id }));
-      if (r?.needs_password) {
-        const pw = await ask('Copia protegida con contraseña', 'Contraseña para abrirla (para comprobar sus marcas y firmas)', '', { password: true });
-        if (pw) r = (await run('Analizando la copia…', () => api('wm/check', { id: info.id, password: pw }))) || r;
-      }
-      if (r) this.showCheck(r);
-    } finally { api('close', { id: info.id }).catch(() => {}); }
+    const done = () => api('close', { id: info.id }).catch(() => {});
+    let r = await run('Analizando la copia…', () => api('wm/check', { id: info.id }));
+    if (r?.needs_password) {
+      const pw = await ask('Copia protegida con contraseña', 'Contraseña para abrirla (para comprobar sus marcas y firmas)', '', { password: true });
+      if (pw) r = (await run('Analizando la copia…', () => api('wm/check', { id: info.id, password: pw }))) || r;
+    }
+    if (!r) return done();
+    this.showCheck(r, info.id, done);  // el documento se cierra al cerrar la ventana (lo usa el informe)
   },
-  showCheck(r) {
+  showCheck(r, id, onclose) {
     const body = h('div', {});
     if (r.needs_password) body.append(h('p', { class: 'muted' }, 'Sin la contraseña solo se ha podido comprobar la huella exacta del archivo.'));
     if (r.found.length) {
@@ -372,7 +372,12 @@ const Wm = {
     } else if (r.sig_error) body.append(h('p', { class: 'muted' }, `No se han podido leer las firmas: ${r.sig_error}`));
     if (r.hints?.length) body.append(h('div', { class: 'sig-result' }, h('b', { class: 'bad' }, '⚠ Indicios de edición con IA'),
       h('ul', { class: 'help' }, r.hints.map(t => h('li', {}, t)))));
-    modal({ title: 'Comprobar una copia', body, actions: [{ label: 'Cerrar', primary: true }] });
+    const report = id && !r.needs_password ? [{ label: 'Guardar informe (PDF)…', fn: async () => {
+      const res = await run('Generando el informe…', () => api('wm/report', { id, tsa: 'http://tss.accv.es:8318/tsa' }));
+      if (res) saveResult(res);
+      return false;
+    } }] : [];
+    modal({ title: 'Comprobar una copia', body, actions: [...report, { label: 'Cerrar', primary: true }], onclose });
   },
   async registry() {
     const r = await run('Cargando…', () => api('wm/registry'));

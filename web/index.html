@@ -190,7 +190,8 @@
         <div class="row">Exportar como
           <label class="inline"><input type="radio" name="wmfmt" value="pdf" checked> PDF</label>
           <label class="inline"><input type="radio" name="wmfmt" value="jpg"> JPG</label>
-          <label class="inline"><input type="radio" name="wmfmt" value="png"> PNG</label></div>
+          <label class="inline"><input type="radio" name="wmfmt" value="png"> PNG</label>
+          <label class="inline" title="Formato de archivo a largo plazo (no admite contraseña)"><input type="checkbox" data-k="pdfa"> PDF/A</label></div>
         <div class="row">Tamaño px <input data-k="width" class="num" placeholder="ancho"> × <input data-k="height" class="num" placeholder="alto"></div>
         <small>Vacío = original. Solo uno = mantiene la proporción.</small>
         <label>Contraseña para abrir el PDF (opcional) <input type="password" data-k="password" autocomplete="off"></label>
@@ -430,6 +431,7 @@
       <label class="inline">Hojas <select data-k="layout">
         <option value="paginas">Una por foto, a tamaño real</option><option value="a4">DNI: anverso y reverso en un A4</option></select></label>
       <label class="inline"><input type="checkbox" data-k="ocr" checked> Reconocer texto (OCR)</label>
+      <label class="inline" title="Formato de archivo a largo plazo que piden algunas sedes electrónicas"><input type="checkbox" data-k="pdfa"> PDF/A</label>
       <label class="inline">Formato <select data-k="fmt"><option value="pdf">PDF</option><option value="png">PNG</option><option value="jpg">JPG</option></select></label>
       <span class="grow"></span>
       <button class="primary" data-act="export">Digitalizar y guardar…</button>

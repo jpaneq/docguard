@@ -748,9 +748,11 @@ def ocr_page(doc, pno, mode="editable"):
     if not lines:
         return 0
     if mode == "invisible":
-        # una línea completa (con sus espacios) por línea reconocida: así buscar y copiar funcionan bien
+        # una línea completa (con sus espacios) por línea reconocida: así buscar y copiar funcionan bien.
+        # Fuente incrustada (se reduce luego a las letras usadas): lo exige PDF/A y evita sustituciones.
+        page.insert_font(fontname="DGocr", fontbuffer=fitz.Font("helv").buffer)
         for r, text, _words in lines:
-            page.insert_text(fitz.Point(r.x0, r.y1 - r.height * 0.2), text,
+            page.insert_text(fitz.Point(r.x0, r.y1 - r.height * 0.2), text, fontname="DGocr",
                              fontsize=_fit_size(text, r.width, r.height), render_mode=3)
         return len(lines)
     zoom = 2

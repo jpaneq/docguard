@@ -17,7 +17,7 @@ const Scanner = {
     act('full', () => { const it = this.item; if (it) { it.quad = [[0, 0], [1, 0], [1, 1], [0, 1]]; this.drawQuad(); this.schedule(); } });
     act('rotate', () => { const it = this.item; if (it) { it.rot = (it.rot + 90) % 360; this.renderList(); this.schedule(); } });
     for (const k of ['kind', 'mode']) this.k(k).onchange = () => this.schedule();
-    this.k('fmt').onchange = () => { const pdf = this.k('fmt').value === 'pdf'; this.k('layout').disabled = !pdf; this.k('ocr').disabled = !pdf; };
+    this.k('fmt').onchange = () => { const pdf = this.k('fmt').value === 'pdf'; for (const k of ['layout', 'ocr', 'pdfa']) this.k(k).disabled = !pdf; };
     dropTarget(this.root, f => this.add(f));
     this.img.addEventListener('load', () => this.drawQuad());
     new ResizeObserver(() => { this.drawQuad(); this.schedule(); }).observe(this.stage);
@@ -150,7 +150,7 @@ const Scanner = {
     const res = await run('Digitalizando…', () => api('scan/export', {
       pages: this.items.map(it => ({ id: it.info.id, n: it.n, quad: it.quad, rot: it.rot })),
       kind: this.k('kind').value, mode: this.k('mode').value, fmt: this.k('fmt').value,
-      layout: this.k('layout').value, ocr: this.k('ocr').checked,
+      layout: this.k('layout').value, ocr: this.k('ocr').checked, pdfa: this.k('pdfa').checked,
     }));
     saveResult(res);
   },

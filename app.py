@@ -300,6 +300,11 @@ def selftest():
     _ID.Draw(foto).polygon([(250, 200), (950, 160), (1000, 640), (220, 700)], fill=(225, 232, 238))
     q, _c = scan.detect_quad(foto)
     esperado = [(250, 200), (950, 160), (1000, 640), (220, 700)]
+    import pdfa
+    folio = scan.digitalize([(scan.process(foto, q, "a4", "color", 0, 1200)[0], "a4")], "paginas", ocr=False)
+    archivo = pdfa.convert(folio, "Prueba PDF/A")
+    firmado = _signing.sign_pdf(archivo, _test_p12(), "x", page=0, view_rect=[350, 760, 560, 820])
+    checks["PDF/A-2b (también firmado)"] = not pdfa.problems(archivo) and not pdfa.problems(firmado) and bool(pdfa.problems(folio))
     checks["escáner (bordes y perspectiva)"] = all(abs(x * 1200 - ex) < 15 and abs(y * 900 - ey) < 15
                                                     for (x, y), (ex, ey) in zip(q, esperado))
     import tempfile as _tf

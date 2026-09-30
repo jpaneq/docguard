@@ -188,7 +188,7 @@ const Wm = {
         ack: place === 'band' && this.k('q_ack').checked, page: this.sigPos?.n ?? 0, rect: this.sigPos?.r || SIG_DEFAULT };
     }
     const res = await run(sign ? 'Protegiendo y firmando…' : 'Aplicando la marca de agua…', () => api('wm/export', {
-      ids: this.files.ids, params: this.params(), fmt, width: w || null, height: hh || null, sign,
+      ids: this.files.ids, params: this.params(), fmt, width: w || null, height: hh || null, sign, pdfa: this.k('pdfa').checked,
     }));
     if (!res) return;
     const ctx = this.shareCtx(res);

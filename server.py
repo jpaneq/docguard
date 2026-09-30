@@ -28,6 +28,7 @@ import compare
 import convert
 import editor
 import idfields
+import pdfa
 import protect
 import records
 import scan
@@ -339,17 +340,6 @@ def preview_band(img, width_pt, band, q):
     return out, bh / out.height
 
 
-def encrypt_bytes(data, pw):
-    """Cifra un PDF (sin firma) con contraseña para abrirlo."""
-    with tempfile.TemporaryDirectory() as tmp:
-        a, b = os.path.join(tmp, "a.pdf"), os.path.join(tmp, "b.pdf")
-        with open(a, "wb") as fh:
-            fh.write(data)
-        core.encrypt_pdf(a, b, pw, allow_print=True, allow_copy=False, allow_edit=False)
-        with open(b, "rb") as fh:
-            return fh.read()
-
-
 def op_wm_export(req):
     params = wm_params(req)
     fmt = req.get("fmt", "pdf").lower()
@@ -367,6 +357,12 @@ def op_wm_export(req):
     # del documento, donde se haya colocado) o "invisible"
     place = (sign or {}).get("place", "band")
     ack = bool(sign and sign.get("ack")) and place == "band"
+    want_pdfa = bool(req.get("pdfa")) and fmt == "pdf"
+    if want_pdfa and pw:  # PDF/A no admite cifrado
+        want_pdfa = False
+        notes_pdfa = ["PDF/A no admite contraseña: se ha guardado como PDF normal"]
+    else:
+        notes_pdfa = []
     bottom = (lambda wpt: signing.band_metrics(wpt, ack)["h"]) if sign and place == "band" else None
     reason = "Copia de uso restringido" + (f" para {who}" if who else "") + (f" – {purpose}" if purpose else "")
     files, refs, notes, used, signed_by = [], [], [], None, None
@@ -416,13 +412,17 @@ def op_wm_export(req):
                             layout = signing.inside_layout(data, sign.get("page", 0), sign.get("rect") or [0.6, 0.86, 0.97, 0.97])
                         else:
                             layout = {"page": 0, "sig": None, "ack": None, "fs": 6}
+                        if want_pdfa:  # primero PDF/A y después la firma (que no rompe la norma)
+                            data = pdfa.convert(data, f"Copia de uso restringido {ref or ''}".strip())
                         if pw:
                             data = signing.encrypt_pdf_bytes(data, pw)
                         data, warn, used = signing.sign_copy(data, signer, layout, reason=reason[:150], password=pw or None,
                                                              tsa_url=sign.get("tsa") or None, ltv=bool(sign.get("ltv")))
                         notes += [x for x in warn if x not in notes]
-                    elif pw:
-                        data = encrypt_bytes(data, pw)
+                    elif pw:  # el mismo cifrado que las copias firmadas (lo lee «Comprobar una copia»)
+                        data = signing.encrypt_pdf_bytes(data, pw)
+                    elif want_pdfa:
+                        data = pdfa.convert(data, f"Copia de uso restringido {ref or ''}".strip())
                 done.append((name, data))
             if ref:
                 rec = {"sha256": [hashlib.sha256(data).hexdigest() for _, data in done]}
@@ -445,6 +445,9 @@ def op_wm_export(req):
         notes.append("protegido con contraseña")
     if until:
         notes.append(f"válida hasta el {until}")
+    if want_pdfa:
+        notes.append("PDF/A-2b")
+    notes += notes_pdfa
     res.update(notes=notes, refs=refs, signed=bool(sign), ack=ack, who=who, purpose=purpose, password=bool(pw), until=until)
     return res
 
@@ -478,8 +481,9 @@ def op_wm_check(req):
             if not d.doc.authenticate(pw):
                 raise ValueError("Contraseña incorrecta.")
             d.encrypted = False
+        has_sigs = any(w.field_type == fitz.PDF_WIDGET_TYPE_SIGNATURE for p in d.doc for w in (p.widgets() or ()))
         try:
-            sigs = signing.verify_pdf(d.orig, password=pw or None)
+            sigs = signing.verify_pdf(d.orig, password=pw or None) if has_sigs else []
         except Exception as ex:
             sig_error = str(ex) or ex.__class__.__name__
     if d.kind == "image" and not d.edited:
@@ -716,11 +720,14 @@ def op_scan_export(req):
     fmt = req.get("fmt", "pdf")
     if fmt == "pdf":
         data = scan.digitalize(pages, req.get("layout", "paginas"), bool(req.get("ocr", True)))
+        if req.get("pdfa"):
+            data = pdfa.convert(data, base.replace("_", " "))
         res = store_result([(base + ".pdf", data)])
         import pymupdf as _f
         with _f.open("pdf", data) as _d:
             hojas = len(_d)
-        res["notes"] = [f"{len(pages)} imagen(es) en {hojas} hoja(s)" + (" con texto reconocido" if req.get("ocr", True) else "")]
+        res["notes"] = [f"{len(pages)} imagen(es) en {hojas} hoja(s)" + (" con texto reconocido" if req.get("ocr", True) else "")
+                        + (" · PDF/A-2b" if req.get("pdfa") else "")]
         return res
     files = []
     for k, (img, _kind) in enumerate(pages):

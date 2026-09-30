@@ -280,6 +280,7 @@ def digitalize(pages, layout="paginas", ocr=True, quality=90):
             except Exception:
                 pass
     doc.set_metadata({})
+    doc.subset_fonts()  # la fuente del texto reconocido, solo con las letras usadas
     data = doc.tobytes(garbage=3, deflate=True)
     doc.close()
     return data

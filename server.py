@@ -5,6 +5,7 @@ así ninguna otra web ni otro usuario del equipo puede usarlo.
 """
 
 import base64
+import datetime
 import hashlib
 import contextlib
 import io
@@ -245,9 +246,102 @@ def op_wm_preview(req):
         d.lines[n] = protect.detect_lines(img)
     out = protect.watermark(img, seed=1000 + n, lines=d.lines.get(n), qr=wm_qr(req["params"], "(al guardar)"),
                             hide=req["params"].get("hide_page"), **params)
+    headers = None
+    band = req["params"].get("sign_band")
+    if band:
+        out, frac = preview_band(out, page_width_pt(d, n, int(req["params"].get("maxside") or 0)), band,
+                                 req["params"].get("qr") or {})
+        headers = {"X-Band": f"{frac:.5f}"}
     buf = io.BytesIO()
     out.save(buf, "JPEG", quality=85)
-    return ("image/jpeg", buf.getvalue())
+    return ("image/jpeg", buf.getvalue(), headers)
+
+
+def page_width_pt(d, n, maxside=0):
+    """Ancho en puntos que tendrá la página en el PDF exportado."""
+    if d.kind == "image" and not d.edited:
+        from PIL import ImageOps
+        w, h = ImageOps.exif_transpose(Image.open(io.BytesIO(d.orig))).size
+        k = maxside / max(w, h) if maxside and max(w, h) > maxside else 1
+        return w * k * 72 / core.RENDER_DPI
+    return need_pdf(d)[n].rect.width
+
+
+def _wrap(dr, text, font, width):
+    lines, cur = [], ""
+    for word in text.split():
+        t = f"{cur} {word}".strip()
+        if cur and dr.textlength(t, font=font) > width:
+            lines.append(cur)
+            cur = word
+        else:
+            cur = t
+    return lines + ([cur] if cur else [])
+
+
+def preview_band(img, width_pt, band, q):
+    """Añade a la vista previa la franja de firma que irá debajo del documento."""
+    from PIL import ImageDraw
+    ack = bool(band.get("ack"))
+    m = signing.band_metrics(width_pt, ack)
+    k = img.width / width_pt
+    bh = max(12, round(m["h"] * k))
+    out = Image.new("RGB", (img.width, img.height + bh), "white")
+    out.paste(img, (0, 0))
+    dr = ImageDraw.Draw(out)
+    y0 = img.height
+    dr.line([(0, y0), (img.width, y0)], fill=(140, 140, 153), width=1)
+    pad, fs = m["pad"] * k, max(6, round(m["fs"] * k))
+    reg, bold = core.get_font(fs, bold=False), core.get_font(fs)
+    top, bottom = y0 + pad * 0.55, y0 + bh - pad * 0.55
+    sig = (img.width - pad - m["sig_w"] * k, top, img.width - pad, bottom)
+    dr.rounded_rectangle(sig, radius=max(2, fs // 3), outline=(64, 102, 158), width=1)
+    name = band.get("name") or "tu certificado o DNIe"
+    for i, (t, f) in enumerate([("Firmado digitalmente por", reg), (name[:60], bold), ("fecha y hora al guardar", reg)]):
+        dr.text((sig[0] + fs * 0.7, top + fs * 0.45 + i * fs * 1.22), t, font=f, fill=(31, 51, 80))
+    x1 = sig[0] - pad
+    if ack:
+        a = (sig[0] - pad - m["ack_w"] * k, top, sig[0] - pad, bottom)
+        for x in range(int(a[0]), int(a[2]), 6):
+            dr.line([(x, a[1]), (min(x + 3, a[2]), a[1])], fill=(115, 128, 153))
+            dr.line([(x, a[3]), (min(x + 3, a[2]), a[3])], fill=(115, 128, 153))
+        for y in range(int(a[1]), int(a[3]), 6):
+            dr.line([(a[0], y), (a[0], min(y + 3, a[3]))], fill=(115, 128, 153))
+            dr.line([(a[2], y), (a[2], min(y + 3, a[3]))], fill=(115, 128, 153))
+        x1 = a[0] - pad
+    who = (q.get("recipient") or "").strip() or "—"
+    what = (q.get("purpose") or "").strip() or "—"
+    lines = [f"COPIA DE USO RESTRINGIDO · Ref. (al guardar) · {datetime.date.today():%d/%m/%Y}",
+             f"Solo para: {who} · Finalidad: {what}",
+             "Firmada digitalmente: cualquier cambio la invalida. Compruébalo en Adobe Acrobat Reader, "
+             "Autofirma o valide.redsara.es"]
+    if ack:
+        lines.append(f"Acuse de recibo: {who} recibe esta copia solo para la finalidad indicada, sin cederla a "
+                     "terceros ni usarla para otros fines, y la destruirá cuando deje de ser necesaria. "
+                     "Firme en el recuadro punteado.")
+    size = fs
+    while True:  # como en el PDF: la letra se reduce hasta que el texto cabe
+        reg, bold = core.get_font(size, bold=False), core.get_font(size)
+        wrapped = [(i, ln) for i, t in enumerate(lines) for ln in _wrap(dr, t, reg, x1 - pad)]
+        if len(wrapped) * size * 1.22 <= bottom - top + size * 0.2 or size <= 6:
+            break
+        size -= 1
+    y = top
+    for i, ln in wrapped:
+        dr.text((pad, y), ln, font=bold if i == 0 else reg, fill=(40, 44, 54))
+        y += size * 1.22
+    return out, bh / out.height
+
+
+def encrypt_bytes(data, pw):
+    """Cifra un PDF (sin firma) con contraseña para abrirlo."""
+    with tempfile.TemporaryDirectory() as tmp:
+        a, b = os.path.join(tmp, "a.pdf"), os.path.join(tmp, "b.pdf")
+        with open(a, "wb") as fh:
+            fh.write(data)
+        core.encrypt_pdf(a, b, pw, allow_print=True, allow_copy=False, allow_edit=False)
+        with open(b, "rb") as fh:
+            return fh.read()
 
 
 def op_wm_export(req):
@@ -256,71 +350,135 @@ def op_wm_export(req):
     w = int(req["width"]) if req.get("width") else None
     h = int(req["height"]) if req.get("height") else None
     p = req["params"]
-    files, refs = [], []
-    for did in req["ids"]:
-        d = DOCS[did]
-        q = p.get("qr") or {}
-        ref = None
-        if p.get("mark", True) or q.get("enabled"):
-            ref = protect.register(q.get("recipient", ""), q.get("purpose", ""),
-                                   core.expand_placeholders(params["text"]), d.name)
-            refs.append(ref)
-        extra = dict(params, qr=wm_qr(p, ref), mark=ref if p.get("mark", True) else None)
-        hide_doc = (p.get("hide") or {}).get(did)
-
-        def painter(img, seed, _d=d, _h=hide_doc, _ref=ref, **kw):
-            page_no = seed - 1000
-            img = limit_size(img, int(p.get("maxside") or 0))
-            if _h is not None and str(page_no) in _h:
-                hide = _h[str(page_no)]
-            elif p.get("autohide"):
-                hide = [{"r": r, "k": it["kind"]} for it in idfields.detect(img)["items"] for r in it["rects"]]
-            else:
-                hide = None
-            out = protect.watermark(img, seed=seed, hide=hide, ref=_ref, **kw)
-            if _ref and kw.get("fingerprint") and protect.LAST_HIDE:
-                protect.register_fingerprint(_ref, protect.LAST_HIDE, page=page_no)
-            return out
-        with as_file(d) as (path, tmp):
-            dst = os.path.join(tmp, "out", f"{d.base}_marca.{fmt}")
-            os.makedirs(os.path.dirname(dst))
-            core.export_watermarked(path, dst, extra, w, h, painter=painter)
-            files += read_outputs(os.path.dirname(dst))
+    q = p.get("qr") or {}
+    who, purpose = q.get("recipient", "").strip(), q.get("purpose", "").strip()
     pw = (p.get("password") or "").strip()
-    if pw:
-        enc = []
-        for name, data in files:
-            if name.lower().endswith(".pdf"):
-                with tempfile.TemporaryDirectory() as tmp:
-                    a, b = os.path.join(tmp, "a.pdf"), os.path.join(tmp, "b.pdf")
-                    with open(a, "wb") as fh:
-                        fh.write(data)
-                    core.encrypt_pdf(a, b, pw, allow_print=True, allow_copy=False, allow_edit=False)
-                    with open(b, "rb") as fh:
-                        data = fh.read()
-            enc.append((name, data))
-        files = enc
+    sign = req.get("sign") or None
+    if sign and fmt != "pdf":
+        raise ValueError("La firma digital solo se puede añadir al guardar como PDF.")
+    # dónde va la firma: "band" (franja añadida debajo, fuera de la imagen), "inside" (dentro
+    # del documento, donde se haya colocado) o "invisible"
+    place = (sign or {}).get("place", "band")
+    ack = bool(sign and sign.get("ack")) and place == "band"
+    bottom = (lambda wpt: signing.band_metrics(wpt, ack)["h"]) if sign and place == "band" else None
+    reason = "Copia de uso restringido" + (f" para {who}" if who else "") + (f" – {purpose}" if purpose else "")
+    files, refs, notes, used, signed_by = [], [], [], None, None
+    # con DNIe se abre una sola sesión: el PIN se usa una vez aunque haya varios archivos
+    with (signing.open_signer(sign) if sign else contextlib.nullcontext()) as signer:
+        if signer is not None:
+            signed_by = signing.signer_display_name(signer)
+        for did in req["ids"]:
+            d = DOCS[did]
+            ref = None
+            if p.get("mark", True) or q.get("enabled") or sign:
+                ref = protect.register(who, purpose, core.expand_placeholders(params["text"]), d.name)
+                refs.append(ref)
+            extra = dict(params, qr=wm_qr(p, ref), mark=ref if p.get("mark", True) else None)
+            hide_doc = (p.get("hide") or {}).get(did)
+
+            def painter(img, seed, _d=d, _h=hide_doc, _ref=ref, **kw):
+                page_no = seed - 1000
+                img = limit_size(img, int(p.get("maxside") or 0))
+                if _h is not None and str(page_no) in _h:
+                    hide = _h[str(page_no)]
+                elif p.get("autohide"):
+                    hide = [{"r": r, "k": it["kind"]} for it in idfields.detect(img)["items"] for r in it["rects"]]
+                else:
+                    hide = None
+                out = protect.watermark(img, seed=seed, hide=hide, ref=_ref, **kw)
+                if _ref and kw.get("fingerprint") and protect.LAST_HIDE:
+                    protect.register_fingerprint(_ref, protect.LAST_HIDE, page=page_no)
+                return out
+            with as_file(d) as (path, tmp):
+                dst = os.path.join(tmp, "out", f"{d.base}_marca.{fmt}")
+                os.makedirs(os.path.dirname(dst))
+                core.export_watermarked(path, dst, extra, w, h, painter=painter, bottom=bottom)
+                out = read_outputs(os.path.dirname(dst))
+            done = []
+            for name, data in out:
+                if name.lower().endswith(".pdf"):
+                    if sign:
+                        # orden: franja → contraseña → firma (lo último, o la invalidaría)
+                        if place == "band":
+                            data, layout = signing.prepare_copy(data, {
+                                "recipient": who, "purpose": purpose, "ref": ref,
+                                "date": datetime.date.today().strftime("%d/%m/%Y")}, ack=ack)
+                        elif place == "inside":
+                            layout = signing.inside_layout(data, sign.get("page", 0), sign.get("rect") or [0.6, 0.86, 0.97, 0.97])
+                        else:
+                            layout = {"page": 0, "sig": None, "ack": None, "fs": 6}
+                        if pw:
+                            data = signing.encrypt_pdf_bytes(data, pw)
+                        data, warn, used = signing.sign_copy(data, signer, layout, reason=reason[:150], password=pw or None,
+                                                             tsa_url=sign.get("tsa") or None, ltv=bool(sign.get("ltv")))
+                        notes += [x for x in warn if x not in notes]
+                    elif pw:
+                        data = encrypt_bytes(data, pw)
+                done.append((name, data))
+            if ref:
+                rec = {"sha256": [hashlib.sha256(data).hexdigest() for _, data in done]}
+                if sign:
+                    rec["firma"] = {"por": signed_by, "sello": bool(used and used["tsa"]),
+                                    "ltv": bool(used and used["ltv"]), "acuse": ack, "lugar": place}
+                protect.update_registry(ref, **rec)
+            files += done
     res = store_result(files)
-    notes = []
     if refs:
-        notes.append("Referencia: " + ", ".join(refs))
+        notes.insert(0, "Referencia: " + ", ".join(refs))
+    if sign:
+        how = []
+        if used and used["tsa"]:
+            how.append("sello de tiempo" + (" cualificado" if used["tsa"] == signing.TSA_ACCV else ""))
+        if used and used["ltv"]:
+            how.append("validación a largo plazo")
+        notes.insert(1 if refs else 0, f"firmada por {signed_by}" + (" con " + " y ".join(how) if how else ""))
     if pw:
         notes.append("protegido con contraseña")
-    res["notes"] = notes
+    res.update(notes=notes, refs=refs, signed=bool(sign), ack=ack, who=who, purpose=purpose, password=bool(pw))
     return res
 
 
+def image_clip(page):
+    """Zona de la imagen principal de la página, sin la franja de firma añadida debajo
+    (las marcas se buscan sobre la imagen tal como se protegió)."""
+    best = None
+    with contextlib.suppress(Exception):
+        for info in page.get_image_info():
+            r = fitz.Rect(info["bbox"]) & page.rect
+            if best is None or r.get_area() > best.get_area():
+                best = r
+    area = page.rect.get_area()
+    if best is not None and 0.5 * area <= best.get_area() < area - 1:
+        return best
+    return None
+
+
 def op_wm_check(req):
-    """Identifica a quién se entregó una copia con todos los métodos disponibles y busca
-    indicios de edición con IA en el propio archivo."""
+    """Identifica a quién se entregó una copia con todos los métodos disponibles, comprueba
+    su huella exacta y sus firmas, y busca indicios de edición con IA en el propio archivo."""
     d = get_doc(req)
+    pw = req.get("password") or ""
+    delivered = [dict(x, record=protect.lookup(x["ref"])) for x in protect.match_delivery(d.orig)]
+    sigs, sig_error = [], None
+    if d.kind == "pdf":
+        if d.encrypted:
+            if not pw:
+                return {"needs_password": True, "file": delivered, "found": [], "signatures": [], "hints": []}
+            if not d.doc.authenticate(pw):
+                raise ValueError("Contraseña incorrecta.")
+            d.encrypted = False
+        try:
+            sigs = signing.verify_pdf(d.orig, password=pw or None)
+        except Exception as ex:
+            sig_error = str(ex) or ex.__class__.__name__
     if d.kind == "image" and not d.edited:
         imgs = [Image.open(io.BytesIO(d.orig)).convert("RGB")]
     else:
         doc = need_pdf(d)
         imgs = []
         for page in list(doc)[:5]:
-            pix = page.get_pixmap(dpi=150, alpha=False)
+            # sin anotaciones: una firma colocada encima de la imagen no debe tapar las marcas
+            pix = page.get_pixmap(dpi=150, alpha=False, clip=image_clip(page), annots=False)
             imgs.append(Image.frombytes("RGB", (pix.width, pix.height), pix.samples))
     found = {}
 
@@ -341,7 +499,11 @@ def op_wm_check(req):
             add(fps[0]["ref"], i + 1, "Huella de las zonas ocultas", f"coincidencia {fps[0]['score']:.0%}")
         for r in protect.read_refs(img):
             add(r, i + 1, "Referencia escrita en la copia")
-    return {"found": sorted(found.values(), key=lambda e: -len(e["methods"])), "hints": protect.provenance_hints(d.orig)}
+    for x in delivered:
+        add(x["ref"], 1, "Huella exacta del archivo" if x["exact"] else "Huella exacta de la parte entregada",
+            "idéntico a la copia guardada" if x["exact"] else "con cambios añadidos después (p. ej. el acuse de recibo)")
+    return {"found": sorted(found.values(), key=lambda e: -len(e["methods"])), "hints": protect.provenance_hints(d.orig),
+            "file": delivered, "signatures": sigs, "sig_error": sig_error}
 
 
 def op_wm_registry(req):
@@ -899,18 +1061,28 @@ def op_certinfo(req):
 
 def op_sign(req):
     d = get_doc(req)
-    need_pdf(d)
+    doc = need_pdf(d)
     img = sigimg_bytes(req["sig"]) if req.get("sig") else None
-    visible = req.get("rect") is not None or bool(req.get("field"))
+    data = d.pdf_bytes()
     opts = dict(page=int(req["n"]) if req.get("rect") is not None else None, view_rect=req.get("rect"), field_name=req.get("field") or None,
                 reason=req.get("reason", ""), location=req.get("location", ""),
                 contact=req.get("contact", ""), image_png=img, tsa_url=req.get("tsa") or None)
+    if req.get("margin"):
+        # firma pequeña en un margen añadido debajo de la página, fuera del contenido
+        if any(f["signed"] for f in signing.list_signature_fields(data)):
+            raise ValueError("El documento ya tiene firmas: añadir el margen las invalidaría. "
+                             "Dibuja el recuadro de tu firma dentro de la página.")
+        n = int(req.get("n") or 0)
+        m = signing.band_metrics(doc[n].rect.width)
+        data, band = signing.add_margin(data, n, m["h"])
+        opts.update(page=n, field_name=None, font_size=max(5, round(m["fs"])), view_rect=[
+            band[2] - m["pad"] - m["sig_w"], band[1] + m["pad"] * 0.55, band[2] - m["pad"], band[3] - m["pad"] * 0.55])
     if req.get("source") == "card":
         if not req.get("pin"):
             raise ValueError("Escribe el PIN de la tarjeta.")
-        out = signing.sign_pdf_pkcs11(d.pdf_bytes(), req["module"], req["token"], req["cert_id"], req["pin"], **opts)
+        out = signing.sign_pdf_pkcs11(data, req["module"], req["token"], req["cert_id"], req["pin"], **opts)
     else:
-        out = signing.sign_pdf(d.pdf_bytes(), base64.b64decode(req["p12"]), req.get("password", ""), **opts)
+        out = signing.sign_pdf(data, base64.b64decode(req["p12"]), req.get("password", ""), **opts)
     base = d.base if d.base.endswith("_firmado") else d.base + "_firmado"
     return store_result([(f"{base}.pdf", out)])
 
@@ -1104,7 +1276,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send(404, {"error": f"operación desconocida: {op}"})
                 res = OPS[op](json.loads(body or b"{}"))
             if isinstance(res, tuple):
-                return self.send(200, res[1], res[0])
+                return self.send(200, res[1], res[0], res[2] if len(res) > 2 else None)
             return self.send(200, res)
         except Exception as ex:
             traceback.print_exc()

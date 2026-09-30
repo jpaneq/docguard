@@ -5,6 +5,8 @@
    MARCA DE AGUA
    ====================================================================== */
 
+const SIG_DEFAULT = [0.6, 0.86, 0.97, 0.97];  // firma dentro del documento: abajo a la derecha
+
 const Wm = {
   init() {
     this.root = $('#tool-watermark');
@@ -59,6 +61,8 @@ const Wm = {
       this.k(q).addEventListener('input', () => { this.k(t).value = this.k(q).value; this.schedule(); });
     }
     $('[data-act=registry]', this.root).onclick = () => this.registry();
+    $('[data-act=midni]', this.root).onclick = () => Share.open('midni', this.shareCtx());
+    this.initSign();
     new ResizeObserver(() => this.schedule()).observe($('.preview-img', this.root));
     makeResizable($('.side-panel', this.root), 'right', 'wm-side', 260, 620);
     // rueda del ratón sobre la vista previa: pasa a la página siguiente o anterior
@@ -75,6 +79,46 @@ const Wm = {
     this.loadPresets();
   },
   loadInfo(info) { this.files.setItems([info]); },
+  /** Firma digital de la copia: opciones del modo rápido (se recuerdan en este equipo). */
+  initSign() {
+    const load = (k, def) => { try { const v = localStorage.getItem('dg_' + k); return v === null ? def : v; } catch (e) { return def; } };
+    const save = (k, v) => { try { localStorage.setItem('dg_' + k, v); } catch (e) { /* sin almacenamiento */ } };
+    this.k('q_sign').checked = load('q_sign', '0') === '1';
+    this.k('q_ltv').checked = load('q_ltv', '1') === '1';
+    this.k('q_ack').checked = load('q_ack', '0') === '1';
+    for (const k of ['q_tsa', 'q_place']) {
+      const v = load(k, null);
+      if (v !== null && [...this.k(k).options].some(o => o.value === v)) this.k(k).value = v;
+    }
+    const sync = () => {
+      const src = Sign.source || 'file';
+      const band = this.k('q_place').value === 'band';
+      $('[data-role=qsign]', this.root).hidden = !this.k('q_sign').checked;
+      $('[data-role=qinside]', this.root).hidden = this.k('q_place').value !== 'inside';
+      this.k('q_ack').disabled = !band;
+      $$('[data-qsrc]', this.root).forEach(b => b.classList.toggle('on', b.dataset.qsrc === src));
+      $$('[data-qpane]', this.root).forEach(p => { p.hidden = p.dataset.qpane !== src; });
+      $('.q-cert', this.root).textContent = Sign.certSubject || Sign.certName || 'Ninguno';
+    };
+    for (const k of ['q_sign', 'q_ltv', 'q_ack']) this.k(k).addEventListener('change', () => { save(k, this.k(k).checked ? '1' : '0'); sync(); });
+    for (const k of ['q_tsa', 'q_place']) this.k(k).addEventListener('change', () => { save(k, this.k(k).value); sync(); this.renderHide(); this.schedule(); });
+    $('[data-act=qplace]', this.root).onclick = () => {
+      if (!this.files.current) return toast('Abre primero el documento.', 'err');
+      this.placing = true;
+      this.hov.classList.add('placing');
+      toast('Arrastra sobre el documento el recuadro donde irá la firma.', '', [], 5000);
+    };
+    $$('[data-qsrc]', this.root).forEach(b => b.onclick = () => Sign.setSource(b.dataset.qsrc));
+    $('[data-act=qcert]', this.root).onclick = () => Sign.pickCert();
+    $('[data-act=qcard]', this.root).onclick = () => Sign.useCard();
+    document.addEventListener('signer-changed', () => { sync(); if (this.k('q_sign').checked) this.schedule(); });
+    sync();
+  },
+  shareCtx(res) {
+    return res ? { who: res.who, purpose: res.purpose, ref: res.refs?.[0], signed: res.signed, ack: res.ack, password: res.password }
+      : { who: (this.k('q_recipient').value || this.k('qr_recipient').value).trim(), purpose: (this.k('q_purpose').value || this.k('qr_purpose').value).trim(),
+        signed: this.k('q_sign').checked, ack: this.k('q_sign').checked && this.k('q_ack').checked, password: !!this.k('password').value };
+  },
   k(name) { return $(`[data-k=${name}]`, this.root); },
   pages() { return Math.max(1, this.files.current?.pages.length || 1); },
   outputs() { $$('input[type=range]', this.root).forEach(r => { r.parentElement.querySelector('output').textContent = r.value; }); },
@@ -95,6 +139,8 @@ const Wm = {
     }
     p.qr = { enabled: this.k('qr').checked, recipient: this.k('qr_recipient').value, purpose: this.k('qr_purpose').value,
       size: +this.k('qr_size').value, pos: this.k('qr_pos').value, mode: this.k('qr_mode').value, base_url: this.k('qr_base').value };
+    // vista previa de la franja de firma que irá debajo del documento
+    if (this.k('q_sign').checked && this.k('q_place').value === 'band') p.sign_band = { name: Sign.signerHint(), ack: this.k('q_ack').checked };
     return p;
   },
   schedule() { clearTimeout(this.t); this.t = setTimeout(() => this.preview(), 150); },
@@ -113,6 +159,7 @@ const Wm = {
       const blob = await api('wm/preview', { id: cur.id, n: this.n, params: this.params(), maxw: Math.max(300, maxw) });
       if (seq !== this.seq) return;
       if (this.url) URL.revokeObjectURL(this.url);
+      this.band = parseFloat(blob.headers?.get('X-Band') || '0') || 0;  // parte de abajo: franja de firma
       this.url = URL.createObjectURL(blob);
       this.img.src = this.url;
     } catch (e) { toast(e.message, 'err'); }
@@ -122,10 +169,33 @@ const Wm = {
     const fmt = $('input[name=wmfmt]:checked', this.root).value;
     const w = this.k('width').value.trim(), hh = this.k('height').value.trim();
     if ((w && !(+w > 0)) || (hh && !(+hh > 0))) return toast('El tamaño debe ser un número de píxeles.', 'err');
-    const res = await run('Aplicando la marca de agua…', () => api('wm/export', {
-      ids: this.files.ids, params: this.params(), fmt, width: w || null, height: hh || null,
+    let sign = null;
+    if (this.k('q_sign').checked) {
+      if (fmt !== 'pdf') return toast('La firma digital solo se puede añadir al guardar como PDF.', 'err');
+      // el PIN o la contraseña se piden antes de procesar nada (cancelar no deja nada a medias)
+      const cred = await Sign.credential();
+      if (!cred) return;
+      const place = this.k('q_place').value;
+      sign = { ...cred, tsa: this.k('q_tsa').value, ltv: this.k('q_ltv').checked, place,
+        ack: place === 'band' && this.k('q_ack').checked, page: this.sigPos?.n ?? 0, rect: this.sigPos?.r || SIG_DEFAULT };
+    }
+    const res = await run(sign ? 'Protegiendo y firmando…' : 'Aplicando la marca de agua…', () => api('wm/export', {
+      ids: this.files.ids, params: this.params(), fmt, width: w || null, height: hh || null, sign,
     }));
-    saveResult(res);
+    if (!res) return;
+    const ctx = this.shareCtx(res);
+    const actions = [{ label: 'Texto para el correo…', fn: () => Share.open('copia', ctx) }];
+    if (window.pywebview?.api?.email) actions.unshift({ label: 'Enviar por correo…', fn: paths => this.mail(paths, ctx) });
+    saveResult(res, [], res.refs?.length ? actions : []);
+  },
+  /** Correo nuevo con la copia adjunta; el texto de condiciones queda copiado para pegarlo. */
+  async mail(paths, ctx) {
+    if (!paths?.length) return;
+    const t = Share.texts(ctx).copia;
+    const copied = await copyText(`${t.body}`);
+    const how = await window.pywebview.api.email(paths[0]);
+    toast((how === 'reveal' ? 'No se ha encontrado Mail/Outlook: adjunta el archivo que se muestra en la carpeta.' : 'Correo nuevo con la copia adjunta.')
+      + (copied ? ' El texto con las condiciones está copiado: pégalo en el mensaje (⌘V / Ctrl+V).' : ''), 'ok', [], 10000);
   },
   /** Modo rápido: configuración recomendada para DNI/pasaporte y guardar en un paso. */
   async quick() {
@@ -191,9 +261,15 @@ const Wm = {
       const [x0, y0, x1, y1] = a.r;
       const isSel = this.hsel && this.hsel.join() === a.key.join();
       const d = h('div', { class: 'hbox' + (isSel ? ' sel' : ''), style: `left:${x0 * 100}%;top:${y0 * 100}%;width:${(x1 - x0) * 100}%;height:${(y1 - y0) * 100}%` });
-      d.addEventListener('mousedown', e => { e.stopPropagation(); this.hsel = a.key; this.renderHide(); });
+      d.addEventListener('mousedown', e => { if (this.placing) return; e.stopPropagation(); this.hsel = a.key; this.renderHide(); });
       if (isSel) d.append(h('div', { class: 'x', title: 'Quitar esta zona', onmousedown: e => { e.stopPropagation(); this.removeHide(a.key); } }, '✕'));
       this.hov.append(d);
+    }
+    // posición de la firma dentro del documento
+    if (this.k('q_sign').checked && this.k('q_place').value === 'inside' && this.n === (this.sigPos?.n ?? 0)) {
+      const [x0, y0, x1, y1] = this.sigPos?.r || SIG_DEFAULT;
+      this.hov.append(h('div', { class: 'sigpos' + (this.sigPos ? '' : ' default'), title: 'Aquí irá la firma (usa «Colocar la firma» para moverla)',
+        style: `left:${x0 * 100}%;top:${y0 * 100}%;width:${(x1 - x0) * 100}%;height:${(y1 - y0) * 100}%` }, '✍ Firma digital'));
     }
   },
   removeHide(key) {
@@ -212,7 +288,8 @@ const Wm = {
   placeOverlay() {
     const box = $('.preview-img', this.root);
     const b = box.getBoundingClientRect(), r = this.img.getBoundingClientRect();
-    Object.assign(this.hov.style, { left: r.left - b.left + box.scrollLeft + 'px', top: r.top - b.top + box.scrollTop + 'px', width: r.width + 'px', height: r.height + 'px' });
+    Object.assign(this.hov.style, { left: r.left - b.left + box.scrollLeft + 'px', top: r.top - b.top + box.scrollTop + 'px', width: r.width + 'px',
+      height: r.height * (1 - (this.band || 0)) + 'px' });
   },
   hideDown(e) {
     const cur = this.files.current;
@@ -229,6 +306,13 @@ const Wm = {
       window.removeEventListener('mousemove', mv);
       box.remove();
       const r = norm(p0, pt(ev));
+      if (this.placing) {  // se está colocando la firma, no una zona oculta
+        this.placing = false;
+        this.hov.classList.remove('placing');
+        if ((r[2] - r[0]) * R.width >= 6 && (r[3] - r[1]) * R.height >= 6) this.sigPos = { n: this.n, r };
+        this.renderHide();
+        return;
+      }
       if ((r[2] - r[0]) * R.width < 6 || (r[3] - r[1]) * R.height < 6) { this.renderHide(); return; }
       const d = this.hideData[cur.id] = this.hideData[cur.id] || {};
       d[this.n] = d[this.n] || { items: [], manual: [] };
@@ -241,12 +325,20 @@ const Wm = {
   async check() {
     const [f] = await pickFiles(ACCEPT_DOCS);
     if (!f) return;
-    const r = await run('Analizando la copia…', async () => {
-      const info = await uploadFile(f);
-      try { return await api('wm/check', { id: info.id }); } finally { api('close', { id: info.id }).catch(() => {}); }
-    });
-    if (!r) return;
+    const info = await run('Abriendo…', () => uploadFile(f));
+    if (!info) return;
+    try {
+      let r = await run('Analizando la copia…', () => api('wm/check', { id: info.id }));
+      if (r?.needs_password) {
+        const pw = await ask('Copia protegida con contraseña', 'Contraseña para abrirla (para comprobar sus marcas y firmas)', '', { password: true });
+        if (pw) r = (await run('Analizando la copia…', () => api('wm/check', { id: info.id, password: pw }))) || r;
+      }
+      if (r) this.showCheck(r);
+    } finally { api('close', { id: info.id }).catch(() => {}); }
+  },
+  showCheck(r) {
     const body = h('div', {});
+    if (r.needs_password) body.append(h('p', { class: 'muted' }, 'Sin la contraseña solo se ha podido comprobar la huella exacta del archivo.'));
     if (r.found.length) {
       for (const x of r.found) {
         body.append(h('div', { class: 'sig-result' },
@@ -265,6 +357,17 @@ const Wm = {
     } else {
       body.append(h('p', {}, 'No se ha podido identificar. Puede que la copia no sea de DocGuard, que sea de otro equipo, o que se haya recortado, girado o regenerado por completo.'));
     }
+    if (r.signatures?.length) {
+      const who = s => s.signer.replace(/^Common Name:\s*/, '');
+      body.append(h('div', { class: 'sig-result' }, h('b', {}, 'Firmas digitales'),
+        h('ul', { class: 'help' }, r.signatures.map(s => h('li', {},
+          h('b', { class: s.intact && s.valid ? 'ok' : 'bad' }, s.intact && s.valid ? '✔ ' : '✘ '),
+          `${s.field}: ${who(s)}${s.time ? ' · ' + s.time : ''}`,
+          h('small', {}, s.intact && s.valid ? ' · íntegra: lo firmado no ha cambiado' : ' · NO válida o documento alterado',
+            s.modified_after ? ' · después se añadieron otras firmas o datos de validación' : '',
+            s.timestamp ? ` · sello de tiempo ${s.timestamp.time}${s.timestamp.by ? ' (' + s.timestamp.by + ')' : ''}` : '',
+            s.ltv ? ' · con validación a largo plazo' : ''))))));
+    } else if (r.sig_error) body.append(h('p', { class: 'muted' }, `No se han podido leer las firmas: ${r.sig_error}`));
     if (r.hints?.length) body.append(h('div', { class: 'sig-result' }, h('b', { class: 'bad' }, '⚠ Indicios de edición con IA'),
       h('ul', { class: 'help' }, r.hints.map(t => h('li', {}, t)))));
     modal({ title: 'Comprobar una copia', body, actions: [{ label: 'Cerrar', primary: true }] });
@@ -273,9 +376,11 @@ const Wm = {
     const r = await run('Cargando…', () => api('wm/registry'));
     if (!r) return;
     const body = r.items.length ? h('table', { class: 'reg' },
-      h('tr', {}, h('th', {}, 'Fecha'), h('th', {}, 'Ref.'), h('th', {}, 'Entregado a'), h('th', {}, 'Finalidad'), h('th', {}, 'Archivo')),
+      h('tr', {}, h('th', {}, 'Fecha'), h('th', {}, 'Ref.'), h('th', {}, 'Entregado a'), h('th', {}, 'Finalidad'), h('th', {}, 'Archivo'), h('th', {}, 'Firmada')),
       r.items.map(x => h('tr', {}, h('td', {}, x.fecha), h('td', {}, x.ref), h('td', {}, x.destinatario || '—'),
-        h('td', {}, x.finalidad || '—'), h('td', {}, x.archivo))))
+        h('td', {}, x.finalidad || '—'), h('td', {}, x.archivo),
+        h('td', { title: x.firma ? [x.firma.sello && 'con sello de tiempo', x.firma.ltv && 'validación a largo plazo', x.firma.acuse && 'con acuse de recibo'].filter(Boolean).join(', ') : '' },
+          x.firma ? '✔ ' + x.firma.por : '—'))))
       : h('p', {}, 'Todavía no has entregado documentos con marca de rastreo o QR.');
     modal({ title: 'Historial de entregas', body, actions: [{ label: 'Cerrar', primary: true }], wide: true });
   },

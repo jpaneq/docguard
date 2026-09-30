@@ -37,7 +37,10 @@ async function api(op, payload) {
     try { m = (await r.json()).error; } catch (e) { /* sin detalle */ }
     throw new Error(m);
   }
-  return (r.headers.get('Content-Type') || '').includes('json') ? r.json() : r.blob();
+  if ((r.headers.get('Content-Type') || '').includes('json')) return r.json();
+  const b = await r.blob();
+  b.headers = r.headers;
+  return b;
 }
 
 async function uploadFile(file) {
@@ -147,7 +150,8 @@ window.addEventListener('drop', e => e.preventDefault());
 
 /* ---- resultados: guardar y continuar en otra herramienta ---- */
 
-async function saveResult(res, notes = []) {
+/** Guarda el resultado. `actions` = botones extra del aviso: {label, fn(rutas guardadas o null)}. */
+async function saveResult(res, notes = [], actions = []) {
   if (!res || !res.rid) {
     if (res?.errors?.length) toast('Errores:\n' + res.errors.join('\n'), 'err');
     return;
@@ -159,19 +163,41 @@ async function saveResult(res, notes = []) {
   if (window.pywebview?.api?.save_result) {
     const paths = await window.pywebview.api.save_result(res.rid);
     if (!paths) {
-      toast('No se ha guardado.', '', [{ label: 'Guardar…', fn: () => saveResult(res, notes) }]);
-      return;
+      toast('No se ha guardado.', '', [{ label: 'Guardar…', fn: () => saveResult(res, notes, actions) }]);
+      return null;
     }
     const names = paths.map(p => p.split(/[\\/]/).pop());
     toast(`Guardado: ${names.slice(0, 3).join(', ')}${names.length > 3 ? '…' : ''}${extra ? ' · ' + extra : ''}`, 'ok',
-      [{ label: 'Mostrar', fn: () => window.pywebview.api.reveal(paths[0]) }, ...cont], 9000);
-  } else {
-    const a = h('a', { href: `/api/result?rid=${res.rid}&t=${TOKEN}`, download: res.files.length === 1 ? res.files[0].name : 'docguard.zip' });
-    document.body.append(a);
-    a.click();
-    a.remove();
-    toast(`Descargado${res.files.length > 1 ? ` (${res.files.length} archivos en un .zip)` : ''}${extra ? ' · ' + extra : ''}`, 'ok', cont, 9000);
+      [{ label: 'Mostrar', fn: () => window.pywebview.api.reveal(paths[0]) }, ...actions.map(a => ({ label: a.label, fn: () => a.fn(paths) })), ...cont],
+      9000);
+    return paths;
   }
+  const a = h('a', { href: `/api/result?rid=${res.rid}&t=${TOKEN}`, download: res.files.length === 1 ? res.files[0].name : 'docguard.zip' });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  toast(`Descargado${res.files.length > 1 ? ` (${res.files.length} archivos en un .zip)` : ''}${extra ? ' · ' + extra : ''}`, 'ok',
+    [...actions.map(x => ({ label: x.label, fn: () => x.fn(null) })), ...cont], 9000);
+  return true;
+}
+
+/** Copia un texto al portapapeles (también dentro de la ventana nativa). */
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* sin permiso: método clásico */ }
+  const ta = h('textarea', { style: 'position:fixed;left:-9999px;top:0' }, text);
+  document.body.append(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+  ta.remove();
+  return ok;
+}
+
+/** Abre un correo nuevo en el programa de correo con asunto y texto (no lo envía). */
+function composeMail(subject, body) {
+  const url = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  if (window.pywebview?.api?.compose) return window.pywebview.api.compose(url);
+  window.location.href = url;
 }
 
 const CONTINUE_TOOLS = { watermark: 'Marca de agua (proteger)', edit: 'Editar PDF', redact: 'Censurar', sign: 'Firma digital',

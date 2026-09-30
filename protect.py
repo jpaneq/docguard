@@ -421,6 +421,36 @@ def lookup(ref):
     return _load_registry().get(ref)
 
 
+def _revision_ends(data):
+    """Posiciones donde termina cada versión de un PDF (tras «%%EOF»): las firmas
+    posteriores, como el acuse de recibo, se añaden detrás sin tocar lo anterior."""
+    ends = {len(data)}
+    for m in re.finditer(rb"%%EOF", data):
+        e = m.end()
+        ends.add(e)
+        if data[e:e + 2] == b"\r\n":
+            ends.add(e + 2)
+        elif data[e:e + 1] in (b"\n", b"\r"):
+            ends.add(e + 1)
+    return sorted(ends)
+
+
+def match_delivery(data):
+    """Busca el archivo en el historial por su huella exacta (SHA-256). Si después se le
+    añadió algo (otra firma, el acuse de recibo…), reconoce la parte que se entregó."""
+    import hashlib
+    index = {h: ref for ref, rec in _load_registry().items() for h in rec.get("sha256", [])}
+    if not index:
+        return []
+    out, seen = [], set()
+    for e in _revision_ends(data):
+        ref = index.get(hashlib.sha256(data[:e]).hexdigest())
+        if ref and ref not in seen:
+            seen.add(ref)
+            out.append({"ref": ref, "exact": e == len(data), "added": len(data) - e})
+    return out
+
+
 
 # --------------------------------------------------------------------------
 # Capas contra la IA generativa (v1.8)

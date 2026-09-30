@@ -80,8 +80,38 @@
           <input data-k="q_recipient" placeholder="Para quién (p. ej. Inmobiliaria Sol S.L.)">
           <input data-k="q_purpose" placeholder="Finalidad (p. ej. alquiler piso C/ Mayor 3)">
           <input data-k="q_password" type="password" placeholder="Contraseña para abrirlo (opcional)">
+          <label class="inline"><input type="checkbox" data-k="q_sign"> Firmar digitalmente la copia</label>
+          <div class="qsign" data-role="qsign" hidden>
+            <small>Prueba que la copia es tuya y cómo la entregaste: cualquier cambio la invalida. Otras personas pueden firmar después sin invalidarla.</small>
+            <div class="seg"><button data-qsrc="file" class="on">Certificado (FNMT…)</button><button data-qsrc="card">DNIe</button></div>
+            <div data-qpane="file"><div class="row"><button data-act="qcert">Elegir certificado…</button><span class="q-cert muted">Ninguno</span></div></div>
+            <div data-qpane="card" hidden>
+              <div class="card-status off"><span class="dot"></span><span class="txt">Sin tarjeta</span></div>
+              <button data-act="qcard">Detectar DNIe</button>
+            </div>
+            <label>Dónde va la firma
+              <select data-k="q_place">
+                <option value="band">Debajo, en una franja añadida (sin tapar el documento)</option>
+                <option value="inside">Dentro del documento, donde la coloques</option>
+                <option value="invisible">Invisible (va en el PDF, sin recuadro)</option>
+              </select></label>
+            <div data-role="qinside" hidden>
+              <button class="wide" data-act="qplace">Colocar la firma en la vista previa</button>
+              <small>Pulsa y arrastra un recuadro sobre el documento. Si no la colocas, va abajo a la derecha.</small>
+            </div>
+            <label>Sello de tiempo
+              <select data-k="q_tsa">
+                <option value="http://tss.accv.es:8318/tsa">ACCV · cualificado (gratuito para uso personal)</option>
+                <option value="https://freetsa.org/tsr">FreeTSA (gratuito, no cualificado)</option>
+                <option value="">Sin sello (hora del equipo)</option>
+              </select></label>
+            <label class="inline"><input type="checkbox" data-k="q_ltv" checked> Validación a largo plazo</label>
+            <label class="inline"><input type="checkbox" data-k="q_ack"> Pedir acuse de recibo firmado al destinatario (en la franja)</label>
+            <small>El PIN o la contraseña se piden al guardar y no se guardan. El sello de tiempo y la validación necesitan internet (solo se envía la huella del documento); si fallan, se firma igualmente y se avisa.</small>
+          </div>
           <button class="primary wide" data-act="quick">Proteger y guardar</button>
           <button class="wide" data-act="toscan" title="Si es una foto hecha con el móvil, primero enderézala y límpiala">¿Es una foto? Pasarla antes a modo escáner</button>
+          <button class="wide link" data-act="midni" title="Textos listos para proponer MiDNI o para acompañar la copia">¿Es en persona? Propón MiDNI en vez de enviar copia…</button>
         </div>
         <label>Plantilla
           <div class="row"><select data-k="preset"><option value="">—</option></select>
@@ -253,6 +283,8 @@
         <h3>Aspecto</h3>
         <label class="inline"><input type="checkbox" data-k="visible" checked> Firma visible</label>
         <small>Arrastra sobre la página para colocar el recuadro de la firma.</small>
+        <label class="inline"><input type="checkbox" data-k="margin"> En un margen añadido abajo (fuera del contenido)</label>
+        <small>Añade una franja en blanco debajo de la página que estás viendo y pone ahí una firma pequeña, sin tapar nada. Solo si el documento aún no tiene firmas.</small>
         <label>Imagen de firma manuscrita (opcional)<select data-k="sig"><option value="">Sin imagen</option></select></label>
         <button data-act="newsig">Nueva firma manuscrita…</button>
         <h3>Datos</h3>
@@ -465,6 +497,7 @@
 <script src="js/tools/compare.js"></script>
 <script src="js/tools/library.js"></script>
 <script src="js/tools/scanner.js"></script>
+<script src="js/tools/share.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

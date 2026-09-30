@@ -18,13 +18,7 @@ const Sign = {
     const k = n => $(`[data-k=${n}]`, this.root);
     this.k = k;
     act('open', async () => { const [f] = await pickFiles(ACCEPT_PDF); if (f) this.openFile(f); });
-    act('cert', async () => {
-      const [f] = await pickFiles('');
-      if (!f) return;
-      this.p12 = await fileToB64(f);
-      $('.cert-name', this.root).textContent = f.name;
-      $('.cert-info', this.root).innerHTML = '';
-    });
+    act('cert', () => this.pickCert());
     act('certinfo', () => this.certInfo());
     act('newsig', async () => { const id = await Sigs.create(); if (id) this.fillSigs(id); });
     act('sign', () => this.sign('save'));
@@ -35,12 +29,8 @@ const Sign = {
     this.fields = []; this.field = null; this.prep = null;
     k('tsa').onchange = () => { k('tsa_custom').hidden = k('tsa').value !== 'custom'; };
     this.source = 'file';
-    $$('[data-src]', this.root).forEach(b => b.onclick = () => {
-      this.source = b.dataset.src;
-      $$('[data-src]', this.root).forEach(x => x.classList.toggle('on', x === b));
-      $$('[data-pane]', this.root).forEach(p => { p.hidden = p.dataset.pane !== this.source; });
-      if (this.source === 'card' && !this.modulesLoaded) this.loadModules();
-    });
+    $$('[data-src]', this.root).forEach(b => b.onclick = () => this.setSource(b.dataset.src));
+    k('margin').onchange = () => { this.draw(); document.dispatchEvent(new Event('signer-changed')); };
     k('module').onchange = () => { k('module_custom').hidden = k('module').value !== 'custom'; };
     act('p11list', () => this.listCards());
     act('p11login', () => this.login());
@@ -49,6 +39,52 @@ const Sign = {
     setInterval(() => this.poll(), 4000);
     k('visible').onchange = () => this.draw();
     document.addEventListener('sigs-changed', () => this.fillSigs());
+  },
+  /** Origen del certificado: 'file' (.p12/.pfx) o 'card' (DNIe/tarjeta). Lo comparte el modo rápido. */
+  setSource(src) {
+    this.source = src;
+    $$('[data-src]', this.root).forEach(x => x.classList.toggle('on', x.dataset.src === src));
+    $$('[data-pane]', this.root).forEach(p => { p.hidden = p.dataset.pane !== src; });
+    if (src === 'card' && !this.modulesLoaded) this._modules = this.loadModules();
+    document.dispatchEvent(new Event('signer-changed'));
+  },
+  async pickCert() {
+    const [f] = await pickFiles('');
+    if (!f) return false;
+    this.p12 = await fileToB64(f);
+    this.certName = f.name;
+    this.certSubject = '';
+    $('.cert-name', this.root).textContent = f.name;
+    $('.cert-info', this.root).innerHTML = '';
+    document.dispatchEvent(new Event('signer-changed'));
+    return true;
+  },
+  /** Detecta el DNIe (o tarjeta) desde otra herramienta. */
+  async useCard() {
+    this.setSource('card');
+    await this._modules;
+    if (this.module()) await this.listCards();
+  },
+  /** Nombre del titular si ya se conoce (para la vista previa). */
+  signerHint() {
+    if (this.source === 'card') return this.card.state === 'ok' ? this.card.text : '';
+    return this.certSubject || '';
+  },
+  /** Credenciales para firmar. Pide siempre el PIN o la contraseña (no se guardan). */
+  async credential() {
+    if (this.source === 'card') {
+      if (!this.k('p11cert').value) await this.useCard();
+      const c = this.k('p11cert').value;
+      if (!c) { toast('No se detecta el DNIe. Insértalo en el lector (ver «Firma digital» para instalar el módulo).', 'err', [], 8000); return null; }
+      const pin = await ask('PIN del DNIe', 'PIN de la tarjeta (se bloquea tras 3 intentos fallidos; no se guarda)', '', { password: true });
+      if (!pin) return null;
+      const { token, id } = JSON.parse(c);
+      return { source: 'card', module: this.module(), token, cert_id: id, pin };
+    }
+    if (!this.p12 && !(await this.pickCert())) return null;
+    const pw = await ask('Contraseña del certificado', `Contraseña de ${this.certName || 'tu certificado'} (no se guarda)`, '', { password: true });
+    if (pw === null) return null;
+    return { source: 'file', p12: this.p12, password: pw };
   },
   async loadModules() {
     this.modulesLoaded = true;
@@ -160,7 +196,7 @@ const Sign = {
       d.append(h('span', { class: 'lbl' }, (f.signed ? '✔ ' : '') + f.name + (f.pending ? ' (sin crear)' : '')));
       if (!f.pending && !f.signed) d.addEventListener('mousedown', e => { e.stopPropagation(); this.pickField(f.name); });
     }
-    if (this.rect && this.k('visible').checked) {
+    if (this.rect && this.k('visible').checked && !this.k('margin').checked) {
       const ov = v.pageOv(this.rect.n);
       if (ov) v.box(this.rect.r, 'sigbox', ov);
     }
@@ -174,7 +210,7 @@ const Sign = {
       if (name) { this.prep.push({ name, page: this.viewer.n, rect: d.rect }); this.renderFields(); this.draw(); }
       return;
     }
-    if (!this.k('visible').checked) return;
+    if (!this.k('visible').checked || this.k('margin').checked) return;
     const d = await this.viewer.drag(e);
     if (d.moved) { this.rect = { n: this.viewer.n, r: d.rect }; this.field = null; this.renderFields(); this.draw(); }
   },
@@ -184,6 +220,10 @@ const Sign = {
     if (!this.info) return;
     const r = await api('sign/fields', { id: this.info.id }).catch(() => ({ fields: [] }));
     this.fields = r.fields;
+    // con firmas ya hechas no se puede añadir el margen (las invalidaría)
+    const signedAny = this.fields.some(f => f.signed);
+    this.k('margin').disabled = signedAny;
+    if (signedAny) this.k('margin').checked = false;
     const pending = this.fields.filter(f => !f.signed);
     if (!this.fields.some(f => f.name === this.field && !f.signed)) this.field = pending[0]?.name || null;
     if (this.field) this.rect = null;
@@ -232,6 +272,8 @@ const Sign = {
     if (!this.p12) return toast('Elige primero el archivo del certificado.', 'err');
     const r = await run('Comprobando…', () => api('certinfo', { p12: this.p12, password: this.k('password').value }));
     if (!r) return;
+    this.certSubject = r.subject.replace(/^Common Name:\s*/, '').split(', Serial')[0];
+    document.dispatchEvent(new Event('signer-changed'));
     $('.cert-info', this.root).replaceChildren(h('div', { class: 'kv' },
       h('b', {}, 'Titular'), h('span', {}, r.subject), h('b', {}, 'Emisor'), h('span', {}, r.issuer),
       h('b', {}, 'Válido'), h('span', {}, `${r.valid_from} – ${r.valid_to}`)));
@@ -249,13 +291,14 @@ const Sign = {
       if (!this.p12) return toast('Elige el certificado (.p12 / .pfx).', 'err');
       cred = { source: 'file', p12: this.p12, password: this.k('password').value };
     }
-    const visible = this.k('visible').checked;
-    if (visible && !this.rect && !this.field) return toast('Arrastra en la página el recuadro donde irá la firma, elige un recuadro preparado o desmarca «Firma visible».', 'err');
+    const margin = this.k('margin').checked;  // tiene prioridad sobre un recuadro preparado (queda libre para su firmante)
+    const visible = this.k('visible').checked && !margin;
+    if (visible && !this.rect && !this.field) return toast('Arrastra en la página el recuadro donde irá la firma, elige un recuadro preparado, marca «En un margen añadido abajo» o desmarca «Firma visible».', 'err');
     const tsa = this.k('tsa').value === 'custom' ? this.k('tsa_custom').value.trim() : this.k('tsa').value;
     const res = await run('Firmando…', () => api('sign', {
-      id: this.info.id, ...cred,
-      n: visible && this.rect ? this.rect.n : null, rect: visible && this.rect && !this.field ? this.rect.r : null,
-      field: this.field || null, sig: visible ? this.k('sig').value : '',
+      id: this.info.id, ...cred, margin,
+      n: margin ? this.viewer.n : (visible && this.rect ? this.rect.n : null), rect: visible && this.rect && !this.field ? this.rect.r : null,
+      field: margin ? null : this.field || null, sig: visible ? this.k('sig').value : '',
       reason: this.k('reason').value, location: this.k('location').value, contact: this.k('contact').value, tsa,
     }));
     if (this.source === 'card' && !res && this.card.state === 'ok') this.setCard('found', this.card.text);
@@ -270,6 +313,7 @@ const Sign = {
     await this.nextSignerDoc(res, true);
     // se borran las credenciales del firmante anterior
     this.p12 = null;
+    this.certName = this.certSubject = '';
     $('.cert-name', this.root).textContent = 'Ninguno';
     $('.cert-info', this.root).innerHTML = '';
     this.k('password').value = '';

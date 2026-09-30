@@ -56,6 +56,12 @@ class Api:
         self.reveal(path)
         return "reveal"
 
+    def compose(self, url):
+        """Abre un correo nuevo (mailto:) en el programa de correo predeterminado; no lo envía."""
+        if not str(url).startswith("mailto:"):
+            return False
+        return webbrowser.open(url)
+
     def reveal(self, path):
         if sys.platform == "darwin":
             subprocess.Popen(["open", "-R", path])
@@ -65,8 +71,8 @@ class Api:
             subprocess.Popen(["xdg-open", os.path.dirname(path)])
 
 
-def _selftest_signing(pdf):
-    """Firma con un certificado de prueba generado al vuelo y comprueba la firma."""
+def _test_p12(cn="Autotest DocGuard"):
+    """Certificado de prueba generado al vuelo (contraseña «x»)."""
     import datetime
 
     from cryptography import x509
@@ -75,17 +81,67 @@ def _selftest_signing(pdf):
     from cryptography.hazmat.primitives.serialization import pkcs12
     from cryptography.x509.oid import NameOID
 
-    import signing
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Autotest DocGuard")])
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, cn)])
     now = datetime.datetime.now(datetime.timezone.utc)
     cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
-            .serial_number(1).not_valid_before(now).not_valid_after(now + datetime.timedelta(days=1))
+            .serial_number(1).not_valid_before(now - datetime.timedelta(minutes=5))
+            .not_valid_after(now + datetime.timedelta(days=1))
+            .add_extension(x509.KeyUsage(digital_signature=True, content_commitment=True, key_encipherment=False,
+                                         data_encipherment=False, key_agreement=False, key_cert_sign=False,
+                                         crl_sign=False, encipher_only=False, decipher_only=False), critical=True)
             .sign(key, hashes.SHA256()))
-    p12 = pkcs12.serialize_key_and_certificates(b"t", key, cert, None, serialization.BestAvailableEncryption(b"x"))
-    out = signing.sign_pdf(pdf, p12, "x", page=0, view_rect=[300, 600, 540, 670], reason="autotest")
+    return pkcs12.serialize_key_and_certificates(b"t", key, cert, None, serialization.BestAvailableEncryption(b"x"))
+
+
+def _selftest_signing(pdf):
+    """Firma con un certificado de prueba generado al vuelo y comprueba la firma."""
+    import signing
+    out = signing.sign_pdf(pdf, _test_p12(), "x", page=0, view_rect=[300, 600, 540, 670], reason="autotest")
     r = signing.verify_pdf(out)
     return bool(r) and r[0]["intact"] and r[0]["valid"]
+
+
+def _selftest_signed_copy(call, png):
+    """Modo rápido con firma en la franja, contraseña y acuse de recibo; después «Comprobar una
+    copia» debe reconocerla (huella exacta, rastreo y huella de las zonas ocultas) y validar las
+    firmas, también cuando el destinatario ya ha firmado el acuse."""
+    import base64
+    import io
+
+    import pymupdf as fitz
+    from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
+    from pyhanko.sign import signers
+
+    import signing
+    p12 = _test_p12()
+    info = call("open", raw=png, name="dni.png")
+    params = {"text": "Solo para {destinatario}", "level": "reforzada", "strike": True, "mark": True, "autohide": True,
+              "robust": True, "fingerprint": True, "labels": True, "notice": True, "maxside": "1600", "password": "clave",
+              "qr": {"enabled": True, "recipient": "Autotest", "purpose": "prueba", "mode": "vcard", "pos": "auto", "size": 22},
+              "hide": {info["id"]: {"0": [{"r": [0.08, 0.3, 0.45, 0.42], "k": "soporte"}, {"r": [0.55, 0.6, 0.9, 0.75], "k": "can"}]}}}
+    res = call("wm/export", {"ids": [info["id"]], "params": params, "fmt": "pdf", "sign": {
+        "source": "file", "p12": base64.b64encode(p12).decode(), "password": "x", "tsa": "", "ltv": False,
+        "ack": True, "place": "band"}})
+    ref, data = res["refs"][0], server.RESULTS[res["rid"]][0][1]
+    doc = fitz.open("pdf", data)
+    ok = bool(doc.needs_pass and doc.authenticate("clave")) and len(list(doc[0].widgets())) == 2
+    ok = ok and doc[0].rect.height > max(i["bbox"][3] for i in doc[0].get_image_info()) + 5  # franja fuera de la imagen
+    copy = call("open", raw=data, name="copia.pdf")
+    r1 = call("wm/check", {"id": copy["id"]})
+    ok = ok and r1.get("needs_password") and r1["file"] and r1["file"][0]["ref"] == ref and r1["file"][0]["exact"]
+    r2 = call("wm/check", {"id": copy["id"], "password": "clave"})
+    names = {m["name"] for f in r2["found"] if f["ref"] == ref for m in f["methods"]}
+    ok = ok and {"Huella exacta del archivo", "Huella de las zonas ocultas"} <= names
+    ok = ok and any(n.startswith("Rastreo reforzado") for n in names)
+    ok = ok and len(r2["signatures"]) == 1 and r2["signatures"][0]["intact"] and r2["signatures"][0]["valid"]
+    w = IncrementalPdfFileWriter(io.BytesIO(data))
+    w.encrypt("clave")
+    acuse = signers.PdfSigner(signers.PdfSignatureMetadata(field_name=signing.ACK_FIELD),
+                              signer=signing._load_signer(_test_p12("Destinatario"), "x")).sign_pdf(w).getvalue()
+    r3 = call("wm/check", {"id": call("open", raw=acuse, name="acuse.pdf")["id"], "password": "clave"})
+    ok = ok and r3["file"] and r3["file"][0]["ref"] == ref and not r3["file"][0]["exact"]
+    return bool(ok and len(r3["signatures"]) == 2 and all(x["intact"] and x["valid"] for x in r3["signatures"]))
 
 
 def selftest():
@@ -127,6 +183,16 @@ def selftest():
     out = protect.watermark(card, "Solo para prueba", level="maxima",
                             qr={"data": protect.qr_text("A", "B", "0000ABCD")}, mark="0000ABCD")
     checks["protección reforzada + QR + marca invisible"] = protect.detect_mark(out)[0] == "0000ABCD"
+    # reverso de DNI sintético (domicilio y MRZ)
+    import idfields
+    from PIL import ImageDraw
+    back = Image.new("RGB", (1600, 1010), (225, 232, 228))
+    dr = ImageDraw.Draw(back)
+    import core as _core
+    dr.text((80, 60), "DOMICILIO", font=_core.get_font(28), fill=(80, 80, 90))
+    dr.text((80, 100), "C. EJEMPLO 12", font=_core.get_font(44), fill=(20, 20, 30))
+    for i, l in enumerate(["IDESPCAA123456499999999R<<<<<<", "9003141F3107229ESP<<<<<<<<<<<6"]):
+        dr.text((80, 700 + i * 90), l, font=_core.get_font(56), fill=(20, 20, 30))
     # rastreo reforzado y huella, con un historial temporal (no toca el del usuario)
     import tempfile as _tmp
     previo = os.environ.get("DOCGUARD_CONFIG")
@@ -140,20 +206,14 @@ def selftest():
         ids = protect.identify_robust(prot)
         fps = protect.match_fingerprint(prot)
         checks["rastreo reforzado + huella"] = bool(ids and ids[0][0] == ref and fps and fps[0]["ref"] == ref)
+        buf = __import__("io").BytesIO()
+        back.save(buf, "PNG")
+        checks["copia firmada (franja, contraseña, acuse y comprobación)"] = _selftest_signed_copy(call, buf.getvalue())
     finally:
         if previo is None:
             os.environ.pop("DOCGUARD_CONFIG", None)
         else:
             os.environ["DOCGUARD_CONFIG"] = previo
-    import idfields
-    from PIL import ImageDraw
-    back = Image.new("RGB", (1600, 1010), (225, 232, 228))
-    dr = ImageDraw.Draw(back)
-    import core as _core
-    dr.text((80, 60), "DOMICILIO", font=_core.get_font(28), fill=(80, 80, 90))
-    dr.text((80, 100), "C. EJEMPLO 12", font=_core.get_font(44), fill=(20, 20, 30))
-    for i, l in enumerate(["IDESPCAA123456499999999R<<<<<<", "9003141F3107229ESP<<<<<<<<<<<6"]):
-        dr.text((80, 700 + i * 90), l, font=_core.get_font(56), fill=(20, 20, 30))
     kinds = {it["kind"] for it in idfields.detect(back)["items"]}
     # escáner: una tarjeta clara fotografiada sobre fondo oscuro
     import scan

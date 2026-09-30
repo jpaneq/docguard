@@ -282,6 +282,17 @@ body.resizing iframe, body.resizing img { pointer-events: none; }
 .bx.hit.cur { background: rgba(255, 140, 0, .45); outline: 2px solid #e67e00; }
 /* modo rápido */
 .quick { border: 2px solid var(--accent); border-radius: 10px; padding: 10px 12px; margin: 0 0 12px; display: flex; flex-direction: column; gap: 6px; background: var(--panel2); }
+.qsign { display: flex; flex-direction: column; gap: 6px; padding: 6px 0 6px 10px; border-left: 3px solid var(--line); }
+.qsign .seg { display: flex; } .qsign .seg button { flex: 1; }
+.qsign .card-status { margin: 0; }
+.q-cert { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+button.link { background: none; border: 0; color: var(--accent); text-decoration: underline; padding: 2px 0; text-align: left; }
+.share label { display: block; margin-bottom: 8px; }
+.hide-ov .sigpos { position: absolute; border: 2px solid #2563d9; background: rgba(255, 255, 255, .78); color: #1f3350; font-size: 11px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center; pointer-events: none; border-radius: 4px; }
+.hide-ov .sigpos.default { border-style: dashed; }
+.hide-ov.placing { cursor: crosshair; outline: 2px dashed #2563d9; }
+.share-text { width: 100%; min-height: 260px; font: 13px/1.45 inherit; resize: vertical; }
 /* recuadros de firma */
 .bx.sigfield { border: 2px dashed #7c3aed; background: rgba(124, 58, 237, .08); }
 .bx.sigfield.signed { border-style: solid; border-color: var(--ok); background: rgba(31, 157, 85, .08); }

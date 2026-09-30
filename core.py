@@ -28,6 +28,12 @@ FONT_CANDIDATES = [
     "C:/Windows/Fonts/arial.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
 ]
+REGULAR_FONTS = [
+    "/System/Library/Fonts/Supplemental/Arial.ttf",
+    "/Library/Fonts/Arial.ttf",
+    "C:/Windows/Fonts/arial.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+]
 
 
 def resource_path(name):
@@ -52,9 +58,9 @@ def config_dir():
 
 
 @lru_cache(maxsize=64)
-def get_font(size):
+def get_font(size, bold=True):
     size = max(6, int(size))
-    for path in FONT_CANDIDATES:
+    for path in (FONT_CANDIDATES if bold else REGULAR_FONTS + FONT_CANDIDATES):
         if os.path.exists(path):
             try:
                 return ImageFont.truetype(path, size)
@@ -195,10 +201,12 @@ def fit_size(img, width=None, height=None):
     return img.resize((max(1, int(w)), max(1, int(h))), Image.LANCZOS)
 
 
-def export_watermarked(src, dst, params, width=None, height=None, painter=None):
+def export_watermarked(src, dst, params, width=None, height=None, painter=None, bottom=None):
     """Exporta con marca de agua. El formato sale de la extensión de `dst`
     (.pdf, .png, .jpg). Si el origen tiene varias páginas y se exporta como
-    imagen, se guarda un archivo por página (_p1, _p2...). Devuelve las rutas."""
+    imagen, se guarda un archivo por página (_p1, _p2...). Devuelve las rutas.
+    En PDF, bottom(ancho_pt) -> alto_pt añade una franja en blanco bajo cada
+    página (para la firma), fuera de la imagen."""
     pages = load_pages(src)
     fmt = ext_of(dst)
     painter = painter or apply_watermark
@@ -211,8 +219,9 @@ def export_watermarked(src, dst, params, width=None, height=None, painter=None):
             wm.save(buf, "JPEG", quality=90)
             if size_pt is None or width or height:
                 size_pt = (wm.width * 72 / RENDER_DPI, wm.height * 72 / RENDER_DPI)
-            page = out.new_page(width=size_pt[0], height=size_pt[1])
-            page.insert_image(page.rect, stream=buf.getvalue())
+            extra = bottom(size_pt[0]) if bottom else 0
+            page = out.new_page(width=size_pt[0], height=size_pt[1] + extra)
+            page.insert_image(fitz.Rect(0, 0, size_pt[0], size_pt[1]), stream=buf.getvalue())
         out.set_metadata({})
         out.save(dst, garbage=4, deflate=True)
         out.close()

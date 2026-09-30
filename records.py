@@ -44,7 +44,17 @@ def _write(path, data):
 
 
 def load(kind):
-    return _read(_path(FILES[kind]))
+    path = _path(FILES[kind])
+    data = _read(path)
+    if not data and os.path.exists(path) and os.path.getsize(path) > 2:
+        try:  # ¿dañado? se aparta para no perderlo al guardar encima
+            with open(path, encoding="utf-8") as f:
+                json.load(f)
+        except (OSError, ValueError):
+            aside = f"{path}.danado-{datetime.datetime.now():%Y%m%d-%H%M%S}"
+            os.replace(path, aside)
+            save_settings(error_historial=f"El historial estaba dañado; se ha apartado en {aside}")
+    return data
 
 
 def save(kind, data):

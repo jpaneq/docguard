@@ -398,6 +398,7 @@ const Wm = {
       b.folder ? h('span', {}, '💾 Copia automática en ', h('b', {}, b.folder), b.last ? ` · última: ${b.last}` : '')
         : h('span', { class: 'muted' }, 'Sin copia automática: si pierdes este equipo, pierdes el historial.'),
       b.error ? h('div', { class: 'bad' }, `⚠ La última copia falló: ${b.error}`) : null,
+      b.damaged ? h('div', { class: 'bad' }, `⚠ ${b.damaged}. Puedes recuperarlo con «Importar…» (o desde tu copia automática).`) : null,
       h('div', { class: 'row' },
         h('button', { onclick: () => this.backupFolder(b.folder).then(ok => ok && again()) }, b.folder ? 'Cambiar carpeta…' : 'Copia automática…'),
         b.folder ? h('button', { onclick: async () => { await run('Guardando…', () => api('registry/backup', { folder: '' })); again(); } }, 'Desactivar') : null,

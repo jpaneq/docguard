@@ -49,6 +49,9 @@ def problems(pdf):
                 if ext in ("n/a", ""):
                     out.append(f"la fuente «{basefont}» de la página {pno + 1} no está incrustada")
         cat = doc.pdf_catalog()
+        kind, val = doc.xref_get_key(cat, "Metadata")
+        if kind == "xref" and doc.xref_get_key(int(val.split()[0]), "Filter")[0] != "null":
+            out.append("los metadatos XMP están comprimidos")
         if doc.xref_get_key(cat, "OutputIntents")[0] == "null":
             out.append("falta el perfil de color (OutputIntent)")
         xmp = doc.get_xml_metadata()

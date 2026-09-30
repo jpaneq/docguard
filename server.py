@@ -553,7 +553,7 @@ def op_wm_registry(req):
     st = records.settings()
     return {"items": [dict(ref=k, **v) for k, v in reversed(list(reg.items()))],
             "backup": {"folder": st.get("copia_historial", ""), "last": st.get("ultima_copia", ""),
-                       "error": st.get("error_copia", "")}}
+                       "error": st.get("error_copia", ""), "damaged": st.get("error_historial", "")}}
 
 
 def op_registry_export(req):

@@ -25,6 +25,13 @@ def _fields(data):
         return []
 
 
+def _signers(data, password=None):
+    try:
+        return sorted({s["signer"].replace("Common Name: ", "") for s in signing.verify_pdf(data, password=password)})
+    except Exception:
+        return []
+
+
 def register(name, data):
     """Anota un documento enviado a firmar (los bytes exactos que se guardaron o enviaron)."""
     env = records.load("envios")
@@ -36,7 +43,7 @@ def register(name, data):
     key = f"{secrets.randbits(32):08X}"
     env[key] = {"fecha": datetime.datetime.now().strftime("%d/%m/%Y %H:%M"), "archivo": os.path.basename(name),
                 "base": _base(name), "sha256": [h], "recuadros": [f["name"] for f in fields],
-                "firmados": [f["name"] for f in fields if f["signed"]],
+                "firmados": [f["name"] for f in fields if f["signed"]], "firmantes": _signers(data),
                 "estado": "pendiente" if any(not f["signed"] for f in fields) else "enviado"}
     records.save("envios", env)
     return key
@@ -53,10 +60,16 @@ def check(name, data, password=None):
             match = (key, end)
             break
     if not match:
-        base = _base(name)
+        # mismo nombre y firmas de quien firmó lo enviado, pero sin contenerlo intacto: se ha
+        # vuelto a guardar (o «imprimir como PDF») y esas firmas pueden haber dejado de valer.
+        # Un original sin firmar o un archivo que solo se llama igual no dan aviso.
+        base, now_signers = _base(name), None
         for key, rec in env.items():
-            if base and rec.get("base") == base:
-                return {"match": False, "mismatch": True, "key": key, "record": rec}
+            if base and rec.get("base") == base and rec.get("firmantes"):
+                if now_signers is None:
+                    now_signers = set(_signers(data, password))
+                if now_signers & set(rec["firmantes"]):
+                    return {"match": False, "mismatch": True, "key": key, "record": rec}
         return {"match": False}
     key, end = match
     try:

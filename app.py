@@ -285,8 +285,10 @@ def selftest():
                                                "p12": _b64.b64encode(_test_p12("Yo")).decode()})["rid"]][0][1]
         vuelta = _signing.sign_pdf(enviado, _test_p12("Otro"), "x", field_name="Otro")
         seg = call("track/check", {"id": call("open", raw=vuelta, name="contrato_firmado.pdf")["id"]})
+        original = call("track/check", {"id": call("open", raw=contrato, name="contrato.pdf")["id"]})
         checks["seguimiento de envíos a firmar"] = bool(seg["match"] and not seg["pending"] and len(seg["after"]) == 1
-                                                        and seg["record"]["estado"] == "completo")
+                                                        and seg["record"]["estado"] == "completo"
+                                                        and not original["match"] and not original.get("mismatch"))
     finally:
         if previo is None:
             os.environ.pop("DOCGUARD_CONFIG", None)

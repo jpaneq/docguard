@@ -221,6 +221,19 @@ def selftest():
     checks["protección reforzada + QR + marca invisible"] = protect.detect_mark(out)[0] == "0000ABCD"
     import datetime as _dt
     ayer = (_dt.date.today() - _dt.timedelta(days=1)).strftime("%d/%m/%Y")
+    from PIL import ImageDraw as _D
+    retrato = Image.new("RGB", (1000, 630), (222, 230, 226))
+    _d = _D.Draw(retrato)
+    _d.rectangle((60, 120, 300, 440), fill=(170, 180, 200))
+    _d.ellipse((120, 170, 240, 330), fill=(224, 172, 140))
+    _d.rectangle((150, 320, 210, 380), fill=(224, 172, 140))
+    import numpy as _np
+    ruido = _np.random.default_rng(5).integers(-25, 25, (630, 1000, 3))  # textura: miles de colores distintos
+    retrato = Image.fromarray(_np.clip(_np.asarray(retrato, dtype=int) + ruido, 0, 255).astype(_np.uint8))
+    _oculta, _r = protect.obscure_photo(retrato, "pixel")
+    _caja = _oculta.crop((int(_r[0] * 1000), int(_r[1] * 630), int(_r[2] * 1000), int(_r[3] * 630))) if _r else None
+    checks["foto irreconocible"] = bool(_r and _r[0] < 0.12 and _r[2] > 0.24 and _r[1] < 0.27 and _r[3] > 0.6
+                                        and len(_caja.getcolors(100000) or []) <= 7 * 12)  # solo bloques gruesos
     checks["caducidad de la copia"] = ("Válida hasta: 30/10/2099" in protect.qr_payload("vcard", "A", "B", "R", until="30/10/2099")
                                        and protect.until_date("2099-10-30") == "30/10/2099"
                                        and protect.expired(ayer) and not protect.expired("30/10/2099"))

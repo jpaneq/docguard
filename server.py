@@ -178,7 +178,8 @@ def wm_params(req):
     base.update(robust=bool(p.get("robust", True)), fingerprint=bool(p.get("fingerprint", True)),
                 hide_label=(f"SOLO PARA {who.upper()}" if who else "USO RESTRINGIDO") if p.get("labels") else None,
                 decoy_mrz=bool(p.get("labels")), stamp=bool(p.get("stamp")),
-                stamp_text=f"Solo para {who}" if who else None, notice=bool(p.get("notice")))
+                stamp_text=f"Solo para {who}" if who else None, notice=bool(p.get("notice")),
+                photo=p.get("photo") or None)
     return base
 
 
@@ -249,12 +250,12 @@ def op_wm_preview(req):
         d.lines[n] = protect.detect_lines(img)
     out = protect.watermark(img, seed=1000 + n, lines=d.lines.get(n), qr=wm_qr(req["params"], "(al guardar)"),
                             hide=req["params"].get("hide_page"), **params)
-    headers = None
+    headers = {"X-Photo": "0"} if params.get("photo") and protect.LAST_PHOTO is None else {}
     band = req["params"].get("sign_band")
     if band:
         out, frac = preview_band(out, page_width_pt(d, n, int(req["params"].get("maxside") or 0)), band,
                                  req["params"].get("qr") or {})
-        headers = {"X-Band": f"{frac:.5f}"}
+        headers["X-Band"] = f"{frac:.5f}"
     buf = io.BytesIO()
     out.save(buf, "JPEG", quality=85)
     return ("image/jpeg", buf.getvalue(), headers)

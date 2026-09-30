@@ -159,6 +159,10 @@
         <label class="inline"><input type="checkbox" data-k="autohide" checked> Detectar y ocultar datos innecesarios</label>
         <small>Firma, nº de soporte (IDESP), CAN, MRZ, domicilio, progenitores, lugar de nacimiento, datos de expedición… En la vista previa: clic en un recuadro y ✕ (o Supr) para quitarlo; arrastra para tapar otra zona.</small>
         <div data-role="hidelist" class="check-list"></div>
+        <label>Foto del titular
+          <select data-k="photo"><option value="">Sin cambios</option><option value="pixel">Pixelada (irreconocible)</option>
+            <option value="blur">Difuminada fuerte (irreconocible)</option><option value="cover">Tapada</option></select></label>
+        <small>Para envíos en los que no hace falta verte la cara. Es irreversible en la copia (tu original no cambia). Si no encuentra la foto, tápala arrastrando un recuadro sobre ella en la vista previa.</small>
         <h3>Código QR</h3>
         <label class="inline"><input type="checkbox" data-k="qr"> Añadir QR con el uso autorizado</label>
         <div data-role="qr" hidden>

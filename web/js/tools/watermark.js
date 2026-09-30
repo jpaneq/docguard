@@ -48,7 +48,7 @@ const Wm = {
     qrMode();
     this.k('level').addEventListener('change', () => { this.k('strike').disabled = this.k('level').value === 'basica'; });
     $('[data-act=check]', this.root).onclick = () => this.check();
-    for (const k of ['robust', 'fingerprint', 'labels', 'stamp', 'notice', 'maxside']) this.k(k).addEventListener('change', () => this.schedule());
+    for (const k of ['robust', 'fingerprint', 'labels', 'stamp', 'notice', 'maxside', 'photo']) this.k(k).addEventListener('change', () => { this.photoWarned = false; this.schedule(); });
     $('[data-act=quick]', this.root).onclick = () => this.quick();
     $('[data-act=toscan]', this.root).onclick = () => {
       const cur = this.files.current;
@@ -133,6 +133,7 @@ const Wm = {
     p.password = this.k('password').value;
     for (const k of ['robust', 'fingerprint', 'labels', 'stamp', 'notice']) p[k] = this.k(k).checked;
     p.maxside = this.k('maxside').value;
+    p.photo = this.k('photo').value;
     const cur = this.files.current;
     p.hide_page = cur ? this.activeRects(cur.id, this.n).map(x => ({ r: x.r, k: x.kind })) : [];
     p.hide = {};
@@ -163,6 +164,10 @@ const Wm = {
       if (seq !== this.seq) return;
       if (this.url) URL.revokeObjectURL(this.url);
       this.band = parseFloat(blob.headers?.get('X-Band') || '0') || 0;  // parte de abajo: franja de firma
+      if (blob.headers?.get('X-Photo') === '0' && !this.photoWarned) {
+        this.photoWarned = true;
+        toast('No se ha encontrado la foto del titular: tápala arrastrando un recuadro sobre ella en la vista previa.', 'err', [], 8000);
+      }
       this.url = URL.createObjectURL(blob);
       this.img.src = this.url;
     } catch (e) { toast(e.message, 'err'); }
@@ -452,6 +457,7 @@ const Wm = {
     if (p.level) this.k('level').value = p.level;
     for (const k of ['strike', 'mark', 'robust', 'fingerprint', 'labels', 'stamp', 'notice']) if (p[k] != null) this.k(k).checked = p[k];
     if (p.maxside != null) this.k('maxside').value = p.maxside;
+    if (p.photo != null) this.k('photo').value = p.photo;
     if (p.qr) {
       this.k('qr').checked = !!p.qr.enabled;
       $('[data-role=qr]', this.root).hidden = !p.qr.enabled;

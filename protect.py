@@ -668,6 +668,71 @@ def locate_face(img):
     return [x / sw, yy / sh, (x + bw) / sw, (yy + bh) / sh]
 
 
+def locate_photo(img, face=None):
+    """Recuadro de la foto del titular (0..1): el rectángulo que rodea la cara o, si no se
+    distingue, una estimación a partir de la cara."""
+    import cv2
+    face = face or locate_face(img)
+    if not face:
+        return None
+    W, H = img.size
+    k = 640 / W
+    gray = cv2.cvtColor(np.asarray(img.convert("RGB").resize((640, max(1, int(H * k))))), cv2.COLOR_RGB2GRAY)
+    sh, sw = gray.shape
+    edges = cv2.dilate(cv2.Canny(gray, 40, 120), np.ones((3, 3), np.uint8))
+    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    fx0, fy0, fx1, fy1 = face[0] * sw, face[1] * sh, face[2] * sw, face[3] * sh
+    farea = max(1.0, (fx1 - fx0) * (fy1 - fy0))
+    best = None
+    for c in contours:
+        x, y, w, h = cv2.boundingRect(c)
+        if x <= fx0 + 2 and y <= fy0 + 2 and x + w >= fx1 - 2 and y + h >= fy1 - 2 \
+                and 1.6 * farea < w * h < 7 * farea and 0.55 < w / max(h, 1) < 1.05:
+            if best is None or w * h < best[2] * best[3]:  # el recuadro más ajustado que la contiene
+                best = (x, y, w, h)
+    if best:
+        x, y, w, h = best
+        return [x / sw, y / sh, (x + w) / sw, (y + h) / sh]
+    fw, fh, cx = fx1 - fx0, fy1 - fy0, (fx0 + fx1) / 2
+    x0, x1 = cx - fw * 0.95, cx + fw * 0.95
+    y0, y1 = fy0 - fh * 0.6, fy1 + fh * 0.55
+    return [max(0, x0 / sw), max(0, y0 / sh), min(1, x1 / sw), min(1, y1 / sh)]
+
+
+PHOTO_MODES = ("pixel", "blur", "cover")
+LAST_PHOTO = None
+
+
+def obscure_photo(img, mode, face=None, seed=1):
+    """Hace irreconocible la foto del titular: pixelado muy grueso, difuminado fuerte con ruido
+    (para que no se pueda «deshacer») o tapada. Devuelve (imagen, recuadro o None)."""
+    r = locate_photo(img, face)
+    if not r:
+        return img, None
+    W, H = img.size
+    box = (int(r[0] * W), int(r[1] * H), max(int(r[0] * W) + 2, int(r[2] * W)), max(int(r[1] * H) + 2, int(r[3] * H)))
+    region = img.crop(box)
+    bw, bh = region.size
+    if mode == "pixel":
+        n = 7  # bloques a lo ancho: con tan pocos no se reconoce a nadie
+        region = region.resize((n, max(1, round(n * bh / bw))), Image.BILINEAR).resize(region.size, Image.NEAREST)
+    elif mode == "blur":
+        from PIL import ImageFilter
+        region = region.filter(ImageFilter.GaussianBlur(max(6, bw / 5)))
+        noise = np.random.default_rng(seed).normal(0, 12, (bh, bw, 3))
+        region = Image.fromarray(np.clip(np.asarray(region, dtype=np.float32) + noise, 0, 255).astype(np.uint8))
+    else:
+        region = Image.new("RGB", region.size, (206, 211, 218))
+        d = ImageDraw.Draw(region)
+        f = core.get_font(max(10, bw // 9))
+        for i, t in enumerate(("FOTO", "OCULTA")):
+            tw = f.getlength(t)
+            d.text(((bw - tw) / 2, bh / 2 - f.size * (1.1 - i * 1.2)), t, font=f, fill=(90, 96, 110))
+    img = img.copy()
+    img.paste(region, box[:2])
+    return img, r
+
+
 def _stamp_layer(size, cx, cy, r, ring_text, center_text, sub_text, color, seed):
     """Sello de caucho (tinta irregular, algo girado), como los sellos oficiales sobre la foto."""
     W, H = size
@@ -940,19 +1005,23 @@ def update_registry(ref, **fields):
 def watermark(img, text, angle=35, size=40, gap_x=60, gap_y=80, opacity=0.35, color=(200, 0, 0),
               hardened=True, level="reforzada", strike=True, lines=None, qr=None, mark=None, seed=1, hide=None,
               ref=None, fingerprint=True, hide_label=None, decoy_mrz=False, stamp=False, stamp_text=None,
-              notice=False, robust=True, **_):
+              notice=False, robust=True, photo=None, **_):
     """Aplica todas las capas activadas.
     `qr` = {"data", "size", "pos"}; `mark` = referencia hex (marcas invisibles);
     `hide` = zonas a ocultar (0..1), con `fingerprint` sus medidas son únicas por entrega;
     `hide_label` = texto dentro de las zonas ocultas; `decoy_mrz` = MRZ señuelo;
-    `stamp` = sello sobre la foto; `notice` = aviso contra la edición."""
-    global LAST_HIDE
+    `stamp` = sello sobre la foto; `notice` = aviso contra la edición;
+    `photo` = "pixel" | "blur" | "cover" para hacer irreconocible la foto del titular."""
+    global LAST_HIDE, LAST_PHOTO
     text = core.expand_placeholders(text or "")
     img = img.convert("RGB")
     ref = ref or mark
     H0 = img.size[1]
     items = _hide_items(hide)
-    face = locate_face(img) if stamp or (qr and qr.get("pos") == "auto") or (items and fingerprint) else None
+    face = locate_face(img) if stamp or photo or (qr and qr.get("pos") == "auto") or (items and fingerprint) else None
+    LAST_PHOTO = None
+    if photo in PHOTO_MODES:  # antes que las marcas: quedan encima de la foto ya irreconocible
+        img, LAST_PHOTO = obscure_photo(img, photo, face, seed)
     if items and fingerprint and ref:
         if lines is None:
             lines = detect_lines(img)

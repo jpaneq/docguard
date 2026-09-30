@@ -1025,6 +1025,7 @@ EDIT_OPS = {
     "add_shape": lambda doc, r: editor.add_shape(doc, r["n"], r["kind"], r.get("rect"), r.get("stroke", "#d62828"),
                                                 r.get("fill"), float(r.get("width", 2)), r.get("points")),
     "move_annot": lambda doc, r: editor.move_annotation(doc, r["n"], r["xref"], r["rect"]),
+    "set_line": lambda doc, r: editor.set_line(doc, r["n"], r["xref"], r["points"]),
     "paste": lambda doc, r: editor.paste_region(doc, r["n"], CLIPBOARD["clip"], float(r["x"]), float(r["y"]),
                                                r.get("mode", "auto")),
     "paste_spans": lambda doc, r: editor.paste_spans(doc, r["n"], CLIPBOARD["spans"], float(r["x"]), float(r["y"])),

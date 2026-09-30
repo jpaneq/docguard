@@ -434,10 +434,15 @@ ANNOT_LABELS = {"Highlight": "Resaltado", "Underline": "Subrayado", "StrikeOut":
 
 
 def annotations(page):
-    return [{"xref": a.xref, "type": a.type[1],
+    out = []
+    for a in page.annots() or ():
+        d = {"xref": a.xref, "type": a.type[1],
              "label": "Resaltado (fosforito)" if a.info.get("subject") == "Fosforito" else ANNOT_LABELS.get(a.type[1], a.type[1]),
              "bbox": to_view(page, a.rect), "content": a.info.get("content", "")}
-            for a in page.annots() or ()]
+        if a.type[1] == "Line" and a.vertices and len(a.vertices) >= 2:  # extremos, para moverlos por separado
+            d["points"] = [[round(v, 2) for v in fitz.Point(p) * page.rotation_matrix] for p in a.vertices[:2]]
+        out.append(d)
+    return out
 
 
 def add_annotation(doc, pno, kind, rect, text="", color="#ffd400", size=12):
@@ -653,6 +658,27 @@ def _find_annot(page, xref):
     raise ValueError("Anotación no encontrada.")
 
 
+def _replace_line(page, a, p1, p2):
+    """Rehace una línea (o flecha) con otros extremos, conservando color, grosor y puntas."""
+    colors, width, ends, info = a.colors, (a.border or {}).get("width", 2), a.line_ends, a.info
+    b = page.add_line_annot(p1, p2)
+    b.set_line_ends(*ends)
+    b.set_colors(stroke=colors.get("stroke"), fill=colors.get("fill"))
+    b.set_border(width=width)
+    b.set_info(info)
+    b.update()
+    page.delete_annot(a)
+
+
+def set_line(doc, pno, xref, points):
+    """Mueve los extremos de una línea o flecha (coordenadas de pantalla)."""
+    page = doc[pno]
+    a = _find_annot(page, xref)
+    if a.type[1] != "Line":
+        raise ValueError("Solo las líneas y flechas tienen extremos.")
+    _replace_line(page, a, point_from_view(page, *points[0]), point_from_view(page, *points[1]))
+
+
 def move_annotation(doc, pno, xref, rect):
     """Mueve o redimensiona una anotación al rectángulo indicado (pantalla)."""
     page = doc[pno]
@@ -669,9 +695,8 @@ def move_annotation(doc, pno, xref, rect):
         colors, width = a.colors, (a.border or {}).get("width", 2)
         if t == "Line":
             v = a.vertices
-            ends = a.line_ends
-            b = page.add_line_annot(f(v[0]), f(v[1]))
-            b.set_line_ends(*ends)
+            _replace_line(page, a, f(v[0]), f(v[1]))
+            return
         elif t == "Ink":
             b = page.add_ink_annot([[f(p) for p in stroke] for stroke in a.vertices])
         else:
@@ -683,6 +708,11 @@ def move_annotation(doc, pno, xref, rect):
         b.update()
         page.delete_annot(a)
         return
+    if t in ("Square", "Circle"):
+        # el recuadro que se ve incluye medio borde por cada lado y update() lo vuelve a añadir:
+        # se descuenta para que la forma no crezca cada vez que se mueve
+        bw = ((a.border or {}).get("width") or 0) / 2
+        new = fitz.Rect(new.x0 + bw, new.y0 + bw, new.x1 - bw, new.y1 - bw)
     a.set_rect(new)
     a.update()
 

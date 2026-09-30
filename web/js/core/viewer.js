@@ -76,57 +76,94 @@ class Viewer {
     return d;
   }
   clear() { this.ov.innerHTML = ''; }
-  /** Arrastre del ratón desde el evento e. Devuelve {rect, points, moved}. */
-  drag(e, { ink = false, show = true } = {}) {
+  /** Arrastre del ratón desde el evento e. Devuelve {rect, points, moved}.
+   *  shape: 'line'/'arrow' (vista previa de línea; con Mayús, ángulos de 15°) o
+   *  'rect'/'ellipse' (con Mayús, cuadrado o círculo). */
+  drag(e, { ink = false, show = true, shape = null } = {}) {
     return new Promise(res => {
       const p0 = this.pt(e);
       const pts = [p0];
-      let el = null, line = null;
-      if (ink) {
+      const isLine = shape === 'line' || shape === 'arrow';
+      let el = null, line = null, last = p0, shift = e.shiftKey;
+      if (ink || isLine) {
         el = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        el.setAttribute('style', 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none');
-        line = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
-        line.setAttribute('fill', 'none'); line.setAttribute('stroke', '#1a4fd6'); line.setAttribute('stroke-width', '2');
+        el.setAttribute('style', 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible');
+        line = document.createElementNS('http://www.w3.org/2000/svg', isLine ? 'line' : 'polyline');
+        line.setAttribute('fill', 'none'); line.setAttribute('stroke', isLine ? '#d62828' : '#1a4fd6'); line.setAttribute('stroke-width', '2');
         el.append(line);
         this.ov.append(el);
       } else if (show) {
-        el = h('div', { class: 'drag-box' });
+        el = h('div', { class: 'drag-box' + (shape === 'ellipse' ? ' ellipse' : '') });
         this.ov.append(el);
       }
-      const mv = ev => {
-        const p = this.pt(ev);
-        pts.push(p);
-        if (ink) line.setAttribute('points', pts.map(q => `${q[0] * this.zoom},${q[1] * this.zoom}`).join(' '));
+      const end = () => {
+        const dx = last[0] - p0[0], dy = last[1] - p0[1];
+        if (!shift) return last;
+        if (isLine) { const [sx, sy] = snapAngle(dx, dy); return [p0[0] + sx, p0[1] + sy]; }
+        if (shape === 'rect' || shape === 'ellipse') {
+          const side = Math.max(Math.abs(dx), Math.abs(dy));
+          return [p0[0] + Math.sign(dx || 1) * side, p0[1] + Math.sign(dy || 1) * side];
+        }
+        return last;
+      };
+      const paint = () => {
+        const p = end();
+        if (isLine) {
+          const z = this.zoom;
+          line.setAttribute('x1', p0[0] * z); line.setAttribute('y1', p0[1] * z);
+          line.setAttribute('x2', p[0] * z); line.setAttribute('y2', p[1] * z);
+        } else if (ink) line.setAttribute('points', pts.map(q => `${q[0] * this.zoom},${q[1] * this.zoom}`).join(' '));
         else if (el) this.place(el, norm(p0, p));
       };
+      const mv = ev => { last = this.pt(ev); shift = ev.shiftKey; pts.push(last); paint(); };
+      const key = ev => { if (ev.key === 'Shift') { shift = ev.type === 'keydown'; paint(); } };
       const up = ev => {
         window.removeEventListener('mousemove', mv);
+        window.removeEventListener('keydown', key);
+        window.removeEventListener('keyup', key);
         el?.remove();
-        const p = this.pt(ev);
+        last = this.pt(ev);
+        shift = ev.shiftKey;
+        const p = end();
         const rect = norm(p0, p);
-        res({ rect, points: pts, moved: (rect[2] - rect[0]) + (rect[3] - rect[1]) > 3 });
+        res({ rect, points: isLine ? [p0, p] : pts, moved: (rect[2] - rect[0]) + (rect[3] - rect[1]) > 3 });
       };
       window.addEventListener('mousemove', mv);
+      window.addEventListener('keydown', key);
+      window.addEventListener('keyup', key);
       window.addEventListener('mouseup', up, { once: true });
     });
   }
-  /** Hace que el cuadro el se pueda mover (arrastrando) y redimensionar (esquina). */
-  transformable(el, rect, onDone, { keepRatio = false, grip = null } = {}) {
-    const handle = h('div', { class: 'handle' });
-    el.append(handle);
+  /** Hace que el cuadro el se pueda mover (arrastrando) y redimensionar.
+   *  handles: 'corner' (esquina inferior derecha), 'all' (esquinas y lados) o 'none' (solo mover).
+   *  Con Mayús: al mover, en pasos de 15°; en una esquina, se mantiene la proporción. */
+  transformable(el, rect, onDone, { keepRatio = false, grip = null, handles = 'corner' } = {}) {
+    const dirs = handles === 'all' ? ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] : handles === 'none' ? [] : ['se'];
     const start = (e, mode) => {
       if (e.button !== 0) return;
       e.preventDefault(); e.stopPropagation();
       const p0 = this.pt(e);
       let r = rect.slice();
-      const ratio = (rect[2] - rect[0]) / (rect[3] - rect[1]);
+      const w0 = rect[2] - rect[0], h0 = rect[3] - rect[1];
       const mv = ev => {
-        const p = this.pt(ev), dx = p[0] - p0[0], dy = p[1] - p0[1];
-        if (mode === 'move') r = [rect[0] + dx, rect[1] + dy, rect[2] + dx, rect[3] + dy];
-        else {
-          let w = Math.max(8, rect[2] - rect[0] + dx), hh = Math.max(8, rect[3] - rect[1] + dy);
-          if (keepRatio) hh = w / ratio;
-          r = [rect[0], rect[1], rect[0] + w, rect[1] + hh];
+        const p = this.pt(ev);
+        let dx = p[0] - p0[0], dy = p[1] - p0[1];
+        if (mode === 'move') {
+          if (ev.shiftKey) [dx, dy] = snapAngle(dx, dy);
+          r = [rect[0] + dx, rect[1] + dy, rect[2] + dx, rect[3] + dy];
+        } else {
+          let [x0, y0, x1, y1] = rect;
+          if (mode.includes('w')) x0 = Math.min(rect[0] + dx, rect[2] - 6);
+          if (mode.includes('e')) x1 = Math.max(rect[2] + dx, rect[0] + 6);
+          if (mode.includes('n')) y0 = Math.min(rect[1] + dy, rect[3] - 6);
+          if (mode.includes('s')) y1 = Math.max(rect[3] + dy, rect[1] + 6);
+          if ((keepRatio || ev.shiftKey) && mode.length === 2 && w0 > 0 && h0 > 0) {
+            const fx = (x1 - x0) / w0, fy = (y1 - y0) / h0;
+            const f = Math.abs(fx - 1) > Math.abs(fy - 1) ? fx : fy;  // la esquina contraria queda fija
+            if (mode.includes('w')) x0 = rect[2] - w0 * f; else x1 = rect[0] + w0 * f;
+            if (mode.includes('n')) y0 = rect[3] - h0 * f; else y1 = rect[1] + h0 * f;
+          }
+          r = [x0, y0, x1, y1];
         }
         this.place(el, r);
       };
@@ -136,9 +173,23 @@ class Viewer {
         if (r.some((v, i) => Math.abs(v - rect[i]) > 0.5)) onDone(r.map(v => Math.round(v * 100) / 100));
       }, { once: true });
     };
-    handle.addEventListener('mousedown', e => start(e, 'resize'));
-    (grip || el).addEventListener('mousedown', e => { if (e.target !== handle) start(e, 'move'); });
+    for (const dir of dirs) {
+      const hd = h('div', { class: 'handle' + (handles === 'all' ? ' h-' + dir : ''), title: 'Arrastra para cambiar el tamaño (Mayús: mantener la proporción)' });
+      el.append(hd);
+      hd.addEventListener('mousedown', e => start(e, dir));
+    }
+    (grip || el).addEventListener('mousedown', e => { if (!e.target.classList.contains('handle')) start(e, 'move'); });
   }
+}
+
+/** Con Mayús: la dirección se redondea a múltiplos de 15° (0°, 15°, 30°, 45°, 90°…). */
+function snapAngle(dx, dy, step = 15) {
+  const len = Math.hypot(dx, dy);
+  if (!len) return [0, 0];
+  const k = step * Math.PI / 180;
+  const a = Math.round(Math.atan2(dy, dx) / k) * k;
+  const r = v => Math.abs(v) < 1e-9 ? 0 : v;
+  return [r(Math.cos(a) * len), r(Math.sin(a) * len)];
 }
 
 /* ======================================================================

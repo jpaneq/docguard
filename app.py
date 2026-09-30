@@ -117,6 +117,28 @@ def _test_p12(cn="Autotest DocGuard"):
     return pkcs12.serialize_key_and_certificates(b"t", key, cert, None, serialization.BestAvailableEncryption(b"x"))
 
 
+def _selftest_shapes():
+    """Mover una forma no la agranda y los extremos de una flecha se cambian conservando su punta."""
+    import pymupdf as fitz
+
+    import editor
+    doc = fitz.open()
+    doc.new_page()
+    editor.add_shape(doc, 0, "rect", [300, 400, 380, 480], width=4)
+    editor.add_shape(doc, 0, "arrow", None, points=[[100, 100], [300, 200]], width=3)
+    rect, arrow = editor.annotations(doc[0])
+    for _ in range(3):
+        b = next(a for a in editor.annotations(doc[0]) if a["type"] == "Square")["bbox"]
+        editor.move_annotation(doc, 0, rect["xref"], [b[0] + 10, b[1], b[2] + 10, b[3]])
+    moved = next(a for a in editor.annotations(doc[0]) if a["type"] == "Square")["bbox"]
+    editor.set_line(doc, 0, arrow["xref"], [[100, 100], [100, 300]])
+    page = doc[0]
+    line = next(a for a in editor.annotations(page) if a["type"] == "Line")
+    ends = page.load_annot(line["xref"]).line_ends
+    same_size = abs((moved[2] - moved[0]) - (rect["bbox"][2] - rect["bbox"][0])) < 0.5
+    return same_size and abs(moved[0] - rect["bbox"][0] - 30) < 0.5 and line["points"] == [[100.0, 100.0], [100.0, 300.0]] and ends[1] != 0
+
+
 def _selftest_signing(pdf):
     """Firma con un certificado de prueba generado al vuelo y comprueba la firma."""
     import signing
@@ -196,6 +218,7 @@ def selftest():
         "marca de agua": call("wm/preview", {"id": info["id"], "n": 0, "params": {"text": "x"}})[:2] == b"\xff\xd8",
         "detección": "DNI / NIE" in call("detect", {"id": info["id"]})["found"],
         "edición": call("edit/state", {"id": info["id"], "n": 0})["spans"][0]["text"] == "DNI 12345678Z",
+        "formas: extremos y mover sin crecer": _selftest_shapes(),
         "cambiar el tamaño del texto": (call("edit/scale_spans", {"id": info["id"], "n": 0, "indices": [0], "factor": 1.5,
                                                                   "anchor": [50, 60]}) is not None
                                         and call("edit/state", {"id": info["id"], "n": 0})["spans"][0]["size"] == 21.0

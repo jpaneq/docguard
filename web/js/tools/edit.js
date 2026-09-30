@@ -278,7 +278,13 @@ const Edit = {
         const d = v.box(a.bbox, 'annot' + (on ? ' sel' : ''));
         d.title = a.label + (a.content ? ': ' + a.content : '');
         d.addEventListener('mousedown', e => { if (e.button === 0) { e.stopPropagation(); if (!on) this.select('annot', a.xref); } });
-        if (on && !fixed.includes(a.type)) v.transformable(d, a.bbox, r => this.op('move_annot', { xref: a.xref, rect: r }, 'Moviendo…'));
+        if (on && !fixed.includes(a.type)) {
+          const done = r => this.op('move_annot', { xref: a.xref, rect: r }, 'Moviendo…').then(ok => ok && this.reselectAnnot(r));
+          if (a.type === 'Line' && a.points) {  // líneas y flechas: se mueven enteras o por sus extremos
+            v.transformable(d, a.bbox, done, { handles: 'none' });
+            this.lineEnds(a);
+          } else v.transformable(d, a.bbox, done, { handles: a.type === 'Text' ? 'none' : 'all' });
+        }
         d.addEventListener('contextmenu', e => { this.select('annot', a.xref); this.contextMenu(e); });
       }
     }
@@ -290,13 +296,64 @@ const Edit = {
       select: 'Clic: seleccionar · Doble clic en un texto: escribir (Intro = nueva línea) · Arrastrar: mover · Esquina del marco: cambiar el tamaño · Arrastrar en vacío: seleccionar zona · ⌘C/⌘X/⌘V · Supr · Clic derecho: más opciones',
       text: 'Clic en la página para escribir texto nuevo, o en un texto existente para modificarlo. ⌘+Intro o clic fuera para fijarlo.',
       image: 'Arrastra en la página el recuadro donde colocar la imagen.',
-      shape: 'Arrastra para dibujar la forma. Clic en una forma para moverla o cambiar su tamaño.',
+      shape: 'Arrastra para dibujar la forma (con Mayús: líneas en ángulos de 15°, 45°, 90°…, y cuadrados o círculos). Clic en una forma para moverla o cambiar su tamaño con sus tiradores.',
       annot: ['highlight', 'underline', 'strikeout'].includes(this.ann.kind) ? 'Arrastra sobre el texto.' : this.ann.kind === 'note' ? 'Clic donde quieras la nota.' : this.ann.kind === 'ink' ? 'Dibuja sobre la página.' : 'Arrastra para dibujar el recuadro.',
       form: 'Arrastra para crear un campo del tipo elegido. Clic en la etiqueta de un campo para editarlo.',
       sign: 'Elige una firma y arrastra el recuadro donde colocarla, o usa «Al margen» para firmar todas las páginas.',
     }[t]);
   },
 
+  /** Extremos de una línea o flecha: se arrastran por separado (con Mayús, en ángulos de 15°). */
+  lineEnds(a) {
+    const v = this.viewer, z = v.zoom;
+    a.points.forEach((pt, i) => {
+      const hd = h('div', { class: 'line-end', title: 'Arrastra el extremo (Mayús: ángulos de 15°, 45°, 90°…)' });
+      const place = q => Object.assign(hd.style, { left: q[0] * z - 7 + 'px', top: q[1] * z - 7 + 'px' });
+      place(pt);
+      v.ov.append(hd);
+      hd.addEventListener('mousedown', e => {
+        if (e.button !== 0) return;
+        e.preventDefault(); e.stopPropagation();
+        const fixed = a.points[1 - i];
+        const NS = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(NS, 'svg');
+        svg.setAttribute('style', 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible');
+        const ln = document.createElementNS(NS, 'line');
+        ln.setAttribute('stroke', '#2563d9'); ln.setAttribute('stroke-width', '2'); ln.setAttribute('stroke-dasharray', '5 3');
+        ln.setAttribute('x1', fixed[0] * z); ln.setAttribute('y1', fixed[1] * z);
+        svg.append(ln);
+        v.ov.append(svg);
+        let q = pt, moved = false;
+        const mv = ev => {
+          const p = v.pt(ev);
+          let dx = p[0] - fixed[0], dy = p[1] - fixed[1];
+          if (ev.shiftKey) [dx, dy] = snapAngle(dx, dy);
+          q = [fixed[0] + dx, fixed[1] + dy];
+          moved = true;
+          place(q);
+          ln.setAttribute('x2', q[0] * z); ln.setAttribute('y2', q[1] * z);
+        };
+        window.addEventListener('mousemove', mv);
+        window.addEventListener('mouseup', () => {
+          window.removeEventListener('mousemove', mv);
+          svg.remove();
+          if (!moved) return;
+          const pts = (i === 0 ? [q, fixed] : [fixed, q]).map(p => p.map(c => Math.round(c * 100) / 100));
+          this.op('set_line', { xref: a.xref, points: pts }, 'Cambiando la línea…').then(ok => ok && this.reselectAnnot(norm(pts[0], pts[1]), pts));
+        }, { once: true });
+      });
+    });
+  },
+  /** Tras mover o cambiar una forma, vuelve a seleccionarla (algunas se rehacen con otra referencia). */
+  reselectAnnot(rect, pts = null) {
+    let best = null, bd = 1e9;
+    for (const a of this.st?.annots || []) {
+      const d = pts && a.points ? Math.hypot(a.points[0][0] - pts[0][0], a.points[0][1] - pts[0][1]) + Math.hypot(a.points[1][0] - pts[1][0], a.points[1][1] - pts[1][1])
+        : a.bbox.reduce((acc, v, k) => acc + Math.abs(v - rect[k]), 0);
+      if (d < bd) { bd = d; best = a; }
+    }
+    if (best && bd < 20) this.select('annot', best.xref);
+  },
   drawWidgets(st) {
     const v = this.viewer;
     for (const w of st.widgets) {
@@ -542,7 +599,7 @@ const Edit = {
       const [x, y] = v.pt(e);
       return this.op('add_annot', { kind: 'note', rect: [x, y, x + 20, y + 20], text: this.ann.text || 'Nota', color: this.ann.color });
     }
-    const d = await v.drag(e, { ink: t === 'annot' && this.ann.kind === 'ink' });
+    const d = await v.drag(e, { ink: t === 'annot' && this.ann.kind === 'ink', shape: t === 'shape' ? this.shape.kind : null });
     if (t === 'select') {
       if (!d.moved) { this.clearSel(); return; }
       const hit = (this.st?.spans || []).filter(s => inter(s.bbox, d.rect)).map(s => s.i);

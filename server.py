@@ -169,7 +169,8 @@ def wm_params(req):
     p = req["params"]
     q = p.get("qr") or {}
     p = dict(p, text=(p.get("text", "").replace("{destinatario}", q.get("recipient", "").strip())
-                      .replace("{finalidad}", q.get("purpose", "").strip())))
+                      .replace("{finalidad}", q.get("purpose", "").strip())
+                      .replace("{caducidad}", protect.until_date(q.get("until")) or "—")))
     base = wm_basic(p)
     base.update(level=p.get("level", "reforzada"), strike=bool(p.get("strike", True)))
     # capas contra la IA generativa
@@ -194,7 +195,7 @@ def wm_qr(p, ref):
     if not q.get("enabled"):
         return None
     data = protect.qr_payload(q.get("mode", "vcard"), q.get("recipient", "").strip(), q.get("purpose", "").strip(),
-                              ref, q.get("base_url", "").strip())
+                              ref, q.get("base_url", "").strip(), until=protect.until_date(q.get("until")) or None)
     return {"data": data, "size": float(q.get("size", 22)), "pos": q.get("pos", "abajo-derecha")}
 
 
@@ -313,7 +314,9 @@ def preview_band(img, width_pt, band, q):
         x1 = a[0] - pad
     who = (q.get("recipient") or "").strip() or "—"
     what = (q.get("purpose") or "").strip() or "—"
-    lines = [f"COPIA DE USO RESTRINGIDO · Ref. (al guardar) · {datetime.date.today():%d/%m/%Y}",
+    until = protect.until_date(q.get("until"))
+    lines = [f"COPIA DE USO RESTRINGIDO · Ref. (al guardar) · {datetime.date.today():%d/%m/%Y}"
+             + (f" · Válida hasta {until}" if until else ""),
              f"Solo para: {who} · Finalidad: {what}",
              "Firmada digitalmente: cualquier cambio la invalida. Compruébalo en Adobe Acrobat Reader, "
              "Autofirma o valide.redsara.es"]
@@ -354,6 +357,7 @@ def op_wm_export(req):
     p = req["params"]
     q = p.get("qr") or {}
     who, purpose = q.get("recipient", "").strip(), q.get("purpose", "").strip()
+    until = protect.until_date(q.get("until"))
     pw = (p.get("password") or "").strip()
     sign = req.get("sign") or None
     if sign and fmt != "pdf":
@@ -374,6 +378,8 @@ def op_wm_export(req):
             ref = None
             if p.get("mark", True) or q.get("enabled") or sign:
                 ref = protect.register(who, purpose, core.expand_placeholders(params["text"]), d.name)
+                if until:
+                    protect.update_registry(ref, caduca=until)
                 refs.append(ref)
             extra = dict(params, qr=wm_qr(p, ref), mark=ref if p.get("mark", True) else None)
             hide_doc = (p.get("hide") or {}).get(did)
@@ -403,7 +409,7 @@ def op_wm_export(req):
                         # orden: franja → contraseña → firma (lo último, o la invalidaría)
                         if place == "band":
                             data, layout = signing.prepare_copy(data, {
-                                "recipient": who, "purpose": purpose, "ref": ref,
+                                "recipient": who, "purpose": purpose, "ref": ref, "until": until,
                                 "date": datetime.date.today().strftime("%d/%m/%Y")}, ack=ack)
                         elif place == "inside":
                             layout = signing.inside_layout(data, sign.get("page", 0), sign.get("rect") or [0.6, 0.86, 0.97, 0.97])
@@ -436,7 +442,9 @@ def op_wm_export(req):
         notes.insert(1 if refs else 0, f"firmada por {signed_by}" + (" con " + " y ".join(how) if how else ""))
     if pw:
         notes.append("protegido con contraseña")
-    res.update(notes=notes, refs=refs, signed=bool(sign), ack=ack, who=who, purpose=purpose, password=bool(pw))
+    if until:
+        notes.append(f"válida hasta el {until}")
+    res.update(notes=notes, refs=refs, signed=bool(sign), ack=ack, who=who, purpose=purpose, password=bool(pw), until=until)
     return res
 
 
@@ -504,6 +512,8 @@ def op_wm_check(req):
     for x in delivered:
         add(x["ref"], 1, "Huella exacta del archivo" if x["exact"] else "Huella exacta de la parte entregada",
             "idéntico a la copia guardada" if x["exact"] else "con cambios añadidos después (p. ej. el acuse de recibo)")
+    for e in found.values():  # copias con fecha de caducidad
+        e["caducada"] = protect.expired((e.get("record") or {}).get("caduca"))
     result = {"found": sorted(found.values(), key=lambda e: -len(e["methods"])), "hints": protect.provenance_hints(d.orig),
               "file": delivered, "signatures": sigs, "sig_error": sig_error}
     # para el informe en PDF (sin volver a analizar)

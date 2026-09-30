@@ -37,10 +37,13 @@
       const bytes = Uint8Array.from(atob(b), c => c.charCodeAt(0));
       const d = JSON.parse(new TextDecoder().decode(bytes));
       const row = (k, v) => v ? `<dt>${k}</dt><dd>${esc(v)}</dd>` : '';
+      const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(d.v || '');
+      const expired = m && new Date(+m[3], +m[2] - 1, +m[1], 23, 59, 59) < new Date();
       card.innerHTML = `
-        <div class="head"><div class="tag">DOCUMENTO DE IDENTIDAD</div><h1>Uso restringido</h1></div>
-        <dl>${row('Autorizado a', d.p)}${row('Finalidad', d.f)}${row('Fecha', d.d)}${row('Referencia', d.r)}</dl>
-        <div class="warn">Esta copia solo puede usarse para la finalidad indicada. <b>Cualquier otro uso no está autorizado.</b></div>
+        <div class="head"><div class="tag">DOCUMENTO DE IDENTIDAD</div><h1>${expired ? 'Copia caducada' : 'Uso restringido'}</h1></div>
+        <dl>${row('Autorizado a', d.p)}${row('Finalidad', d.f)}${row('Fecha', d.d)}${row('Válida hasta', d.v)}${row('Referencia', d.r)}</dl>
+        <div class="warn">${expired ? `<b>Esta copia caducó el ${esc(d.v)}: ya no está autorizado usarla</b> y debería haberse eliminado.`
+          : 'Esta copia solo puede usarse para la finalidad indicada. <b>Cualquier otro uso no está autorizado.</b>'}</div>
         <div class="foot">Generado con DocGuard. Los datos de esta página están en el propio código QR.</div>`;
     } catch (e) {
       card.innerHTML = '<div class="err">Este enlace no contiene datos válidos de un documento.</div>';

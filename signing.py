@@ -466,7 +466,8 @@ def prepare_copy(pdf_bytes, info, ack=False):
                     page.draw_rect(ack_r, color=(0.45, 0.5, 0.6), width=0.5, dashes="[2 1.5] 0")
                 layout = {"page": 0, "sig": _pdf_rect(page, sig), "ack": _pdf_rect(page, ack_r) if ack_r else None,
                           "fs": fs}
-            lines = [f"<b>COPIA DE USO RESTRINGIDO</b> · Ref. {ref} · {date}",
+            until = html.escape(info.get("until") or "")
+            lines = [f"<b>COPIA DE USO RESTRINGIDO</b> · Ref. {ref} · {date}" + (f" · <b>Válida hasta {until}</b>" if until else ""),
                      f"Solo para: <b>{who}</b> · Finalidad: <b>{what}</b>"]
             if n == 0:
                 lines.append("Firmada digitalmente: cualquier cambio la invalida. "

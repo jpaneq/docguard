@@ -57,7 +57,7 @@ const Wm = {
       Scanner.items = [];
       Scanner.addInfo(cur);
     };
-    for (const [q, t] of [['q_recipient', 'qr_recipient'], ['q_purpose', 'qr_purpose'], ['q_password', 'password']]) {
+    for (const [q, t] of [['q_recipient', 'qr_recipient'], ['q_purpose', 'qr_purpose'], ['q_until', 'qr_until'], ['q_password', 'password']]) {
       this.k(q).addEventListener('input', () => { this.k(t).value = this.k(q).value; this.schedule(); });
     }
     $('[data-act=registry]', this.root).onclick = () => this.registry();
@@ -116,9 +116,10 @@ const Wm = {
     sync();
   },
   shareCtx(res) {
-    return res ? { who: res.who, purpose: res.purpose, ref: res.refs?.[0], signed: res.signed, ack: res.ack, password: res.password }
+    return res ? { who: res.who, purpose: res.purpose, ref: res.refs?.[0], signed: res.signed, ack: res.ack, password: res.password, until: res.until }
       : { who: (this.k('q_recipient').value || this.k('qr_recipient').value).trim(), purpose: (this.k('q_purpose').value || this.k('qr_purpose').value).trim(),
         signed: this.k('q_sign').checked, password: !!this.k('password').value,
+        until: (v => v ? v.split('-').reverse().join('/') : '')(this.k('q_until').value || this.k('qr_until').value),
         ack: this.k('q_sign').checked && this.k('q_place').value === 'band' && this.k('q_ack').checked };
   },
   k(name) { return $(`[data-k=${name}]`, this.root); },
@@ -139,7 +140,7 @@ const Wm = {
       p.hide[id] = {};
       for (const n of Object.keys(pages)) p.hide[id][n] = this.activeRects(id, +n).map(x => ({ r: x.r, k: x.kind }));
     }
-    p.qr = { enabled: this.k('qr').checked, recipient: this.k('qr_recipient').value, purpose: this.k('qr_purpose').value,
+    p.qr = { enabled: this.k('qr').checked, recipient: this.k('qr_recipient').value, purpose: this.k('qr_purpose').value, until: this.k('qr_until').value,
       size: +this.k('qr_size').value, pos: this.k('qr_pos').value, mode: this.k('qr_mode').value, base_url: this.k('qr_base').value };
     // vista previa de la franja de firma que irá debajo del documento
     if (this.k('q_sign').checked && this.k('q_place').value === 'band') p.sign_band = { name: Sign.signerHint(), ack: this.k('q_ack').checked };
@@ -204,7 +205,8 @@ const Wm = {
     if (!this.files.items.length) return toast('Abre o arrastra primero el DNI o pasaporte.', 'err');
     const who = this.k('q_recipient').value.trim();
     if (!who) { this.k('q_recipient').focus(); return toast('Indica para quién es la copia.', 'err'); }
-    this.k('text').value = 'Solo para {destinatario} – {fecha}';
+    this.k('text').value = 'Solo para {destinatario} – {fecha}' + (this.k('q_until').value ? ' – hasta {caducidad}' : '');
+    this.k('qr_until').value = this.k('q_until').value;
     this.k('level').value = 'reforzada';
     for (const k of ['strike', 'mark', 'autohide', 'qr', 'robust', 'fingerprint', 'labels', 'stamp', 'notice']) this.k(k).checked = true;
     this.k('qr_pos').value = 'auto';
@@ -350,6 +352,8 @@ const Wm = {
             h('b', {}, 'Entregado a'), h('span', {}, x.record.destinatario || '—'),
             h('b', {}, 'Finalidad'), h('span', {}, x.record.finalidad || '—'),
             h('b', {}, 'Fecha'), h('span', {}, x.record.fecha),
+            x.record.caduca ? h('b', {}, 'Válida hasta') : null,
+            x.record.caduca ? h('span', {}, x.record.caduca, x.caducada ? h('b', { class: 'bad' }, ' · CADUCADA') : null) : null,
             h('b', {}, 'Texto'), h('span', {}, x.record.texto || '—'),
             h('b', {}, 'Archivo'), h('span', {}, x.record.archivo || '—'))
             : h('p', { class: 'muted' }, 'Esta referencia no está en el historial de este equipo (quizá se marcó en otro).')));

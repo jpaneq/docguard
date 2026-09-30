@@ -53,7 +53,8 @@ def build(check, name, data, image_png=None, now=None):
                     ("Entregada a", _e(rec.get("destinatario"))), ("Finalidad autorizada", _e(rec.get("finalidad"))),
                     ("Fecha de la entrega", _e(rec.get("fecha"))), ("Texto de la marca", _e(rec.get("texto"))),
                     ("Archivo original", _e(rec.get("archivo"))),
-                    ("Válida hasta", _e(rec.get("caduca"))) if rec.get("caduca") else ("Válida hasta", "sin fecha de caducidad"),
+                    ("Válida hasta", _e(rec.get("caduca")) + (" · <span class='bad'>CADUCADA</span>" if x.get("caducada") else ""))
+                    if rec.get("caduca") else ("Válida hasta", "sin fecha de caducidad"),
                     ("Firmada digitalmente", _e(firma.get("por")) + (" · con sello de tiempo" if firma.get("sello") else "")
                      if firma else "no")]))
             else:

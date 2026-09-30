@@ -219,6 +219,11 @@ def selftest():
     out = protect.watermark(card, "Solo para prueba", level="maxima",
                             qr={"data": protect.qr_text("A", "B", "0000ABCD")}, mark="0000ABCD")
     checks["protección reforzada + QR + marca invisible"] = protect.detect_mark(out)[0] == "0000ABCD"
+    import datetime as _dt
+    ayer = (_dt.date.today() - _dt.timedelta(days=1)).strftime("%d/%m/%Y")
+    checks["caducidad de la copia"] = ("Válida hasta: 30/10/2099" in protect.qr_payload("vcard", "A", "B", "R", until="30/10/2099")
+                                       and protect.until_date("2099-10-30") == "30/10/2099"
+                                       and protect.expired(ayer) and not protect.expired("30/10/2099"))
     # reverso de DNI sintético (domicilio y MRZ)
     import idfields
     from PIL import ImageDraw

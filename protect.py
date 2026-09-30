@@ -213,7 +213,7 @@ def _strike_lines(img, lines, text, color, s, seed):
 QR_POSITIONS = {"abajo-derecha", "abajo-izquierda", "arriba-derecha", "arriba-izquierda", "centro"}
 
 
-def qr_text(recipient, purpose, ref, date=None):
+def qr_text(recipient, purpose, ref, date=None, until=None):
     date = date or datetime.date.today().strftime("%d/%m/%Y")
     lines = ["USO RESTRINGIDO"]
     if recipient:
@@ -221,13 +221,15 @@ def qr_text(recipient, purpose, ref, date=None):
     if purpose:
         lines.append(f"Fin: {purpose}")
     lines.append(f"Fecha: {date}")
+    if until:
+        lines.append(f"Válida hasta: {until}")
     if ref:
         lines.append(f"Ref: {ref}")
     lines.append("Otro uso NO autorizado")
     return "\n".join(lines)
 
 
-def qr_payload(mode, recipient, purpose, ref, base_url="", date=None):
+def qr_payload(mode, recipient, purpose, ref, base_url="", date=None, until=None):
     """Contenido del QR.
     - 'vcard': ficha de contacto; el móvil la muestra como tarjeta, sin internet.
     - 'web': enlace a la página de verificación con los datos en el propio enlace (#).
@@ -235,17 +237,39 @@ def qr_payload(mode, recipient, purpose, ref, base_url="", date=None):
     import base64
     date = date or datetime.date.today().strftime("%d/%m/%Y")
     if mode == "web" and base_url:
-        data = json.dumps({"p": recipient, "f": purpose, "d": date, "r": ref}, ensure_ascii=False, separators=(",", ":"))
+        info = {"p": recipient, "f": purpose, "d": date, "r": ref}
+        if until:
+            info["v"] = until  # válida hasta (la página de verificación avisa si ha caducado)
+        data = json.dumps(info, ensure_ascii=False, separators=(",", ":"))
         return base_url.split("#")[0] + "#" + base64.urlsafe_b64encode(data.encode()).decode().rstrip("=")
     if mode == "vcard":
         e = lambda t: (t or "").replace("\\", "\\\\").replace(",", "\\,").replace(";", "\\;").replace("\n", " ")
         note = (f"Copia de documento de identidad de USO RESTRINGIDO. Autorizado a: {recipient or '-'}. "
-                f"Finalidad: {purpose or '-'}. Fecha: {date}. Ref.: {ref}. Cualquier otro uso NO está autorizado.")
+                f"Finalidad: {purpose or '-'}. Fecha: {date}. " + (f"Válida hasta: {until}. " if until else "")
+                + f"Ref.: {ref}. Cualquier otro uso NO está autorizado.")
         return "\n".join(["BEGIN:VCARD", "VERSION:3.0", "N:;USO RESTRINGIDO;;;",
                           f"FN:USO RESTRINGIDO – {e(recipient) or 'copia autorizada'}",
                           f"ORG:{e(recipient)}", f"TITLE:{e('Finalidad: ' + (purpose or '-'))}",
                           f"NOTE:{e(note)}", "END:VCARD"])
-    return qr_text(recipient, purpose, ref, date)
+    return qr_text(recipient, purpose, ref, date, until)
+
+
+def until_date(value):
+    """«2026-10-30» o «30/10/2026» → «30/10/2026» ('' si no es una fecha)."""
+    value = (value or "").strip()
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
+        try:
+            return datetime.datetime.strptime(value, fmt).strftime("%d/%m/%Y")
+        except ValueError:
+            pass
+    return ""
+
+
+def expired(until):
+    try:
+        return datetime.datetime.strptime(until, "%d/%m/%Y").date() < datetime.date.today()
+    except (TypeError, ValueError):
+        return False
 
 
 def _qr_image(data, px):

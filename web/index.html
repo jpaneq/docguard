@@ -79,6 +79,7 @@
           <small>En un paso: oculta los datos innecesarios con rótulos y huella, añade marca reforzada, microtexto, sello sobre la foto, QR, aviso y rastreo resistente a la IA, y lo guarda como PDF (con contraseña si quieres).</small>
           <input data-k="q_recipient" placeholder="Para quién (p. ej. Inmobiliaria Sol S.L.)">
           <input data-k="q_purpose" placeholder="Finalidad (p. ej. alquiler piso C/ Mayor 3)">
+          <label class="until">Válida hasta (opcional) <input type="date" data-k="q_until"></label>
           <input data-k="q_password" type="password" placeholder="Contraseña para abrirlo (opcional)">
           <label class="inline"><input type="checkbox" data-k="q_sign"> Firmar digitalmente la copia</label>
           <div class="qsign" data-role="qsign" hidden>
@@ -120,7 +121,7 @@
         </label>
         <label>Texto de la marca
           <input data-k="text" value="Solo para uso de XXX – {fecha}">
-          <small>{fecha} y {hora} se rellenan solos.</small>
+          <small>{fecha} y {hora} se rellenan solos; {destinatario}, {finalidad} y {caducidad}, con los datos del QR.</small>
         </label>
         <label>Orientación <output></output><input type="range" data-k="angle" min="-90" max="90" value="35"></label>
         <label>Tamaño <output></output><input type="range" data-k="size" min="10" max="150" value="40"></label>
@@ -163,6 +164,7 @@
         <div data-role="qr" hidden>
           <label>Autorizado a <input data-k="qr_recipient" placeholder="Inmobiliaria Sol S.L."></label>
           <label>Finalidad <input data-k="qr_purpose" placeholder="Alquiler piso C/ Mayor 3"></label>
+          <label>Válida hasta (opcional) <input type="date" data-k="qr_until"></label>
           <label>Al escanearlo, mostrar
             <select data-k="qr_mode">
               <option value="vcard">Ficha (tarjeta en el móvil, sin internet)</option>

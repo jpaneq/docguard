@@ -282,6 +282,8 @@ body.resizing iframe, body.resizing img { pointer-events: none; }
 .bx.hit.cur { background: rgba(255, 140, 0, .45); outline: 2px solid #e67e00; }
 /* modo rápido */
 .quick { border: 2px solid var(--accent); border-radius: 10px; padding: 10px 12px; margin: 0 0 12px; display: flex; flex-direction: column; gap: 6px; background: var(--panel2); }
+.quick label.until { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.quick label.until input { flex: 1; }
 .qsign { display: flex; flex-direction: column; gap: 6px; padding: 6px 0 6px 10px; border-left: 3px solid var(--line); }
 .qsign .seg { display: flex; } .qsign .seg button { flex: 1; }
 .qsign .card-status { margin: 0; }

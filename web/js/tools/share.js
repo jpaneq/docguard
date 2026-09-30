@@ -24,7 +24,8 @@ const Share = {
     const items = [
       `– Solo puede usarla ${ctx.who || 'su destinatario'} para ${fin}.`,
       '– No puede cederse a terceros ni utilizarse para otros fines (RGPD, art. 5.1.b).',
-      '– Les ruego que la eliminen cuando deje de ser necesaria (RGPD, art. 5.1.e).',
+      ctx.until ? `– Solo es válida hasta el ${ctx.until}; después les ruego que la eliminen (RGPD, art. 5.1.e).`
+        : '– Les ruego que la eliminen cuando deje de ser necesaria (RGPD, art. 5.1.e).',
     ];
     if (ctx.signed) items.push('– Está firmada digitalmente por mí: cualquier modificación invalida la firma.');
     if (ctx.ref) items.push(`– Lleva la referencia ${ctx.ref}, que identifica esta entrega.`);

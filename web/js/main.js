@@ -23,7 +23,8 @@ function syncTool(name) {
     else if (fl.items.length <= 1) { fl.items = [CURRENT]; fl.cur = 0; fl.render(); }
     else { fl.items.unshift(CURRENT); fl.cur = 0; fl.render(); }
     if (name === 'watermark') { t.n = 0; t.preview(); }
-  } else if (name === 'compare') { if (!t.a && !t.b) t.set('a', CURRENT); }
+  } else if (name === 'library') { if (CURRENT.pages?.length) t.loadInfo(CURRENT); }
+  else if (name === 'compare') { if (!t.a && !t.b) t.set('a', CURRENT); }
   else if (t.files && !t.files.items.length) { t.files.items = [CURRENT]; t.files.render(); }
 }
 
@@ -51,6 +52,8 @@ function init() {
   TOOLS.merge = Merge;
   Compare.init();
   TOOLS.compare = Compare;
+  Library.init();
+  TOOLS.library = Library;
   $$('.nav button').forEach(b => b.onclick = () => showTool(b.dataset.tool));
   Sigs.load();
 }

@@ -420,6 +420,31 @@ def op_redact_preview(req):
     return {"info": DOCS[did].info(did), "rid": res["rid"]}
 
 
+def op_search_many(req):
+    """Busca en varios documentos a la vez. Devuelve, por documento, las páginas con
+    coincidencias, sus recuadros y un fragmento de contexto."""
+    term = req["term"].strip()
+    low = term.lower()
+    out = []
+    total = 0
+    for did in req["ids"]:
+        d = DOCS.get(did)
+        if not d or not d.doc or d.encrypted:
+            continue
+        pages = []
+        for n, page in enumerate(d.doc):
+            rects = page.search_for(term)
+            if not rects:
+                continue
+            text = " ".join(page.get_text().split())
+            i = text.lower().find(low)
+            snippet = ("…" if i > 50 else "") + text[max(0, i - 50):i + len(term) + 70] + "…" if i >= 0 else ""
+            pages.append({"n": n, "rects": [editor.to_view(page, r) for r in rects], "snippet": snippet})
+            total += len(rects)
+        out.append({"id": did, "pages": pages, "no_text": all(not p.get_text().strip() for p in d.doc)})
+    return {"docs": out, "total": total}
+
+
 def op_redact(req):
     d = get_doc(req)
     doc = need_pdf(d)
@@ -852,7 +877,7 @@ OPS = {
     "wm/registry": op_wm_registry, "idfields": op_idfields,
     "words": op_words, "pages_without_text": op_pages_without_text, "ocr": op_ocr, "detect": op_detect,
     "search": op_search, "redact": op_redact, "redact/marks/load": op_marks_load, "redact/marks/save": op_marks_save,
-    "compare": op_compare, "sign/fields": op_sig_fields, "sign/fields/add": op_sig_fields_add,
+    "compare": op_compare, "search_many": op_search_many, "sign/fields": op_sig_fields, "sign/fields/add": op_sig_fields_add,
     "todocx": op_todocx, "doctopdf": op_doctopdf, "redact/preview": op_redact_preview,
     "pages/save": op_pages_save, "encrypt": op_encrypt, "decrypt": op_decrypt,
     "compress": op_compress, "toimages": op_toimages, "topdf": op_topdf, "sanitize": op_sanitize, "merge": op_merge, "merge_pages": op_merge_pages,

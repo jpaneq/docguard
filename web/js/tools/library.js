@@ -1,0 +1,160 @@
+'use strict';
+// Herramienta Visor PDF: varios PDFs a la vez, búsqueda en todos (⌘F) y lector
+// que se abre por encima al pinchar en una página.
+
+const Library = {
+  init() {
+    this.root = $('#tool-library');
+    this.docs = [];          // infos de los documentos abiertos
+    this.res = null;         // resultados de la última búsqueda
+    this.term = '';
+    const act = (a, f) => { $(`[data-act=${a}]`, this.root).onclick = f; };
+    act('add', async () => this.add(await pickFiles(ACCEPT_DOCS, true)));
+    act('clear', () => { this.docs.forEach(d => api('close', { id: d.id }).catch(() => {})); this.docs = []; this.res = null; this.render(); });
+    act('rclose', () => this.closeReader());
+    act('rnext', () => this.step(1));
+    act('rprev', () => this.step(-1));
+    act('redit', () => { const d = this.reading; this.closeReader(); showTool('edit'); Edit.loadInfo(d); });
+    dropTarget($('.lib-list', this.root), f => this.add(f));
+    const term = $('[data-k=term]', this.root);
+    term.addEventListener('keydown', e => {
+      e.stopPropagation();
+      if (e.key === 'Enter') this.search(term.value.trim());
+      if (e.key === 'Escape') { term.value = ''; this.search(''); }
+    });
+    $('[data-k=only]', this.root).onchange = () => this.render();
+    document.addEventListener('keydown', e => {
+      if (!this.root.classList.contains('active')) return;
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') { e.preventDefault(); term.focus(); term.select(); }
+      if (e.key === 'Escape' && !$('.reader', this.root).hidden) this.closeReader();
+      if (!$('.reader', this.root).hidden && e.key === 'Enter' && document.activeElement === document.body) this.step(e.shiftKey ? -1 : 1);
+    });
+    this.viewer = new ContViewer($('.reader-host', this.root), { keepOverlays: true, firstClickActivates: false });
+    this.viewer.onrender = () => this.drawHits();
+    makeResizable($('.lib-results', this.root), 'left', 'lib', 220, 620);
+  },
+  loadInfo(info) { if (!this.docs.some(d => d.id === info.id)) { this.docs.push(info); this.render(); } },
+
+  async add(files) {
+    if (!files.length) return;
+    busy(true, 'Abriendo…');
+    try {
+      for (const f of files) {
+        try {
+          const info = await uploadFile(f);
+          if (!info.pages.length || info.encrypted) toast(`${info.name}: no se puede mostrar (con contraseña o formato no admitido).`, 'err');
+          else this.docs.push(info);
+        } catch (e) { toast(e.message, 'err'); }
+      }
+    } finally { busy(false); }
+    this.render();
+    if (this.term) this.search(this.term);
+  },
+  hitsOf(id) { return this.res?.docs.find(d => d.id === id); },
+
+  render() {
+    const list = $('.lib-list', this.root);
+    list.innerHTML = '';
+    const pages = this.docs.reduce((a, d) => a + d.pages.length, 0);
+    $('[data-role=count]', this.root).textContent = this.docs.length ? `${this.docs.length} PDF · ${pages} páginas` : '';
+    if (!this.docs.length) {
+      list.append(h('div', { class: 'empty' }, 'Añade o arrastra aquí varios PDFs. Con ⌘F buscas en todos a la vez; pincha en una página para leer ese PDF.'));
+      this.renderResults();
+      return;
+    }
+    const only = $('[data-k=only]', this.root).checked && this.res;
+    for (const d of this.docs) {
+      const hd = this.hitsOf(d.id);
+      const hitPages = new Map((hd?.pages || []).map(p => [p.n, p.rects.length]));
+      const count = [...hitPages.values()].reduce((a, b) => a + b, 0);
+      if (only && !count) continue;
+      const strip = h('div', { class: 'lib-strip' });
+      d.pages.forEach((_, n) => {
+        if (only && !hitPages.has(n)) return;
+        const c = hitPages.get(n);
+        strip.append(h('div', { class: 'lib-page' + (c ? ' hit' : ''), title: `Página ${n + 1}`, onclick: () => this.openReader(d, n) },
+          h('img', { src: pageUrl(d.id, n, 0.25), loading: 'lazy', alt: '' }), c ? h('span', { class: 'hc' }, c) : null, h('div', {}, n + 1)));
+      });
+      list.append(h('div', { class: 'lib-doc' + (this.res && !count ? ' nohit' : '') },
+        h('div', { class: 'lib-head' }, h('b', { title: d.name }, d.name), h('small', {}, `${d.pages.length} pág.`),
+          count ? h('span', { class: 'badge' }, `${count} coincidencia(s)`) : null,
+          hd?.no_text ? h('small', { class: 'muted', title: 'Pásale OCR en Editar para poder buscar' }, 'sin texto (escaneado)') : null,
+          h('button', { title: 'Leer', onclick: () => this.openReader(d, hitPages.size ? [...hitPages.keys()][0] : 0) }, 'Leer'),
+          h('button', { title: 'Quitar de la lista', onclick: () => { this.docs = this.docs.filter(x => x !== d); api('close', { id: d.id }).catch(() => {}); this.render(); } }, '✕')),
+        strip));
+    }
+    this.renderResults();
+  },
+  renderResults() {
+    const box = $('.lib-results', this.root);
+    box.innerHTML = '';
+    box.append(h('h3', {}, 'Resultados'));
+    $('.findcount', this.root).textContent = this.res ? `${this.res.total}` : '';
+    if (!this.res) { box.append(h('p', { class: 'muted' }, 'Escribe un término y pulsa Intro. Se busca en todos los PDFs abiertos.')); return; }
+    if (!this.res.total) { box.append(h('p', {}, `No se ha encontrado «${this.term}».`)); return; }
+    const esc = t => t.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    const re = new RegExp(this.term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+    for (const hd of this.res.docs) {
+      if (!hd.pages.length) continue;
+      const d = this.docs.find(x => x.id === hd.id);
+      if (!d) continue;
+      box.append(h('div', { class: 'res-doc' }, `${d.name} (${hd.pages.reduce((a, p) => a + p.rects.length, 0)})`));
+      for (const p of hd.pages) {
+        const el = h('div', { class: 'res', onclick: () => this.openReader(d, p.n) }, h('b', {}, `Pág. ${p.n + 1} · `));
+        const span = h('span');
+        span.innerHTML = esc(p.snippet).replace(re, m => `<mark>${m}</mark>`);
+        el.append(span);
+        box.append(el);
+      }
+    }
+  },
+  async search(term) {
+    this.term = term;
+    if (!term || !this.docs.length) { this.res = null; this.render(); return; }
+    this.res = await run('Buscando en todos los PDFs…', () => api('search_many', { ids: this.docs.map(d => d.id), term }));
+    this.render();
+    if (!$('.reader', this.root).hidden) { this.readerHits(); this.drawHits(); }
+  },
+
+  /* ---- lector ---- */
+  openReader(d, n) {
+    this.reading = d;
+    const r = $('.reader', this.root);
+    r.hidden = false;
+    $('.reader-name', this.root).textContent = d.name;
+    this.viewer.load(d);
+    this.readerHits();
+    requestAnimationFrame(() => {
+      this.viewer.fit();
+      this.viewer.go(n);
+      const k = this.hits.findIndex(x => x.n === n);
+      if (k >= 0) this.showHit(k); else this.drawHits();
+    });
+  },
+  closeReader() { $('.reader', this.root).hidden = true; this.reading = null; },
+  readerHits() {
+    const hd = this.reading && this.hitsOf(this.reading.id);
+    this.hits = (hd?.pages || []).flatMap(p => p.rects.map(r => ({ n: p.n, r })));
+    this.hitIdx = -1;
+    $('.reader-count', this.root).textContent = this.hits.length ? `${this.hits.length} coincidencia(s)` : '';
+  },
+  showHit(k) {
+    this.hitIdx = k;
+    const hit = this.hits[k];
+    const v = this.viewer;
+    v.go(hit.n);
+    v.el.scrollTop = v.pages[hit.n].wrap.offsetTop + hit.r[1] * v.zoom - v.el.clientHeight / 3;
+    $('.reader-count', this.root).textContent = `${k + 1} / ${this.hits.length}`;
+    this.drawHits();
+  },
+  step(d) { if (this.hits?.length) this.showHit((this.hitIdx + d + this.hits.length) % this.hits.length); },
+  drawHits() {
+    const v = this.viewer;
+    if (!v.pages) return;
+    v.pages.forEach(p => p.ov.replaceChildren());
+    (this.hits || []).forEach((hit, i) => {
+      const ov = v.pageOv(hit.n);
+      if (ov) v.box(hit.r, 'hit' + (i === this.hitIdx ? ' cur' : ''), ov);
+    });
+  },
+};

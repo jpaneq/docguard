@@ -67,7 +67,7 @@ const Edit = {
     this.tool = 'select'; this.sel = null; this.selSpans = new Set(); this.st = null;
     this.textOpts = { font: 'base:helv', size: 12, color: '#000000', bold: false, italic: false, list: 'none' };
     this.shape = { kind: 'rect', stroke: '#d62828', fill: '#ffe066', filled: false, width: 2 };
-    this.ann = { kind: 'highlight', color: '#ffd400', text: '' };
+    this.ann = { kind: 'highlight', color: '#fff200', text: '' };
     this.widgetType = 'text'; this.sig = null; this.fonts = [];
     $$('[data-t]', this.root).forEach(b => b.onclick = () => this.setTool(b.dataset.t));
     const act = (a, f) => { $(`[data-act=${a}]`, this.root).onclick = f; };
@@ -422,9 +422,12 @@ const Edit = {
     }
     if (t === 'annot') {
       const a = this.ann;
-      const kinds = { highlight: 'Resaltar', underline: 'Subrayar', strikeout: 'Tachar', note: 'Nota', freetext: 'Cuadro de texto', ink: 'Dibujo a mano' };
+      const kinds = { highlight: 'Resaltar (fosforito)', underline: 'Subrayar', strikeout: 'Tachar', note: 'Nota', freetext: 'Cuadro de texto', ink: 'Dibujo a mano' };
+      const neon = { '#fff200': 'Amarillo flúor', '#39ff14': 'Verde flúor', '#ff3fa4': 'Rosa flúor', '#ff9a1f': 'Naranja flúor', '#1ee3ff': 'Azul flúor', '#c86bff': 'Lila flúor' };
       b.append(label('Anotar'), ...Object.entries(kinds).map(([k, l]) => ibtn(k, l, () => { a.kind = k; this.draw(); }, a.kind === k)),
-        h('span', { class: 'sep' }), h('input', { type: 'color', value: a.color, title: 'Color', onchange: e => { a.color = e.target.value; } }),
+        h('span', { class: 'sep' }),
+        ...Object.entries(neon).map(([c, t]) => h('button', { class: 'swatch' + (a.color === c ? ' on' : ''), title: t, style: `--c:${c}`, onmousedown: e => e.preventDefault(), onclick: () => { a.color = c; this.renderBar(); } })),
+        h('input', { type: 'color', value: a.color, title: 'Otro color', onchange: e => { a.color = e.target.value; this.renderBar(); } }),
         ['note', 'freetext'].includes(a.kind) ? h('input', { class: 'mid', placeholder: 'Texto de la nota', value: a.text, oninput: e => { a.text = e.target.value; } }) : null);
       return;
     }

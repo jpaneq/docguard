@@ -418,7 +418,8 @@ ANNOT_LABELS = {"Highlight": "Resaltado", "Underline": "Subrayado", "StrikeOut":
 
 
 def annotations(page):
-    return [{"xref": a.xref, "type": a.type[1], "label": ANNOT_LABELS.get(a.type[1], a.type[1]),
+    return [{"xref": a.xref, "type": a.type[1],
+             "label": "Resaltado (fosforito)" if a.info.get("subject") == "Fosforito" else ANNOT_LABELS.get(a.type[1], a.type[1]),
              "bbox": to_view(page, a.rect), "content": a.info.get("content", "")}
             for a in page.annots() or ()]
 
@@ -427,7 +428,9 @@ def add_annotation(doc, pno, kind, rect, text="", color="#ffd400", size=12):
     page = doc[pno]
     r = from_view(page, rect)
     col = rgb(color)
-    if kind in ("highlight", "underline", "strikeout"):
+    if kind == "highlight":
+        return _marker(page, r, col)
+    if kind in ("underline", "strikeout"):
         quads = [fitz.Rect(w[:4]) for w in page.get_text("words") if fitz.Rect(w[:4]).intersects(r)]
         if not quads:
             raise ValueError("No hay texto en esa zona.")
@@ -451,6 +454,49 @@ def add_annotation(doc, pno, kind, rect, text="", color="#ffd400", size=12):
     else:
         raise ValueError(f"Tipo de anotación desconocido: {kind}")
     a.update()
+
+
+NEON = {"amarillo": "#fff200", "verde": "#39ff14", "rosa": "#ff3fa4", "naranja": "#ff9a1f", "azul": "#1ee3ff", "lila": "#c86bff"}
+
+
+def _marker(page, r, col):
+    """Resaltado estilo rotulador fosforito: un trazo por línea, de punta redondeada y un
+    poco irregular, semitransparente y en modo «multiplicar» para que el texto se lea."""
+    import math
+    import random
+    words = [fitz.Rect(w[:4]) for w in page.get_text("words") if fitz.Rect(w[:4]).intersects(r)]
+    if not words:
+        raise ValueError("No hay texto en esa zona.")
+    words.sort(key=lambda w: (round(w.y0), w.x0))
+    lines = []
+    for w in words:  # agrupar palabras por línea
+        if lines and abs((lines[-1].y0 + lines[-1].y1) / 2 - (w.y0 + w.y1) / 2) < w.height * 0.5:
+            lines[-1] |= w
+        else:
+            lines.append(fitz.Rect(w))
+    rnd = random.Random(int(r.x0 * 7 + r.y0 * 13))
+    for ln in lines:
+        h = ln.height
+        cy = (ln.y0 + ln.y1) / 2 + h * 0.04
+        x0, x1 = ln.x0 - h * 0.15, ln.x1 + h * 0.15
+        n = max(6, int((x1 - x0) / 6))
+        tilt = rnd.uniform(-0.06, 0.06) * h
+        ph = rnd.uniform(0, 6.28)
+        # dos pasadas: el trazo principal y una veta más fina, como un rotulador real
+        for width, dy, shrink, alpha in ((0.92, 0.0, 0.0, 0.62), (0.5, -0.14, 0.04, 0.45)):
+            xa, xb = x0 + (x1 - x0) * shrink, x1 - (x1 - x0) * shrink * 0.5
+            pts = [(xa + (xb - xa) * i / n, cy + dy * h + tilt * (i / n - 0.5) + math.sin(i / 2.2 + ph + dy * 9) * h * 0.035)
+                   for i in range(n + 1)]
+            a = page.add_ink_annot([pts])
+            a.set_colors(stroke=col)
+            a.set_border(width=h * width)
+            a.set_opacity(alpha)
+            try:
+                a.set_blendmode(fitz.PDF_BM_Multiply)
+            except Exception:
+                pass
+            a.set_info(title="DocGuard", subject="Fosforito")
+            a.update()
 
 
 def add_ink(doc, pno, strokes, color="#1a4fd6", width=2):

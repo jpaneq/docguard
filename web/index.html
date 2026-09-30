@@ -12,6 +12,7 @@
   <div class="brand"><img src="icon.png" alt=""><span>DocGuard</span></div>
   <div class="current-doc" hidden><small>Documento actual</small><span class="cd-name"></span><button class="cd-close" title="Cerrar documento">✕</button></div>
   <button data-tool="edit" class="active"><span class="ic">✎</span>Editar PDF</button>
+  <button data-tool="library"><span class="ic">📚</span>Visor PDF</button>
   <button data-tool="watermark"><span class="ic">≋</span>Marca de agua</button>
   <button data-tool="redact"><span class="ic">▇</span>Censurar</button>
   <button data-tool="sign"><span class="ic">✍</span>Firma digital</button>
@@ -350,6 +351,34 @@
     </div>
     <div class="merge-grid" data-pane="grid" hidden></div>
   </section>
+  <!-- VISOR PDF -->
+  <section class="tool" id="tool-library">
+    <div class="toolbar">
+      <button class="primary" data-act="add">Añadir PDFs…</button>
+      <span class="muted" data-role="count"></span>
+      <span class="sep"></span>
+      <div class="findbox big"><input data-k="term" placeholder="Buscar en todos los PDFs… (⌘F)"><span class="findcount"></span></div>
+      <label class="inline"><input type="checkbox" data-k="only"> Solo páginas con resultados</label>
+      <span class="grow"></span>
+      <button data-act="clear">Cerrar todos</button>
+    </div>
+    <div class="work">
+      <div class="lib-list"><div class="empty">Añade o arrastra aquí varios PDFs. Con ⌘F buscas en todos a la vez; pincha en una página para leer ese PDF.</div></div>
+      <div class="props lib-results"><h3>Resultados</h3><p class="muted">Escribe un término y pulsa Intro.</p></div>
+    </div>
+    <div class="reader" hidden>
+      <div class="reader-bar">
+        <b class="reader-name"></b>
+        <span class="findcount reader-count"></span>
+        <button data-act="rprev" title="Coincidencia anterior">▲</button><button data-act="rnext" title="Coincidencia siguiente">▼</button>
+        <span class="grow"></span>
+        <button data-act="redit">Abrir en Editar</button>
+        <button class="primary" data-act="rclose" title="Cerrar (Esc)">✕ Cerrar</button>
+      </div>
+      <div class="viewer-host reader-host"></div>
+    </div>
+  </section>
+
   <!-- COMPARAR -->
   <section class="tool" id="tool-compare">
     <div class="toolbar">
@@ -382,6 +411,7 @@
 <script src="js/tools/misc.js"></script>
 <script src="js/tools/merge.js"></script>
 <script src="js/tools/compare.js"></script>
+<script src="js/tools/library.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

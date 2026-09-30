@@ -96,6 +96,7 @@ const Wm = {
       $('[data-role=qsign]', this.root).hidden = !this.k('q_sign').checked;
       $('[data-role=qinside]', this.root).hidden = this.k('q_place').value !== 'inside';
       this.k('q_ack').disabled = !band;
+      $('[data-role=signhint]', this.root).hidden = !this.k('q_sign').checked;
       $$('[data-qsrc]', this.root).forEach(b => b.classList.toggle('on', b.dataset.qsrc === src));
       $$('[data-qpane]', this.root).forEach(p => { p.hidden = p.dataset.qpane !== src; });
       $('.q-cert', this.root).textContent = Sign.certSubject || Sign.certName || 'Ninguno';
@@ -117,7 +118,8 @@ const Wm = {
   shareCtx(res) {
     return res ? { who: res.who, purpose: res.purpose, ref: res.refs?.[0], signed: res.signed, ack: res.ack, password: res.password }
       : { who: (this.k('q_recipient').value || this.k('qr_recipient').value).trim(), purpose: (this.k('q_purpose').value || this.k('qr_purpose').value).trim(),
-        signed: this.k('q_sign').checked, ack: this.k('q_sign').checked && this.k('q_ack').checked, password: !!this.k('password').value };
+        signed: this.k('q_sign').checked, password: !!this.k('password').value,
+        ack: this.k('q_sign').checked && this.k('q_place').value === 'band' && this.k('q_ack').checked };
   },
   k(name) { return $(`[data-k=${name}]`, this.root); },
   pages() { return Math.max(1, this.files.current?.pages.length || 1); },

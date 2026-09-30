@@ -591,6 +591,20 @@ def inside_layout(pdf_bytes, page_no, rect):
         return {"page": page.number, "sig": _pdf_rect(page, r), "ack": None, "fs": fs, "opaque": True}
 
 
+def _why(ex):
+    """Motivo breve y comprensible de un fallo del sello de tiempo o de la validación."""
+    import sys
+    print(f"[firma] {ex!r}", file=sys.stderr)
+    txt = f"{type(ex).__name__} {ex}".lower()
+    if any(k in txt for k in ("timeout", "timed out", "connect", "resolve", "unreachable", "network", "clienterror")):
+        return "sin conexión o el servidor no respondió"
+    if any(k in txt for k in ("certificate", "path", "trust", "revocation", "validat", "purpose", "usage")):
+        return "no se pudo validar la cadena de confianza del certificado"
+    if any(k in txt for k in ("timestamp", "http")):
+        return "el servidor del sello de tiempo no respondió bien"
+    return "error inesperado"
+
+
 def sign_copy(pdf_bytes, signer, layout, reason="", password=None, tsa_url=None, ltv=False):
     """Firma la copia en su franja. Si el sello de tiempo o la validación a largo plazo fallan
     (sin internet, servidor caído…), firma sin ellos y lo indica. Nunca repite un PIN erróneo.
@@ -603,13 +617,16 @@ def sign_copy(pdf_bytes, signer, layout, reason="", password=None, tsa_url=None,
     notes, last = [], None
     for tsa, lt in attempts:
         try:
-            return _sign_copy_once(pdf_bytes, signer, layout, reason, password, tsa, lt), notes, {"tsa": tsa, "ltv": lt}
+            out = _sign_copy_once(pdf_bytes, signer, layout, reason, password, tsa, lt)
+            if len(notes) == 2 and notes[0].split("(")[1] == notes[1].split("(")[1]:  # mismo motivo: un solo aviso
+                notes = ["sin sello de tiempo ni validación a largo plazo (" + notes[1].split("(", 1)[1]]
+            return out, notes, {"tsa": tsa, "ltv": lt}
         except _PinError:
             raise
         except Exception as ex:
             if type(ex).__module__.split(".")[0] == "pkcs11":  # errores de la tarjeta: no se reintenta
                 raise
             last = ex
-            why = _short(str(ex) or ex.__class__.__name__, 90)
+            why = _why(ex)
             notes.append(f"sin validación a largo plazo ({why})" if lt else f"sin sello de tiempo ({why})")
     raise last

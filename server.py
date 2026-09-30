@@ -1077,6 +1077,8 @@ def op_sign(req):
         data, band = signing.add_margin(data, n, m["h"])
         opts.update(page=n, field_name=None, font_size=max(5, round(m["fs"])), view_rect=[
             band[2] - m["pad"] - m["sig_w"], band[1] + m["pad"] * 0.55, band[2] - m["pad"], band[3] - m["pad"] * 0.55])
+    notes = []
+    opts.update(ltv=bool(req.get("ltv")), notes=notes)
     if req.get("source") == "card":
         if not req.get("pin"):
             raise ValueError("Escribe el PIN de la tarjeta.")
@@ -1085,7 +1087,9 @@ def op_sign(req):
     else:
         out = signing.sign_pdf(data, base64.b64decode(req["p12"]), req.get("password", ""), **opts)
     base = d.base if d.base.endswith("_firmado") else d.base + "_firmado"
-    return store_result([(f"{base}.pdf", out)])
+    res = store_result([(f"{base}.pdf", out)])
+    res["notes"] = notes
+    return res
 
 
 def op_sig_fields(req):

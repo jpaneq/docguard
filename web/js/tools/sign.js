@@ -27,7 +27,18 @@ const Sign = {
     act('verify', () => this.verify());
     act('prepfields', () => this.togglePrep());
     this.fields = []; this.field = null; this.prep = null;
-    k('tsa').onchange = () => { k('tsa_custom').hidden = k('tsa').value !== 'custom'; };
+    // sello de tiempo y validación: se recuerda lo último que se eligió
+    try {
+      const t = localStorage.getItem('dg_sign_tsa');
+      if (t !== null && [...k('tsa').options].some(o => o.value === t)) k('tsa').value = t;
+      k('tsa_custom').value = localStorage.getItem('dg_sign_tsa_custom') || '';
+      k('ltv').checked = localStorage.getItem('dg_sign_ltv') === '1';
+    } catch (e) { /* sin almacenamiento */ }
+    k('tsa_custom').hidden = k('tsa').value !== 'custom';
+    const keep = () => { try { localStorage.setItem('dg_sign_tsa', k('tsa').value); localStorage.setItem('dg_sign_tsa_custom', k('tsa_custom').value); localStorage.setItem('dg_sign_ltv', k('ltv').checked ? '1' : '0'); } catch (e) { /* sin almacenamiento */ } };
+    k('tsa').onchange = () => { k('tsa_custom').hidden = k('tsa').value !== 'custom'; keep(); };
+    k('tsa_custom').onchange = keep;
+    k('ltv').onchange = keep;
     this.source = 'file';
     $$('[data-src]', this.root).forEach(b => b.onclick = () => this.setSource(b.dataset.src));
     k('margin').onchange = () => { this.draw(); document.dispatchEvent(new Event('signer-changed')); };
@@ -307,9 +318,11 @@ const Sign = {
       n: margin ? this.viewer.n : (visible && this.rect ? this.rect.n : null), rect: visible && this.rect && !this.field ? this.rect.r : null,
       field: margin ? null : this.field || null, sig: visible ? this.k('sig').value : '',
       reason: this.k('reason').value, location: this.k('location').value, contact: this.k('contact').value, tsa,
+      ltv: this.k('ltv').checked,
     }));
     if (this.source === 'card' && !res && this.card.state === 'ok') this.setCard('found', this.card.text);
     if (!res) return;
+    if (res.notes?.length && mode !== 'save') toast(res.notes.join(' · '), '', [], 8000);
     if (mode === 'next') return this.nextSigner(res);
     if (mode === 'mail') return this.mailResult(res);
     saveResult(res);

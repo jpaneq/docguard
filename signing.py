@@ -58,15 +58,12 @@ def signer_display_name(signer):
 
 
 def sign_pdf(pdf_bytes, p12_bytes, password, page=None, view_rect=None, reason="", location="",
-             contact="", image_png=None, tsa_url=None, signer=None, field_name=None, font_size=8):
-    """Firma el PDF. Si se indica página y rectángulo (coordenadas de pantalla),
-    la firma es visible, con el texto del firmante y opcionalmente la imagen
-    de la firma manuscrita. Devuelve los bytes del PDF firmado."""
-    from pyhanko import stamp
-    from pyhanko.pdf_utils import images, text
-    from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
-    from pyhanko.sign import fields, signers, timestamps
-
+             contact="", image_png=None, tsa_url=None, signer=None, field_name=None, font_size=8,
+             ltv=False, notes=None):
+    """Firma el PDF (PAdES). Si se indica página y rectángulo (coordenadas de pantalla), o un
+    recuadro preparado, la firma es visible, con el titular, la fecha y opcionalmente la imagen
+    de la firma manuscrita. Si el sello de tiempo o la validación a largo plazo fallan, firma
+    sin ellos y lo anota en `notes`. Devuelve los bytes del PDF firmado."""
     signer = signer or _load_signer(p12_bytes, password)
     with fitz.open("pdf", pdf_bytes) as doc:
         if doc.needs_pass or doc.is_encrypted:
@@ -91,43 +88,31 @@ def sign_pdf(pdf_bytes, p12_bytes, password, page=None, view_rect=None, reason="
             box = (r.x0, r.y0, r.x1, r.y1)
         clean = doc.tobytes(garbage=1, deflate=True) if not any(
             (w.field_type == fitz.PDF_WIDGET_TYPE_SIGNATURE) for p in doc for w in (p.widgets() or ())) else pdf_bytes
-
     n = 1
     while f"Firma{n}" in existing:
         n += 1
     field = field_name or f"Firma{n}"
-    writer = IncrementalPdfFileWriter(io.BytesIO(clean if not field_name else pdf_bytes))
-    if box:
-        fields.append_signature_field(writer, fields.SigFieldSpec(field, on_page=page, box=box))
-    box = box or existing_box
+    base = clean if not field_name else pdf_bytes
+    lines = [x for x in (f"Motivo: {reason}" if reason else "", f"Lugar: {location}" if location else "") if x]
 
-    meta = signers.PdfSignatureMetadata(field_name=field, reason=reason or None, location=location or None,
-                                        contact_info=contact or None, md_algorithm="sha256")
-    style = None
-    if box:
-        stamp_text = "Firmado digitalmente por:\n%(signer)s\nFecha: %(ts)s"
-        if reason:
-            stamp_text += "\nMotivo: " + reason.replace("%", "%%")
-        kwargs = dict(stamp_text=stamp_text, border_width=0,
-                      text_box_style=text.TextBoxStyle(font_size=int(font_size)),
-                      timestamp_format="%d/%m/%Y %H:%M:%S")
-        if image_png:
-            from pyhanko.pdf_utils.layout import AxisAlignment, Margins, SimpleBoxLayoutRule
-            half = (box[2] - box[0]) / 2
-            img = Image.open(io.BytesIO(image_png)).convert("RGBA")
-            kwargs["background"] = images.PdfImage(img)
-            kwargs["background_opacity"] = 1.0
-            kwargs["background_layout"] = SimpleBoxLayoutRule(
-                x_align=AxisAlignment.ALIGN_MIN, y_align=AxisAlignment.ALIGN_MID,
-                margins=Margins(left=2, right=half + 2, top=2, bottom=2))
-            kwargs["inner_content_layout"] = SimpleBoxLayoutRule(
-                x_align=AxisAlignment.ALIGN_MIN, y_align=AxisAlignment.ALIGN_MID,
-                margins=Margins(left=half + 4, right=2, top=2, bottom=2))
-        style = stamp.TextStampStyle(**kwargs)
-    tsa = timestamps.HTTPTimeStamper(tsa_url) if tsa_url else None
-    pdf_signer = signers.PdfSigner(meta, signer=signer, stamp_style=style, timestamper=tsa)
-    out = pdf_signer.sign_pdf(writer, appearance_text_params={"signer": _signer_name(signer)})
-    return out.getvalue()
+    def once(tsa, lt):
+        from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
+        from pyhanko.sign import fields, signers, timestamps
+        writer = IncrementalPdfFileWriter(io.BytesIO(base))
+        if box:
+            fields.append_signature_field(writer, fields.SigFieldSpec(field, on_page=page, box=box))
+        meta = signers.PdfSignatureMetadata(
+            field_name=field, reason=reason or None, location=location or None, contact_info=contact or None,
+            md_algorithm="sha256", subfilter=fields.SigSeedSubFilter.PADES,
+            embed_validation_info=lt, validation_context=_ltv_context(signer) if lt else None)
+        stamper = timestamps.HTTPTimeStamper(tsa, timeout=10) if tsa else None
+        with _stamp_style(box or existing_box, signer_display_name(signer), font_size, tsa,
+                          image_png=image_png, lines=lines) as style:
+            return signers.PdfSigner(meta, signer=signer, stamp_style=style, timestamper=stamper).sign_pdf(writer).getvalue()
+    out, warn, _used = _with_fallback(once, tsa_url, ltv)
+    if notes is not None:
+        notes.extend(warn)
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -542,29 +527,54 @@ def _ltv_context(signer):
                              fetcher_backend=RequestsFetcherBackend(per_request_timeout=8))
 
 
-def _appearance(path, box, name, fs, tsa, opaque=False):
-    """Aspecto visible de la firma (PDF del tamaño del recuadro), con letra de palo seco.
-    Dentro del documento lleva fondo blanco casi opaco para que se lea sobre la imagen."""
+def _appearance(path, box, name, fs, tsa, opaque=False, image_png=None, lines=()):
+    """Aspecto visible de la firma (PDF del tamaño del recuadro), con letra de palo seco y, si
+    se indica, la firma manuscrita a la izquierda. Dentro de una imagen lleva fondo blanco casi
+    opaco para que se lea."""
     w, h = int(box[2] - box[0]), int(box[3] - box[1])  # pyHanko recorta el aspecto a medidas enteras
     when = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
     with fitz.open() as doc:
-        page = doc.new_page(width=w, height=h)
+        page = doc.new_page(width=max(w, 1), height=max(h, 1))
         page.draw_rect(fitz.Rect(0.5, 0.5, w - 0.5, h - 0.5), color=(0.25, 0.4, 0.62), width=0.6, radius=0.08,
                        fill=(1, 1, 1) if opaque else None, fill_opacity=0.88 if opaque else 1)
+        text_r = fitz.Rect(fs * 0.7, fs * 0.45, w - fs * 0.6, h - fs * 0.35)
+        if image_png:
+            half = w / 2
+            page.insert_image(fitz.Rect(3, 3, half - 3, h - 3), stream=image_png, keep_proportion=True)
+            text_r.x0 = half + fs * 0.4
         css = (f"* {{font-family: sans-serif; font-size: {fs}px; line-height: 1.22; color: #1f3350; margin: 0}}"
                " b {color: #0d1b2e}")
         body = (f"✔ Firmado digitalmente por<br><b>{html.escape(_short(name, 60))}</b><br>{when}"
-                + (" · con sello de tiempo" if tsa else ""))
-        page.insert_htmlbox(fitz.Rect(fs * 0.7, fs * 0.45, w - fs * 0.6, h - fs * 0.35), body, css=css)
+                + (" · con sello de tiempo" if tsa else "")
+                + "".join(f"<br>{html.escape(_short(x, 80))}" for x in lines))
+        page.insert_htmlbox(text_r, body, css=css)
         doc.save(path)
 
 
-def _sign_copy_once(pdf_bytes, signer, layout, reason, password, tsa_url, ltv):
+@contextlib.contextmanager
+def _stamp_style(box, name, fs, tsa, opaque=False, image_png=None, lines=()):
+    """Estilo de pyHanko con el aspecto de _appearance (None si la firma es invisible)."""
+    if not box:
+        yield None
+        return
     import tempfile
     from pyhanko.pdf_utils import content, layout as pdf_layout
+    from pyhanko.stamp import StaticStampStyle
+    tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+    tmp.close()
+    try:
+        _appearance(tmp.name, box, name, fs, tsa, opaque, image_png, lines)
+        yield StaticStampStyle(background=content.ImportedPdfPage(tmp.name), border_width=0, background_opacity=1.0,
+                               background_layout=pdf_layout.SimpleBoxLayoutRule(
+                                   x_align=pdf_layout.AxisAlignment.ALIGN_MID, y_align=pdf_layout.AxisAlignment.ALIGN_MID,
+                                   margins=pdf_layout.Margins.uniform(0)))
+    finally:
+        os.unlink(tmp.name)
+
+
+def _sign_copy_once(pdf_bytes, signer, layout, reason, password, tsa_url, ltv):
     from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
     from pyhanko.sign import fields, signers, timestamps
-    from pyhanko.stamp import StaticStampStyle
     w = IncrementalPdfFileWriter(io.BytesIO(pdf_bytes))
     if password:
         w.encrypt(password)
@@ -579,20 +589,8 @@ def _sign_copy_once(pdf_bytes, signer, layout, reason, password, tsa_url, ltv):
         field_name=COPY_FIELD, reason=reason or None, md_algorithm="sha256", subfilter=fields.SigSeedSubFilter.PADES,
         embed_validation_info=ltv, validation_context=_ltv_context(signer) if ltv else None)
     tsa = timestamps.HTTPTimeStamper(tsa_url, timeout=10) if tsa_url else None
-    if not layout.get("sig"):
-        return signers.PdfSigner(meta, signer=signer, timestamper=tsa).sign_pdf(w).getvalue()
-    tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-    tmp.close()
-    try:
-        _appearance(tmp.name, layout["sig"], signer_display_name(signer), layout["fs"], tsa_url, layout.get("opaque"))
-        style = StaticStampStyle(background=content.ImportedPdfPage(tmp.name), border_width=0, background_opacity=1.0,
-                                 background_layout=pdf_layout.SimpleBoxLayoutRule(
-                                     x_align=pdf_layout.AxisAlignment.ALIGN_MID, y_align=pdf_layout.AxisAlignment.ALIGN_MID,
-                                     margins=pdf_layout.Margins.uniform(0)))
-        out = signers.PdfSigner(meta, signer=signer, stamp_style=style, timestamper=tsa).sign_pdf(w)
-    finally:
-        os.unlink(tmp.name)
-    return out.getvalue()
+    with _stamp_style(layout.get("sig"), signer_display_name(signer), layout["fs"], tsa_url, layout.get("opaque")) as style:
+        return signers.PdfSigner(meta, signer=signer, stamp_style=style, timestamper=tsa).sign_pdf(w).getvalue()
 
 
 def inside_layout(pdf_bytes, page_no, rect):
@@ -622,10 +620,10 @@ def _why(ex):
     return "error inesperado"
 
 
-def sign_copy(pdf_bytes, signer, layout, reason="", password=None, tsa_url=None, ltv=False):
-    """Firma la copia en su franja. Si el sello de tiempo o la validación a largo plazo fallan
-    (sin internet, servidor caído…), firma sin ellos y lo indica. Nunca repite un PIN erróneo.
-    Devuelve (pdf, avisos, {"tsa", "ltv"} usados)."""
+def _with_fallback(once, tsa_url, ltv):
+    """Firma con sello de tiempo y validación a largo plazo; si fallan (sin internet, servidor
+    caído…), vuelve a intentarlo sin ellos y lo indica. Nunca repite un PIN erróneo.
+    Devuelve (resultado, avisos, {"tsa", "ltv"} usados)."""
     attempts = [(tsa_url, ltv)]
     if ltv:
         attempts.append((tsa_url, False))
@@ -634,7 +632,7 @@ def sign_copy(pdf_bytes, signer, layout, reason="", password=None, tsa_url=None,
     notes, last = [], None
     for tsa, lt in attempts:
         try:
-            out = _sign_copy_once(pdf_bytes, signer, layout, reason, password, tsa, lt)
+            out = once(tsa, lt)
             if len(notes) == 2 and notes[0].split("(")[1] == notes[1].split("(")[1]:  # mismo motivo: un solo aviso
                 notes = ["sin sello de tiempo ni validación a largo plazo (" + notes[1].split("(", 1)[1]]
             return out, notes, {"tsa": tsa, "ltv": lt}
@@ -647,3 +645,9 @@ def sign_copy(pdf_bytes, signer, layout, reason="", password=None, tsa_url=None,
             why = _why(ex)
             notes.append(f"sin validación a largo plazo ({why})" if lt else f"sin sello de tiempo ({why})")
     raise last
+
+
+def sign_copy(pdf_bytes, signer, layout, reason="", password=None, tsa_url=None, ltv=False):
+    """Firma la copia en su franja, dentro del documento o de forma invisible."""
+    return _with_fallback(lambda tsa, lt: _sign_copy_once(pdf_bytes, signer, layout, reason, password, tsa, lt),
+                          tsa_url, ltv)

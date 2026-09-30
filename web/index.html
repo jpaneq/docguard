@@ -294,9 +294,12 @@
         <label>Contacto <input data-k="contact" placeholder="(opcional)"></label>
         <label>Sello de tiempo
           <select data-k="tsa"><option value="">Sin sello (hora del equipo)</option>
-            <option value="https://freetsa.org/tsr">FreeTSA (gratuito, requiere internet)</option>
+            <option value="http://tss.accv.es:8318/tsa">ACCV · cualificado (gratuito para uso personal)</option>
+            <option value="https://freetsa.org/tsr">FreeTSA (gratuito, no cualificado)</option>
             <option value="custom">Otro servidor…</option></select></label>
         <input data-k="tsa_custom" placeholder="https://…" hidden>
+        <label class="inline"><input type="checkbox" data-k="ltv"> Validación a largo plazo</label>
+        <small>El sello y la validación necesitan internet (solo se envía la huella del documento). Si fallan, se firma igualmente y se avisa.</small>
         <button class="primary wide" data-act="sign">Firmar y guardar…</button>
         <button class="wide" data-act="signnext">Firmar y pasar al siguiente firmante</button>
         <button class="wide" data-act="signmail">Firmar y enviar por correo…</button>

@@ -8,3 +8,4 @@ python-pkcs11>=0.7
 qrcode>=7.4
 pdf2docx>=0.5
 mammoth>=1.6
+requests>=2.31

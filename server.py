@@ -984,6 +984,18 @@ def op_edit_state(req):
             "size": [page.rect.width, page.rect.height]}
 
 
+def op_copy_object(req):
+    d = get_doc(req)
+    return editor.copy_object(need_pdf(d), int(req["n"]), req["kind"], int(req["xref"]))
+
+
+def op_edit_words(req):
+    """Palabras de la página en orden de lectura (para seleccionar texto al resaltar)."""
+    d = get_doc(req)
+    words = editor.reading_words(need_pdf(d)[int(req["n"])])
+    return {"words": words, "has_text": bool(words)}
+
+
 def op_outline(req):
     d = get_doc(req)
     return {"toc": [[lvl, title, page] for lvl, title, page in need_pdf(d).get_toc(simple=True) if page > 0]}
@@ -1023,7 +1035,13 @@ EDIT_OPS = {
                                                       r.get("color"), r.get("bold"), r.get("italic")),
     "delete_spans": lambda doc, r: editor.delete_spans(doc, r["n"], r["indices"]),
     "add_shape": lambda doc, r: editor.add_shape(doc, r["n"], r["kind"], r.get("rect"), r.get("stroke", "#d62828"),
-                                                r.get("fill"), float(r.get("width", 2)), r.get("points")),
+                                                r.get("fill"), float(r.get("width", 2)), r.get("points"),
+                                                r.get("dash", "continua"), float(r.get("opacity", 1))),
+    "paste_object": lambda doc, r: editor.paste_object(doc, r["n"], r["spec"], r["x"], r["y"]),
+    "style_annot": lambda doc, r: editor.style_annotation(doc, r["n"], r["xref"], r.get("stroke"), r.get("fill", "keep"),
+                                                         r.get("width"), r.get("dash"), r.get("opacity"), r.get("ends")),
+    "add_markup": lambda doc, r: editor.add_markup(doc, r["n"], r["kind"], r["rects"], r.get("color", "#fff200"),
+                                                  bool(r.get("area"))),
     "move_annot": lambda doc, r: editor.move_annotation(doc, r["n"], r["xref"], r["rect"]),
     "set_line": lambda doc, r: editor.set_line(doc, r["n"], r["xref"], r["points"]),
     "paste": lambda doc, r: editor.paste_region(doc, r["n"], CLIPBOARD["clip"], float(r["x"]), float(r["y"]),
@@ -1348,7 +1366,7 @@ OPS = {
     "todocx": op_todocx, "doctopdf": op_doctopdf, "redact/preview": op_redact_preview,
     "pages/save": op_pages_save, "encrypt": op_encrypt, "decrypt": op_decrypt,
     "compress": op_compress, "toimages": op_toimages, "topdf": op_topdf, "sanitize": op_sanitize, "merge": op_merge, "merge_pages": op_merge_pages,
-    "edit/state": op_edit_state, "fonts": op_fonts, "outline": op_outline, "edit/undo": op_undo, "edit/redo": op_redo, "edit/export": op_edit_export,
+    "edit/state": op_edit_state, "edit/words": op_edit_words, "edit/copy_object": op_copy_object, "fonts": op_fonts, "outline": op_outline, "edit/undo": op_undo, "edit/redo": op_redo, "edit/export": op_edit_export,
     "sigimgs": op_sigimgs, "sigimg/save": op_sigimg_save, "sigimg/delete": op_sigimg_delete,
     "sigimg/place": op_place_sigimg, "sigimg/margin": op_sign_margin, "edit/copy": op_copy, "edit/copy_spans": op_copy_spans, "certinfo": op_certinfo, "sign": op_sign, "sign/test": op_sign_test, "sign/batch": op_sign_batch,
     "track/add": op_track_add, "track/check": op_track_check, "track/list": op_track_list, "track/delete": op_track_delete,

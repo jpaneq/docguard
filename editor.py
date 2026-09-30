@@ -5,6 +5,7 @@ puntos PDF con la rotación de la página ya aplicada (origen arriba a la izquie
 que es como se ve la página renderizada.
 """
 
+import contextlib
 import os
 import re
 import sys
@@ -441,8 +442,56 @@ def annotations(page):
              "bbox": to_view(page, a.rect), "content": a.info.get("content", "")}
         if a.type[1] == "Line" and a.vertices and len(a.vertices) >= 2:  # extremos, para moverlos por separado
             d["points"] = [[round(v, 2) for v in fitz.Point(p) * page.rotation_matrix] for p in a.vertices[:2]]
+        if a.type[1] in SHAPE_TYPES and a.info.get("subject") != "Fosforito":
+            border = a.border or {}
+            cols = a.colors or {}
+            d["style"] = {"stroke": hex_rgb(cols.get("stroke")), "fill": hex_rgb(cols.get("fill")),
+                          "width": round(border.get("width") or 0, 2), "dash": _dash_name(border.get("dashes")),
+                          "opacity": round(a.opacity if a.opacity is not None and a.opacity >= 0 else 1, 2)}
+            if a.type[1] == "Line":
+                d["style"]["ends"] = list(a.line_ends or (0, 0))
         out.append(d)
     return out
+
+
+def reading_words(page):
+    """Palabras en orden de lectura, con la línea a la que pertenecen (para seleccionar texto
+    arrastrando, como en cualquier lector de PDF)."""
+    return [{"bbox": to_view(page, w[:4]), "text": w[4], "line": f"{w[5]}-{w[6]}"}
+            for w in page.get_text("words", sort=True)]
+
+
+def add_markup(doc, pno, kind, rects, color="#fff200", area=False):
+    """Resaltar, subrayar o tachar el texto seleccionado: `rects` = un recuadro por línea
+    (pantalla). Con `area` (páginas escaneadas sin texto), se marca la zona dibujada."""
+    page = doc[pno]
+    col = rgb(color)
+    rs = [from_view(page, r) for r in rects if r[2] - r[0] > 0.5 and r[3] - r[1] > 0.5]
+    if not rs:
+        raise ValueError("No hay nada seleccionado.")
+    if area:
+        for r in rs:
+            if kind == "highlight":  # recuadro de rotulador fosforito, que deja leer lo de debajo
+                a = page.add_rect_annot(r)
+                a.set_colors(stroke=col, fill=col)
+                a.set_border(width=0)
+                a.set_opacity(0.45)
+                with contextlib.suppress(Exception):
+                    a.set_blendmode(fitz.PDF_BM_Multiply)
+                a.set_info(title="DocGuard", subject="Fosforito")
+            else:
+                y = r.y1 - r.height * 0.08 if kind == "underline" else (r.y0 + r.y1) / 2
+                a = page.add_line_annot(fitz.Point(r.x0, y), fitz.Point(r.x1, y))
+                a.set_colors(stroke=col)
+                a.set_border(width=max(1.0, r.height * 0.06))
+                a.set_info(title="DocGuard", subject="Subrayado" if kind == "underline" else "Tachado")
+            a.update()
+        return
+    if kind == "highlight":
+        return _marker_lines(page, rs, col, seed=int(rs[0].x0 * 7 + rs[0].y0 * 13))
+    a = {"underline": page.add_underline_annot, "strikeout": page.add_strikeout_annot}[kind](rs)
+    a.set_colors(stroke=col)
+    a.update()
 
 
 def add_annotation(doc, pno, kind, rect, text="", color="#ffd400", size=12):
@@ -483,8 +532,6 @@ NEON = {"amarillo": "#fff200", "verde": "#39ff14", "rosa": "#ff3fa4", "naranja":
 def _marker(page, r, col):
     """Resaltado estilo rotulador fosforito: un trazo por línea, de punta redondeada y un
     poco irregular, semitransparente y en modo «multiplicar» para que el texto se lea."""
-    import math
-    import random
     words = [fitz.Rect(w[:4]) for w in page.get_text("words") if fitz.Rect(w[:4]).intersects(r)]
     if not words:
         raise ValueError("No hay texto en esa zona.")
@@ -495,7 +542,14 @@ def _marker(page, r, col):
             lines[-1] |= w
         else:
             lines.append(fitz.Rect(w))
-    rnd = random.Random(int(r.x0 * 7 + r.y0 * 13))
+    return _marker_lines(page, lines, col, seed=int(r.x0 * 7 + r.y0 * 13))
+
+
+def _marker_lines(page, lines, col, seed=1):
+    """Un trazo de rotulador fosforito por cada línea (recuadros de página)."""
+    import math
+    import random
+    rnd = random.Random(seed)
     for ln in lines:
         h = ln.height
         cy = (ln.y0 + ln.y1) / 2 + h * 0.04
@@ -593,6 +647,102 @@ def add_widget(doc, pno, kind, rect, name, value=None, options=None, fontsize=0)
     page.add_widget(w)
 
 
+def copy_object(doc, pno, kind, xref):
+    """Datos para pegar un campo de formulario, una forma o un dibujo como objeto (no como captura)."""
+    page = doc[pno]
+    if kind == "widget":
+        w = _find_widget(page, xref)
+        if w.field_type == fitz.PDF_WIDGET_TYPE_SIGNATURE:
+            raise ValueError("Los recuadros de firma digital no se copian.")
+        k = WIDGET_NAMES.get(w.field_type, "text")
+        value = w.field_value
+        if k in ("checkbox", "radio"):
+            value = value not in (False, None, "", "Off")
+        return {"kind": "widget", "type": k, "name": w.field_name, "rect": to_view(page, w.rect), "value": value,
+                "options": list(w.choice_values or []), "fontsize": w.text_fontsize,
+                "border_color": list(w.border_color or []), "fill_color": list(w.fill_color or []),
+                "text_color": list(w.text_color or []), "border_width": w.border_width}
+    a = _find_annot(page, xref)
+    t = a.type[1]
+    if t not in SHAPE_TYPES:
+        raise ValueError("Este elemento no se puede copiar como objeto.")
+    view = lambda p: [round(v, 2) for v in fitz.Point(p) * page.rotation_matrix]
+    spec = {"kind": "annot", "type": t, "rect": to_view(page, a.rect), "colors": a.colors or {},
+            "border": {"width": (a.border or {}).get("width") or 0, "dashes": list((a.border or {}).get("dashes") or [])},
+            "opacity": a.opacity if a.opacity is not None and a.opacity >= 0 else 1, "info": dict(a.info)}
+    if t == "Line":
+        spec["points"], spec["ends"] = [view(p) for p in a.vertices[:2]], list(a.line_ends or (0, 0))
+    elif t == "Ink":
+        spec["strokes"] = [[view(p) for p in stroke] for stroke in a.vertices]
+    elif t in ("Polygon", "PolyLine"):
+        spec["points"] = [view(p) for p in a.vertices]
+    return spec
+
+
+def paste_object(doc, pno, spec, x, y):
+    """Pega lo copiado con copy_object con su esquina superior izquierda en (x, y) de pantalla.
+    Un campo pegado recibe otro nombre (salvo los botones de opción, que siguen en su grupo)."""
+    page = doc[pno]
+    dx, dy = float(x) - spec["rect"][0], float(y) - spec["rect"][1]
+    shift = lambda p: point_from_view(page, p[0] + dx, p[1] + dy)
+    moved = lambda r: from_view(page, [r[0] + dx, r[1] + dy, r[2] + dx, r[3] + dy])
+    if spec["kind"] == "widget":
+        existing = {w.field_name for p in doc for w in (p.widgets() or ())}
+        name = spec["name"]
+        if spec["type"] != "radio":
+            base, k = re.sub(r"_\d+$", "", name), 2
+            while f"{base}_{k}" in existing:
+                k += 1
+            name = f"{base}_{k}"
+        w = fitz.Widget()
+        w.field_type = WIDGET_TYPES[spec["type"]]
+        w.field_name = name
+        w.rect = moved(spec["rect"])
+        w.text_fontsize = spec.get("fontsize") or 0
+        w.border_width = spec.get("border_width") or 1
+        for key in ("border_color", "fill_color", "text_color"):
+            if spec.get(key):
+                setattr(w, key, tuple(spec[key]))
+        if spec["type"] in ("combobox", "listbox"):
+            w.choice_values = spec.get("options") or ["Opción 1"]
+            w.field_value = spec["value"] if spec.get("value") in w.choice_values else w.choice_values[0]
+        elif spec["type"] == "text":
+            w.field_value = spec.get("value") or ""
+        elif spec["type"] in ("checkbox", "radio"):
+            w.field_value = bool(spec.get("value")) and spec["type"] == "checkbox"
+        page.add_widget(w)
+        return name
+    t = spec["type"]
+    if t in ("Square", "Circle"):
+        bw = (spec["border"].get("width") or 0) / 2  # como al mover: el borde no se suma dos veces
+        r = moved(spec["rect"])
+        r = fitz.Rect(r.x0 + bw, r.y0 + bw, r.x1 - bw, r.y1 - bw)
+        a = page.add_rect_annot(r) if t == "Square" else page.add_circle_annot(r)
+    elif t == "Line":
+        a = page.add_line_annot(shift(spec["points"][0]), shift(spec["points"][1]))
+        a.set_line_ends(*spec.get("ends", (0, 0)))
+    elif t == "Ink":
+        a = page.add_ink_annot([[shift(p) for p in stroke] for stroke in spec["strokes"]])
+    else:
+        pts = [shift(p) for p in spec["points"]]
+        a = page.add_polygon_annot(pts) if t == "Polygon" else page.add_polyline_annot(pts)
+    cols = spec.get("colors") or {}
+    a.set_colors(stroke=cols.get("stroke"), fill=cols.get("fill") or [])
+    dashes = [int(v) for v in spec["border"].get("dashes") or []]
+    if dashes:
+        a.set_border(width=spec["border"].get("width") or 1, dashes=dashes)
+    else:
+        a.set_border(width=spec["border"].get("width") or 1)
+    if spec.get("opacity", 1) < 1:
+        a.set_opacity(spec["opacity"])
+    a.set_info(spec.get("info") or {})
+    if (spec.get("info") or {}).get("subject") == "Fosforito":
+        with contextlib.suppress(Exception):
+            a.set_blendmode(fitz.PDF_BM_Multiply)
+    a.update()
+    return t
+
+
 def update_widget(doc, pno, xref, name=None, value=None, options=None, rect=None, fontsize=None):
     page = doc[pno]
     w = _find_widget(page, xref)
@@ -629,7 +779,61 @@ def flatten_forms(doc):
 # Formas (como anotaciones, igual que en Acrobat: se pueden mover y borrar)
 # --------------------------------------------------------------------------
 
-def add_shape(doc, pno, kind, rect, stroke="#d62828", fill=None, width=2, points=None):
+SHAPE_TYPES = ("Square", "Circle", "Line", "Ink", "Polygon", "PolyLine")
+DASHES = {"continua": None, "discontinua": [6, 3], "punteada": [1, 3], "rayas-largas": [12, 4]}
+
+
+def hex_rgb(c):
+    """Color de PyMuPDF (0..1) a #rrggbb (None si no hay)."""
+    if not c:
+        return None
+    return "#" + "".join(f"{max(0, min(255, round(v * 255))):02x}" for v in c[:3])
+
+
+def _dash_name(dashes):
+    if not dashes:
+        return "continua"
+    ratio = dashes[0] / max(1, dashes[1]) if len(dashes) > 1 else 1  # el patrón se reconoce por su proporción
+    return min((k for k, v in DASHES.items() if v), key=lambda k: abs(DASHES[k][0] / DASHES[k][1] - ratio))
+
+
+def _border(a, width, dash):
+    pattern = DASHES.get(dash or "continua")
+    if pattern:  # PDF solo guarda guiones enteros; se escalan con el grosor
+        k = max(1, round(width / 2))
+        a.set_border(width=width, dashes=[max(1, round(v * k)) for v in pattern])
+    else:
+        a.set_border(width=width, style="S", dashes=[])
+
+
+def style_annotation(doc, pno, xref, stroke=None, fill="keep", width=None, dash=None, opacity=None, ends=None):
+    """Cambia el aspecto de una forma ya dibujada: contorno, relleno (None = sin relleno),
+    grosor, tipo de línea, opacidad y, en las líneas, sus extremos (flechas)."""
+    page = doc[pno]
+    a = _find_annot(page, xref)
+    t = a.type[1]
+    if t not in SHAPE_TYPES:
+        raise ValueError("Solo se pueden cambiar así las formas y los dibujos.")
+    cols = a.colors or {}
+    stroke_c = rgb(stroke) if stroke else cols.get("stroke")
+    if t == "Line":
+        fill_c = stroke_c  # las puntas de flecha se rellenan del color de la línea
+    elif fill == "keep":
+        fill_c = cols.get("fill")
+    else:
+        fill_c = rgb(fill) if fill else []
+    a.set_colors(stroke=stroke_c, fill=fill_c if fill_c else [])
+    border = a.border or {}
+    w = float(width) if width is not None else (border.get("width") or 1)
+    _border(a, w, dash if dash is not None else _dash_name(border.get("dashes")))
+    if opacity is not None:
+        a.set_opacity(max(0.05, min(1.0, float(opacity))))
+    if t == "Line" and ends is not None:
+        a.set_line_ends(int(ends[0]), int(ends[1]))
+    a.update()
+
+
+def add_shape(doc, pno, kind, rect, stroke="#d62828", fill=None, width=2, points=None, dash="continua", opacity=1.0):
     page = doc[pno]
     col = rgb(stroke)
     fcol = rgb(fill) if fill else None
@@ -646,7 +850,9 @@ def add_shape(doc, pno, kind, rect, stroke="#d62828", fill=None, width=2, points
             a.set_line_ends(fitz.PDF_ANNOT_LE_NONE, fitz.PDF_ANNOT_LE_CLOSED_ARROW)
     else:
         raise ValueError(f"Forma desconocida: {kind}")
-    a.set_border(width=width)
+    _border(a, width, dash)
+    if opacity is not None and float(opacity) < 1:
+        a.set_opacity(max(0.05, float(opacity)))
     a.set_info(title="DocGuard", subject="Forma")
     a.update()
 

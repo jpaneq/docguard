@@ -117,6 +117,32 @@ def _test_p12(cn="Autotest DocGuard"):
     return pkcs12.serialize_key_and_certificates(b"t", key, cert, None, serialization.BestAvailableEncryption(b"x"))
 
 
+def _selftest_markup_objects():
+    """Resaltar por líneas seleccionadas, cambiar el aspecto de una forma y copiar/pegar un campo."""
+    import pymupdf as fitz
+
+    import editor
+    doc = fitz.open()
+    p = doc.new_page()
+    p.insert_text((72, 100), "Primera línea del contrato", fontsize=12)
+    p.insert_text((72, 118), "Segunda línea del contrato", fontsize=12)
+    w = editor.reading_words(doc[0])
+    rect = lambda a, b: [w[a]["bbox"][0], w[a]["bbox"][1], w[b]["bbox"][2], w[b]["bbox"][3]]
+    editor.add_markup(doc, 0, "highlight", [rect(2, 3), rect(4, 5)], "#39ff14")
+    editor.add_markup(doc, 0, "underline", [rect(4, 7)], "#1a4fd6")
+    editor.add_shape(doc, 0, "rect", [100, 400, 200, 480], dash="discontinua", width=3)
+    shape = next(a for a in editor.annotations(doc[0]) if a.get("style"))
+    editor.style_annotation(doc, 0, shape["xref"], stroke="#1a4fd6", fill="#ffe066", dash="punteada", opacity=0.6)
+    style = next(a for a in editor.annotations(doc[0]) if a.get("style"))["style"]
+    editor.add_widget(doc, 0, "text", [100, 200, 250, 224], "nombre", value="Ana")
+    spec = editor.copy_object(doc, 0, "widget", editor.widgets(doc[0])[0]["xref"])
+    editor.paste_object(doc, 0, spec, 300, 200)
+    fields = {x["name"]: x["value"] for x in editor.widgets(doc[0])}
+    kinds = [a["type"] for a in editor.annotations(doc[0])]
+    return (kinds.count("Ink") == 4 and "Underline" in kinds and fields == {"nombre": "Ana", "nombre_2": "Ana"}
+            and style == {"stroke": "#1a4fd6", "fill": "#ffe066", "width": 3.0, "dash": "punteada", "opacity": 0.6})
+
+
 def _selftest_shapes():
     """Mover una forma no la agranda y los extremos de una flecha se cambian conservando su punta."""
     import pymupdf as fitz
@@ -219,6 +245,7 @@ def selftest():
         "detección": "DNI / NIE" in call("detect", {"id": info["id"]})["found"],
         "edición": call("edit/state", {"id": info["id"], "n": 0})["spans"][0]["text"] == "DNI 12345678Z",
         "formas: extremos y mover sin crecer": _selftest_shapes(),
+        "resaltar texto, estilo de formas y copiar campos": _selftest_markup_objects(),
         "cambiar el tamaño del texto": (call("edit/scale_spans", {"id": info["id"], "n": 0, "indices": [0], "factor": 1.5,
                                                                   "anchor": [50, 60]}) is not None
                                         and call("edit/state", {"id": info["id"], "n": 0})["spans"][0]["size"] == 21.0

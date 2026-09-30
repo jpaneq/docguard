@@ -97,6 +97,11 @@ main { flex: 1; min-width: 0; position: relative; }
 .bx .handle.h-s { right: auto; left: calc(50% - 6px); cursor: ns-resize; }
 .bx .handle.h-sw { right: auto; left: -6px; cursor: nesw-resize; }
 .bx .handle.h-w { right: auto; bottom: auto; left: -6px; top: calc(50% - 6px); cursor: ew-resize; }
+.ov.markup { cursor: text; }
+.mark-layer { position: absolute; inset: 0; pointer-events: none; }
+.bx.mark-preview { background: color-mix(in srgb, var(--c, #fff200) 45%, transparent); mix-blend-mode: multiply; border: 0; }
+.bx.mark-preview.underline { background: none; border-bottom: 2px solid var(--c, #0000ff); mix-blend-mode: normal; }
+.bx.mark-preview.strikeout { background: linear-gradient(transparent 46%, var(--c, #d62828) 46%, var(--c, #d62828) 56%, transparent 56%); mix-blend-mode: normal; }
 .line-end { position: absolute; width: 14px; height: 14px; border-radius: 50%; background: #fff; border: 3px solid var(--accent); cursor: crosshair; z-index: 3; box-sizing: border-box; }
 .drag-box.ellipse { border-radius: 50%; }
 .bx.widget { border: 1px solid rgba(90, 90, 200, .7); background: #eef2ff; display: flex; }
@@ -221,6 +226,8 @@ textarea.inline-edit { resize: none; border: 0; background: rgba(255, 255, 255, 
 .formatbar { display: flex; align-items: center; gap: 6px; padding: 6px 10px; min-height: 44px; background: var(--panel2); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .formatbar .blabel { font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-right: 4px; }
 .formatbar select.fsel { width: 190px !important; }
+.formatbar select { width: auto; flex: none; }
+.formatbar input[type=range] { width: 110px; }
 .formatbar input.mid { width: 200px !important; }
 .formatbar button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .formatbar .sig-gallery.inline { margin: 0; flex-wrap: nowrap; }

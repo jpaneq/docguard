@@ -66,7 +66,8 @@ const Edit = {
     $('[data-act=pages]', this.root).onclick = () => this.toggleSide();
     this.tool = 'select'; this.sel = null; this.selSpans = new Set(); this.st = null;
     this.textOpts = { font: 'base:helv', size: 12, color: '#000000', bold: false, italic: false, list: 'none' };
-    this.shape = { kind: 'rect', stroke: '#d62828', fill: '#ffe066', filled: false, width: 2 };
+    this.shape = { kind: 'rect', stroke: '#d62828', fill: '#ffe066', filled: false, width: 2, dash: 'continua' };
+    this.wordsCache = {};  // palabras por página, para seleccionar texto al resaltar
     this.ann = { kind: 'highlight', color: '#fff200', text: '' };
     this.widgetType = 'text'; this.sig = null; this.fonts = [];
     $$('[data-t]', this.root).forEach(b => b.onclick = () => this.setTool(b.dataset.t));
@@ -131,6 +132,7 @@ const Edit = {
     if (r === undefined) return false;
     if (r.message && /sustituta/.test(r.message)) toast('No se encontró la fuente original; se ha usado ' + r.message.replace(' (sustituta)', '') + '.', '', [], 4000);
     if (!keepSel) this.clearSel(false);
+    this.wordsCache = {};
     await this.refresh(true);
     this.refreshThumb();
     return true;
@@ -239,7 +241,7 @@ const Edit = {
   draw() {
     const v = this.viewer;
     v.clear();
-    v.ov.className = 'ov tool-' + this.tool;
+    v.ov.className = 'ov tool-' + this.tool + (this.tool === 'annot' && ['highlight', 'underline', 'strikeout'].includes(this.ann.kind) ? ' markup' : '');
     this.renderBar();
     if (!this.info) { this.hint('Abre o arrastra un PDF o una imagen para editarlo.'); return; }
     const st = this.st;
@@ -297,10 +299,98 @@ const Edit = {
       text: 'Clic en la página para escribir texto nuevo, o en un texto existente para modificarlo. ⌘+Intro o clic fuera para fijarlo.',
       image: 'Arrastra en la página el recuadro donde colocar la imagen.',
       shape: 'Arrastra para dibujar la forma (con Mayús: líneas en ángulos de 15°, 45°, 90°…, y cuadrados o círculos). Clic en una forma para moverla o cambiar su tamaño con sus tiradores.',
-      annot: ['highlight', 'underline', 'strikeout'].includes(this.ann.kind) ? 'Arrastra sobre el texto.' : this.ann.kind === 'note' ? 'Clic donde quieras la nota.' : this.ann.kind === 'ink' ? 'Dibuja sobre la página.' : 'Arrastra para dibujar el recuadro.',
+      annot: ['highlight', 'underline', 'strikeout'].includes(this.ann.kind) ? 'Pulsa al principio del texto y arrastra hasta el final, como al seleccionar texto (también varias líneas). En páginas escaneadas sin texto, arrastra un recuadro (o pasa antes el OCR).' : this.ann.kind === 'note' ? 'Clic donde quieras la nota.' : this.ann.kind === 'ink' ? 'Dibuja sobre la página.' : 'Arrastra para dibujar el recuadro.',
       form: 'Arrastra para crear un campo del tipo elegido. Clic en la etiqueta de un campo para editarlo.',
       sign: 'Elige una firma y arrastra el recuadro donde colocarla, o usa «Al margen» para firmar todas las páginas.',
     }[t]);
+  },
+
+  /* ---- resaltar como en un lector de PDF: seleccionando el texto ---- */
+  async pageWords(n) {
+    if (!this.wordsCache[n]) this.wordsCache[n] = (await api('edit/words', { id: this.info.id, n })).words;
+    return this.wordsCache[n];
+  },
+  nearestWord(words, [x, y]) {
+    let best = 0, bd = Infinity;
+    words.forEach((w, i) => {
+      const [x0, y0, x1, y1] = w.bbox;
+      const dx = x < x0 ? x0 - x : x > x1 ? x - x1 : 0;
+      const dy = y < y0 ? y0 - y : y > y1 ? y - y1 : 0;
+      const d = dx + dy * 4;  // mejor en la misma línea
+      if (d < bd) { bd = d; best = i; }
+    });
+    return best;
+  },
+  /** Un recuadro por línea con las palabras de a a b (en orden de lectura). */
+  lineRects(words, a, b) {
+    const [lo, hi] = a <= b ? [a, b] : [b, a];
+    const out = [], keys = [];
+    for (let i = lo; i <= hi; i++) {
+      const w = words[i], k = keys.indexOf(w.line);
+      if (k < 0) { keys.push(w.line); out.push(w.bbox.slice()); }
+      else { const r = out[k]; out[k] = [Math.min(r[0], w.bbox[0]), Math.min(r[1], w.bbox[1]), Math.max(r[2], w.bbox[2]), Math.max(r[3], w.bbox[3])]; }
+    }
+    return out;
+  },
+  async markupDown(e) {
+    const v = this.viewer, { kind, color } = this.ann;
+    const words = await this.pageWords(v.n).catch(() => []);
+    if (!words.length) {  // página escaneada sin texto: se marca la zona que se dibuje
+      const d = await v.drag(e);
+      if (d.moved) this.op('add_markup', { kind, rects: [d.rect], color, area: true });
+      return;
+    }
+    const p0 = v.pt(e), i0 = this.nearestWord(words, p0);
+    let i1 = i0, moved = false;
+    const layer = h('div', { class: 'mark-layer' });
+    v.ov.append(layer);
+    const paint = () => {
+      layer.replaceChildren();
+      for (const r of this.lineRects(words, i0, i1)) v.box(r, 'mark-preview ' + kind, layer).style.setProperty('--c', color);
+    };
+    paint();
+    const mv = ev => {
+      const p = v.pt(ev);
+      if (Math.hypot(p[0] - p0[0], p[1] - p0[1]) > 3 / v.zoom) moved = true;
+      i1 = this.nearestWord(words, p);
+      paint();
+    };
+    window.addEventListener('mousemove', mv);
+    window.addEventListener('mouseup', () => {
+      window.removeEventListener('mousemove', mv);
+      const rects = this.lineRects(words, i0, i1);
+      layer.remove();
+      if (moved || e.detail > 1) this.op('add_markup', { kind, rects, color });
+    }, { once: true });
+  },
+
+  /* ---- propiedades de las formas ---- */
+  dashSelect(value, onchange) {
+    const sel = h('select', { title: 'Tipo de línea', onchange: e => onchange(e.target.value) },
+      ...Object.entries({ continua: '── Continua', discontinua: '- - Discontinua', punteada: '··· Punteada', 'rayas-largas': '— — Rayas largas' })
+        .map(([k, l]) => h('option', { value: k, selected: k === value }, l)));
+    return sel;
+  },
+  shapeControls(a) {
+    const s = a.style;
+    const apply = changes => this.op('style_annot', { xref: a.xref, ...changes }, 'Aplicando…').then(ok => ok && this.select('annot', a.xref));
+    const fillColor = h('input', { type: 'color', value: s.fill || '#ffe066', title: 'Color del relleno', disabled: !s.fill, onchange: e => apply({ fill: e.target.value }) });
+    const canFill = !['Line', 'Ink', 'PolyLine'].includes(a.type);
+    const ends = { '0,0': 'Sin flechas', '0,5': 'Flecha al final', '5,0': 'Flecha al principio', '5,5': 'Flechas en los dos extremos' };
+    return [
+      h('span', { class: 'blabel' }, 'Contorno'),
+      h('input', { type: 'color', value: s.stroke || '#000000', title: 'Color del contorno', onchange: e => apply({ stroke: e.target.value }) }),
+      h('input', { type: 'number', value: s.width, min: 0.5, max: 20, step: 0.5, class: 'num', title: 'Grosor', onchange: e => apply({ width: +e.target.value }) }),
+      this.dashSelect(s.dash, dash => apply({ dash })),
+      canFill ? h('label', { class: 'inline' }, h('input', { type: 'checkbox', checked: !!s.fill, onchange: e => apply({ fill: e.target.checked ? fillColor.value : null }) }), 'Relleno') : null,
+      canFill ? fillColor : null,
+      a.type === 'Line' ? h('select', { title: 'Flechas', onchange: e => apply({ ends: e.target.value.split(',').map(Number) }) },
+        ...Object.entries(ends).map(([k, l]) => h('option', { value: k, selected: k === s.ends.map(v => (v ? 5 : 0)).join(',') }, l))) : null,
+      h('label', { class: 'inline', title: 'Opacidad' }, 'Opacidad',
+        h('input', { type: 'range', min: 10, max: 100, value: Math.round(s.opacity * 100), onchange: e => apply({ opacity: +e.target.value / 100 }) })),
+      h('span', { class: 'sep' }),
+      ibtn('copy', 'Copiar (⌘C)', () => this.copyAny()), ibtn('trash', 'Borrar', () => this.deleteSel()),
+    ];
   },
 
   /** Extremos de una línea o flecha: se arrastran por separado (con Mayús, en ángulos de 15°). */
@@ -445,6 +535,7 @@ const Edit = {
     }
     if (this.sel?.type === 'annot') {
       const a = this.st.annots.find(x => x.xref === this.sel.id);
+      if (a?.style) { add(label(a.label), ...this.shapeControls(a)); return; }
       add(label(a?.label || 'Anotación'), a?.content ? h('span', { class: 'muted' }, a.content.slice(0, 60)) : null,
         h('span', { class: 'sep' }), ibtn('trash', 'Borrar', () => this.deleteSel()));
       return;
@@ -477,7 +568,8 @@ const Edit = {
       h('span', { class: 'sep' }), label('Borde'), h('input', { type: 'color', value: sh.stroke, onchange: e => { sh.stroke = e.target.value; } }),
       h('input', { type: 'number', value: sh.width, min: 0.5, max: 20, step: 0.5, class: 'num', title: 'Grosor', onchange: e => { sh.width = +e.target.value; } }),
       h('label', { class: 'inline' }, h('input', { type: 'checkbox', checked: sh.filled, onchange: e => { sh.filled = e.target.checked; } }), 'Relleno'),
-      h('input', { type: 'color', value: sh.fill, onchange: e => { sh.fill = e.target.value; } }));
+      h('input', { type: 'color', value: sh.fill, onchange: e => { sh.fill = e.target.value; } }),
+      this.dashSelect(sh.dash, v => { sh.dash = v; }));
       return;
     }
     if (t === 'annot') {
@@ -595,6 +687,7 @@ const Edit = {
     const v = this.viewer, t = this.tool;
     if (this.inline) { this.commitInline(); return; }
     if (t === 'text') { const [x, y] = v.pt(e); this.newInline(x, y); return; }
+    if (t === 'annot' && ['highlight', 'underline', 'strikeout'].includes(this.ann.kind)) return this.markupDown(e);
     if (t === 'annot' && this.ann.kind === 'note') {
       const [x, y] = v.pt(e);
       return this.op('add_annot', { kind: 'note', rect: [x, y, x + 20, y + 20], text: this.ann.text || 'Nota', color: this.ann.color });
@@ -620,7 +713,7 @@ const Edit = {
     }
     if (t === 'shape') {
       const sh = this.shape;
-      return this.op('add_shape', { kind: sh.kind, rect: d.rect, points: [d.points[0], d.points[d.points.length - 1]], stroke: sh.stroke, fill: sh.filled ? sh.fill : null, width: sh.width });
+      return this.op('add_shape', { kind: sh.kind, rect: d.rect, points: [d.points[0], d.points[d.points.length - 1]], stroke: sh.stroke, fill: sh.filled ? sh.fill : null, width: sh.width, dash: sh.dash });
     }
     if (t === 'annot') {
       if (this.ann.kind === 'ink') return this.op('add_ink', { strokes: [d.points], color: this.ann.color });
@@ -952,6 +1045,18 @@ const Edit = {
       toast(cut ? 'Cortado. Pega con ⌘V donde tengas el ratón.' : 'Copiado. Pega con ⌘V donde tengas el ratón.', 'ok', [], 2500);
       return;
     }
+    // campos de formulario y formas: se copian como objetos (se pegan editables)
+    const obj = this.sel?.type === 'widget' ? 'widget' : (this.sel?.type === 'annot' && this.st.annots.find(x => x.xref === this.sel.id)?.style ? 'annot' : null);
+    if (obj && !asImage) {
+      const r = await run('Copiando…', () => api('edit/copy_object', { id: this.info.id, n, kind: obj, xref: this.sel.id }));
+      if (!r) return;
+      this.clipKind = 'object';
+      this.clipObj = r;
+      this.clipAnchor = r.rect;
+      if (cut) await this.op(obj === 'widget' ? 'delete_widget' : 'delete_annot', { xref: this.sel.id });
+      toast(`${obj === 'widget' ? (cut ? 'Campo cortado' : 'Campo copiado') : (cut ? 'Forma cortada' : 'Forma copiada')}. Pega con ⌘V donde tengas el ratón (también en otra página).`, 'ok', [], 3000);
+      return;
+    }
     // zona: la seleccionada, la de los textos seleccionados o la de la imagen seleccionada
     let rect = this.region?.r;
     if (!rect && this.selSpans.size) rect = this.st.spans.filter(s => this.selSpans.has(s.i)).map(s => s.bbox).reduce((a, b) => [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])]);
@@ -983,6 +1088,18 @@ const Edit = {
     if (this.clipKind === 'spans') {
       const [x, y] = at || [this.clipAnchor[0] + 12, this.clipAnchor[1] + 12];
       return this.op('paste_spans', { x, y }, 'Pegando…');
+    }
+    if (this.clipKind === 'object' && this.clipObj) {
+      const o = this.clipObj;
+      const [x, y] = at || [this.clipAnchor[0] + 15, this.clipAnchor[1] + 15];
+      const ok = await this.op('paste_object', { spec: o, x, y }, 'Pegando…');
+      if (!ok) return;
+      const w = o.rect[2] - o.rect[0], hh = o.rect[3] - o.rect[1];
+      if (o.kind === 'widget') {  // se selecciona lo pegado para poder moverlo enseguida
+        const nw = this.st.widgets.reduce((b, x2) => (!b || Math.abs(x2.bbox[0] - x) + Math.abs(x2.bbox[1] - y) < Math.abs(b.bbox[0] - x) + Math.abs(b.bbox[1] - y) ? x2 : b), null);
+        if (nw) this.select('widget', nw.xref);
+      } else this.reselectAnnot([x, y, x + w, y + hh]);
+      return;
     }
     if (this.clipKind === 'region' && this.clip) {
       const [x, y] = at || [this.clipAnchor[0] + 20, this.clipAnchor[1] + 20];

@@ -371,7 +371,9 @@ html, body { overflow: hidden; }
 .scan-svg { position: absolute; overflow: visible; }
 .scan-svg polygon { fill: rgba(37, 99, 217, .15); stroke: #2563d9; stroke-width: 2; }
 .scan-svg circle { fill: #fff; stroke: #2563d9; stroke-width: 3; cursor: grab; }
-.scan-svg circle:hover { fill: #2563d9; }
+.scan-svg circle:hover, .scan-svg circle.on { fill: #2563d9; }
+.scan-lens { position: absolute; display: none; width: 180px; height: 180px; border-radius: 50%; border: 3px solid #fff;
+  box-shadow: 0 0 0 2px #2563d9, 0 8px 28px rgba(0, 0, 0, .35); pointer-events: none; z-index: 5; background: #2b2f38; }
 .scan-tools { display: flex; gap: 8px; align-items: center; padding: 6px 12px; background: var(--panel); border-top: 1px solid var(--line); flex-wrap: wrap; }
 .scan-result { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--panel2); border-left: 1px solid var(--line); }
 .scan-result-title { padding: 6px 12px; font-weight: 600; font-size: 12px; text-transform: uppercase; color: var(--muted); }

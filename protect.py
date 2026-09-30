@@ -28,6 +28,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 import core
+import records
 
 LEVELS = ("basica", "reforzada", "maxima")
 
@@ -393,15 +394,16 @@ def detect_mark(img):
 # --------------------------------------------------------------------------
 
 def _registry_path():
-    return os.path.join(core.config_dir(), "registro_marcas.json")
+    return os.path.join(core.config_dir(), records.FILES["entregas"])
 
 
 def _load_registry():
-    try:
-        with open(_registry_path(), encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return {}
+    return records.load("entregas")
+
+
+def _save_registry(reg):
+    """Guardado seguro (y copia automática, si está activada): es la prueba de las entregas."""
+    records.save("entregas", reg)
 
 
 def register(recipient, purpose, text, filename):
@@ -412,8 +414,7 @@ def register(recipient, purpose, text, filename):
             break
     reg[ref] = {"fecha": datetime.datetime.now().strftime("%d/%m/%Y %H:%M"), "destinatario": recipient,
                 "finalidad": purpose, "texto": text, "archivo": filename}
-    with open(_registry_path(), "w", encoding="utf-8") as f:
-        json.dump(reg, f, ensure_ascii=False, indent=2)
+    _save_registry(reg)
     return ref
 
 
@@ -898,16 +899,14 @@ def register_fingerprint(ref, hide_rects, page=0, **extra):
     rec = reg.setdefault(ref, {"fecha": datetime.datetime.now().strftime("%d/%m/%Y %H:%M"), **extra})
     rec.setdefault("huella", {})[str(page)] = [[round(v, 5) for v in r] for r in hide_rects]
     rec["rastreo"] = True
-    with open(_registry_path(), "w", encoding="utf-8") as f:
-        json.dump(reg, f, ensure_ascii=False, indent=2)
+    _save_registry(reg)
 
 
 def update_registry(ref, **fields):
     reg = _load_registry()
     if ref in reg:
         reg[ref].update(fields)
-        with open(_registry_path(), "w", encoding="utf-8") as f:
-            json.dump(reg, f, ensure_ascii=False, indent=2)
+        _save_registry(reg)
 
 
 # --------------------------------------------------------------------------

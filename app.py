@@ -56,6 +56,13 @@ class Api:
         self.reveal(path)
         return "reveal"
 
+    def pick_folder(self):
+        """Elige una carpeta (p. ej. para la copia automática del historial)."""
+        import webview
+        dialogs = getattr(webview, "FileDialog", None)
+        r = webview.windows[0].create_file_dialog(dialogs.FOLDER if dialogs else webview.FOLDER_DIALOG)
+        return (r if isinstance(r, str) else r[0]) if r else None
+
     def open_result(self, rid):
         """Abre un resultado (p. ej. el PDF de prueba de firma) con el programa predeterminado."""
         import tempfile
@@ -236,6 +243,20 @@ def selftest():
         buf = __import__("io").BytesIO()
         back.save(buf, "PNG")
         checks["copia firmada (franja, contraseña, acuse y comprobación)"] = _selftest_signed_copy(call, buf.getvalue())
+        # historial: copia automática en una carpeta (temporal), exportar e importar uniendo huellas
+        import json as _json
+        import records
+        carpeta = _tmp.mkdtemp(prefix="dg_copia_")
+        call("registry/backup", {"folder": carpeta})
+        ref_h = protect.register("Historial", "prueba", "", "")
+        protect.update_registry(ref_h, sha256=["a" * 64])
+        copia = _json.load(open(os.path.join(carpeta, "DocGuard_historial.json"), encoding="utf-8"))
+        exportado = _json.loads(server.RESULTS[call("registry/export")["rid"]][0][1])
+        exportado["entregas"][ref_h]["sha256"] = ["b" * 64]
+        imp = call("registry/import", {"id": call("open", raw=_json.dumps(exportado).encode(), name="h.json")["id"]})
+        checks["historial: copia, exportar e importar"] = (ref_h in copia["entregas"] and imp["merged"] >= 1
+                                                           and set(protect.lookup(ref_h)["sha256"]) == {"a" * 64, "b" * 64})
+        records.set_backup_folder("")
     finally:
         if previo is None:
             os.environ.pop("DOCGUARD_CONFIG", None)

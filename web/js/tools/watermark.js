@@ -377,14 +377,51 @@ const Wm = {
   async registry() {
     const r = await run('Cargando…', () => api('wm/registry'));
     if (!r) return;
-    const body = r.items.length ? h('table', { class: 'reg' },
-      h('tr', {}, h('th', {}, 'Fecha'), h('th', {}, 'Ref.'), h('th', {}, 'Entregado a'), h('th', {}, 'Finalidad'), h('th', {}, 'Archivo'), h('th', {}, 'Firmada')),
+    let close;
+    const again = () => { close?.(); this.registry(); };
+    const b = r.backup;
+    const status = h('div', { class: 'reg-backup' },
+      b.folder ? h('span', {}, '💾 Copia automática en ', h('b', {}, b.folder), b.last ? ` · última: ${b.last}` : '')
+        : h('span', { class: 'muted' }, 'Sin copia automática: si pierdes este equipo, pierdes el historial.'),
+      b.error ? h('div', { class: 'bad' }, `⚠ La última copia falló: ${b.error}`) : null,
+      h('div', { class: 'row' },
+        h('button', { onclick: () => this.backupFolder(b.folder).then(ok => ok && again()) }, b.folder ? 'Cambiar carpeta…' : 'Copia automática…'),
+        b.folder ? h('button', { onclick: async () => { await run('Guardando…', () => api('registry/backup', { folder: '' })); again(); } }, 'Desactivar') : null,
+        h('button', { onclick: async () => saveResult(await run('Exportando…', () => api('registry/export'))) }, 'Exportar…'),
+        h('button', { onclick: () => this.importRegistry().then(ok => ok && again()) }, 'Importar…')));
+    const del = async x => {
+      if (!(await confirmBox('Borrar del historial', `¿Borrar la entrega ${x.ref} (${x.destinatario || 'sin destinatario'})? Sin ella no se podrá identificar esa copia.`, 'Borrar'))) return;
+      await run('Borrando…', () => api('registry/delete', { ref: x.ref }));
+      again();
+    };
+    const table = r.items.length ? h('table', { class: 'reg' },
+      h('tr', {}, h('th', {}, 'Fecha'), h('th', {}, 'Ref.'), h('th', {}, 'Entregado a'), h('th', {}, 'Finalidad'), h('th', {}, 'Archivo'), h('th', {}, 'Firmada'), h('th', {}, '')),
       r.items.map(x => h('tr', {}, h('td', {}, x.fecha), h('td', {}, x.ref), h('td', {}, x.destinatario || '—'),
         h('td', {}, x.finalidad || '—'), h('td', {}, x.archivo),
         h('td', { title: x.firma ? [x.firma.sello && 'con sello de tiempo', x.firma.ltv && 'validación a largo plazo', x.firma.acuse && 'con acuse de recibo'].filter(Boolean).join(', ') : '' },
-          x.firma ? '✔ ' + x.firma.por : '—'))))
+          x.firma ? '✔ ' + x.firma.por : '—'),
+        h('td', {}, h('button', { class: 'mini', title: 'Borrar del historial', onclick: () => del(x) }, '✕')))))
       : h('p', {}, 'Todavía no has entregado documentos con marca de rastreo o QR.');
-    modal({ title: 'Historial de entregas', body, actions: [{ label: 'Cerrar', primary: true }], wide: true });
+    close = modal({ title: 'Historial de entregas', body: h('div', {}, status, table), actions: [{ label: 'Cerrar', primary: true }], wide: true });
+  },
+  /** Carpeta donde se copia el historial cada vez que cambia (iCloud Drive, Google Drive, un USB…). */
+  async backupFolder(current) {
+    const folder = window.pywebview?.api?.pick_folder ? await window.pywebview.api.pick_folder()
+      : await ask('Copia automática del historial', 'Ruta de la carpeta (por ejemplo, una de iCloud Drive o Google Drive)', current || '');
+    if (!folder) return false;
+    const r = await run('Copiando el historial…', () => api('registry/backup', { folder }));
+    if (r) toast(`Historial copiado en ${r.folder}. Se copiará solo cada vez que cambie.`, 'ok', [], 7000);
+    return !!r;
+  },
+  async importRegistry() {
+    const [f] = await pickFiles('application/json,.json');
+    if (!f) return false;
+    const r = await run('Importando…', async () => {
+      const info = await uploadFile(f);
+      try { return await api('registry/import', { id: info.id }); } finally { api('close', { id: info.id }).catch(() => {}); }
+    });
+    if (r) toast(`Historial importado: ${r.added} entrada(s) nueva(s) y ${r.merged} unida(s) con las que ya tenías.`, 'ok', [], 7000);
+    return !!r;
   },
   settings() {
     return { ...this.params(), fmt: $('input[name=wmfmt]:checked', this.root).value, width: this.k('width').value, height: this.k('height').value };

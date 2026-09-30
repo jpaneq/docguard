@@ -29,6 +29,7 @@ import convert
 import editor
 import idfields
 import protect
+import records
 import scan
 import signing
 
@@ -508,7 +509,36 @@ def op_wm_check(req):
 
 def op_wm_registry(req):
     reg = protect._load_registry()
-    return {"items": [dict(ref=k, **v) for k, v in reversed(list(reg.items()))]}
+    st = records.settings()
+    return {"items": [dict(ref=k, **v) for k, v in reversed(list(reg.items()))],
+            "backup": {"folder": st.get("copia_historial", ""), "last": st.get("ultima_copia", ""),
+                       "error": st.get("error_copia", "")}}
+
+
+def op_registry_export(req):
+    data = json.dumps(records.export_data(), ensure_ascii=False, indent=2).encode()
+    return store_result([(f"historial_DocGuard_{datetime.date.today():%Y-%m-%d}.json", data)])
+
+
+def op_registry_import(req):
+    d = get_doc(req)
+    try:
+        data = json.loads(d.orig.decode("utf-8-sig"))
+    except (UnicodeDecodeError, ValueError):
+        raise ValueError("El archivo no es un historial de DocGuard (.json).")
+    return records.import_data(data)
+
+
+def op_registry_delete(req):
+    records.delete("entregas", req["ref"])
+    return {}
+
+
+def op_registry_backup(req):
+    ok = records.set_backup_folder(req.get("folder", ""))
+    if ok is False:
+        raise ValueError("No se ha podido copiar en esa carpeta: " + records.settings().get("error_copia", ""))
+    return op_wm_registry({})["backup"]
 
 
 # ---- censura ----
@@ -1202,7 +1232,8 @@ OPS = {
     "presets": op_presets, "presets/save": op_presets_save,
     "open_result": op_open_result, "close": op_close, "info": op_info,
     "wm/preview": op_wm_preview, "wm/export": op_wm_export, "wm/check": op_wm_check,
-    "wm/registry": op_wm_registry, "idfields": op_idfields,
+    "wm/registry": op_wm_registry, "idfields": op_idfields, "registry/export": op_registry_export,
+    "registry/import": op_registry_import, "registry/delete": op_registry_delete, "registry/backup": op_registry_backup,
     "words": op_words, "pages_without_text": op_pages_without_text, "ocr": op_ocr, "detect": op_detect,
     "search": op_search, "redact": op_redact, "redact/marks/load": op_marks_load, "redact/marks/save": op_marks_save,
     "compare": op_compare, "search_many": op_search_many,

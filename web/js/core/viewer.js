@@ -19,6 +19,26 @@ class Viewer {
     this.info = null; this.n = 0; this.zoom = 1; this.v = 0; this.fitMode = true;
     this.onpage = null; this.onrender = null;
     new ResizeObserver(() => { if (this.info && this.fitMode) this.fit(); }).observe(this.el);
+    // Ctrl + rueda (o pellizco en el trackpad): zoom manteniendo fijo el punto bajo el ratón
+    let wheelZoom = null;
+    this.el.addEventListener('wheel', e => {
+      if (!e.ctrlKey || !this.info) return;
+      e.preventDefault();
+      if (!wheelZoom) {
+        const r = this.el.getBoundingClientRect();
+        const cx = e.clientX - r.left, cy = e.clientY - r.top;
+        wheelZoom = { z: this.zoom, old: this.zoom, cx, cy, x: cx + this.el.scrollLeft, y: cy + this.el.scrollTop };
+      }
+      wheelZoom.z = clamp(wheelZoom.z * Math.exp(-clamp(e.deltaY, -100, 100) / 400), 0.2, 5);
+      clearTimeout(wheelZoom.t);
+      wheelZoom.t = setTimeout(() => {
+        const w = wheelZoom; wheelZoom = null;
+        this.setZoom(w.z);
+        const k = this.zoom / w.old;
+        this.el.scrollLeft = w.x * k - w.cx;
+        this.el.scrollTop = w.y * k - w.cy;
+      }, 90);
+    }, { passive: false });
   }
   pageOv(i) { return i === this.n ? this._ov : null; }
   get wrap() { return this._wrap; }

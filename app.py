@@ -391,8 +391,17 @@ def main():
     url, httpd = server.start()
     if "--browser" not in sys.argv:
         try:
+            if sys.platform == "win32":
+                # WebView2 a veces deja la ventana con un fotograma congelado (sin iconos y sin responder):
+                # sin GPU no ocurre, y las páginas ya se dibujan en Python, así que no se pierde fluidez.
+                os.environ.setdefault("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--disable-gpu")
             import webview
-            webview.create_window("DocGuard", url, js_api=Api(), width=1320, height=880, min_size=(900, 600))
+            win = webview.create_window("DocGuard", url, js_api=Api(), width=1320, height=880, min_size=(900, 600))
+            if sys.platform == "win32":
+                def repaint():  # fuerza a WebView2 a repintar cuando la interfaz ya ha cargado
+                    win.resize(win.width + 1, win.height)
+                    win.resize(win.width - 1, win.height)
+                win.events.loaded += repaint
             webview.start()
             return
         except Exception as ex:  # sin ventana nativa: se usa el navegador

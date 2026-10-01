@@ -102,28 +102,83 @@ Object.assign(Edit, {
     if (g.thenAsk) this.askLineEq();
     else toast('Ejes calibrados. Pulsa «Recta por ecuación…» para dibujar.', 'ok', [], 3000);
   },
+  /** Diálogo con una fila por recta (ecuación + color). Devuelve [{seg, color}] o null. */
+  lineEqDialog(xr, yr) {
+    const COLORS = ['#d62828', '#1a4fd6', '#2a9d8f', '#f4a261', '#7b2cbf', '#111111'];
+    this.eqColor = this.eqColor || 0;
+    const list = h('div', { style: 'display:flex;flex-direction:column;gap:6px;margin-top:8px' });
+    const err = h('div', { style: 'color:#d62828;font-size:12px;min-height:16px;margin-top:6px' });
+    const rows = [];
+    const addRow = (focus = true) => {
+      const eq = h('input', { placeholder: 'y = 0,5x + 0,3   ·   x = 0,35', style: 'flex:1;min-width:240px' });
+      const color = h('input', { type: 'color', value: COLORS[this.eqColor++ % COLORS.length], title: 'Color de esta recta' });
+      const row = { eq, color };
+      const del = h('button', { title: 'Quitar esta recta', onclick: () => {
+        if (rows.length === 1) { eq.value = ''; eq.focus(); return; }
+        rows.splice(rows.indexOf(row), 1); row.el.remove(); rows[rows.length - 1].eq.focus();
+      } }, '✕');
+      row.el = h('div', { style: 'display:flex;gap:6px;align-items:center' }, eq, color, del);
+      eq.addEventListener('input', () => { eq.style.borderColor = ''; err.textContent = ''; });
+      eq.addEventListener('keydown', e => {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        if (e.metaKey || e.ctrlKey) return submit();
+        const i = rows.indexOf(row);
+        if (i < rows.length - 1) rows[i + 1].eq.focus();
+        else if (eq.value.trim()) addRow();
+        else submit();
+      });
+      rows.push(row); list.append(row.el);
+      if (focus) eq.focus();
+    };
+    let submit;
+    return new Promise(res => {
+      const check = () => {
+        const out = [];
+        let bad = 0;
+        for (const r of rows) {
+          const s = r.eq.value.trim();
+          if (!s) continue;
+          let seg = null;
+          try { seg = clipLineEq(parseLineEq(s), xr, yr); } catch { /* inválida */ }
+          if (!seg) { bad++; r.eq.style.borderColor = '#d62828'; r.eq.title = 'No es una recta válida o no pasa por el gráfico'; }
+          else { r.eq.style.borderColor = ''; r.eq.title = ''; out.push({ seg, color: r.color.value, eq: s }); }
+        }
+        if (bad) { err.textContent = bad === 1 ? 'Hay una recta que no se entiende o no pasa por el gráfico (en rojo).' : `Hay ${bad} rectas que no se entienden o no pasan por el gráfico (en rojo).`; return false; }
+        if (!out.length) { err.textContent = 'Escribe al menos una recta.'; return false; }
+        res(out);
+        return true;
+      };
+      const close = modal({
+        title: 'Rectas por ecuación', wide: true,
+        body: h('div', {},
+          h('div', { class: 'muted', style: 'font-size:12px' }, 'Una recta por línea: y = m·x + n o x = c (vertical). Intro pasa a la línea siguiente; Ctrl+Intro dibuja. Grosor y trazo: los de la barra de Formas.'),
+          list,
+          h('button', { style: 'margin-top:8px', onclick: () => addRow() }, '+ Añadir recta'),
+          err),
+        actions: [{ label: 'Cancelar', fn: () => res(null) }, { label: 'Dibujar', primary: true, fn: () => check() }],
+        onclose: () => res(null),
+      });
+      submit = () => { if (check()) close(); };
+      addRow();
+    });
+  },
   async askLineEq() {
     const n = this.viewer.n, cal = this.calibs?.[n];
     if (!cal) return;
-    const s = await ask('Recta por ecuación',
-      'Ecuación de la recta, p. ej. y = 0,5x + 0,3  ·  x = 0,35  (varias separadas por «;»)', this.lastEq || '');
-    if (s == null || !s.trim()) return;
-    this.lastEq = s;
     const [a, b] = cal;
     const xr = [Math.min(a.d[0], b.d[0]), Math.max(a.d[0], b.d[0])];
     const yr = [Math.min(a.d[1], b.d[1]), Math.max(a.d[1], b.d[1])];
+    const lines = await this.lineEqDialog(xr, yr);
+    if (!lines) return;
     const toView = ([x, y]) => [a.v[0] + (x - a.d[0]) * (b.v[0] - a.v[0]) / (b.d[0] - a.d[0]),
                                 a.v[1] + (y - a.d[1]) * (b.v[1] - a.v[1]) / (b.d[1] - a.d[1])];
     const sh = this.shape;
-    for (const eq of s.split(';').map(x => x.trim()).filter(Boolean)) {
-      let l;
-      try { l = parseLineEq(eq); } catch { toast(`No entiendo «${eq}». Escribe por ejemplo y = 0,5x + 0,3 o x = 0,35.`, 'err'); continue; }
-      const seg = clipLineEq(l, xr, yr);
-      if (!seg) { toast(`«${eq}» no pasa por la zona del gráfico.`, 'err'); continue; }
+    for (const { seg, color } of lines) {
       const p = seg.map(toView);
       const rect = [Math.min(p[0][0], p[1][0]), Math.min(p[0][1], p[1][1]), Math.max(p[0][0], p[1][0]), Math.max(p[0][1], p[1][1])];
       if (this.viewer.n !== n) break;
-      await this.op('add_shape', { kind: 'line', rect, points: p, stroke: sh.stroke, fill: null, width: sh.width, dash: sh.dash }, 'Dibujando recta…');
+      await this.op('add_shape', { kind: 'line', rect, points: p, stroke: color, fill: null, width: sh.width, dash: sh.dash }, 'Dibujando recta…');
     }
   },
 });

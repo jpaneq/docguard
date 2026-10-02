@@ -475,7 +475,7 @@ def _file_arg():
 
 
 def _open_in_window(win, path):
-    """Carga el archivo como «Abrir…» y lo muestra en Editar PDF (cuando la interfaz ya está lista)."""
+    """Carga el archivo como «Abrir…» y lo muestra en el Visor PDF, con la hoja entera (cuando la interfaz ya está lista)."""
     import json
     import secrets
     try:
@@ -485,7 +485,7 @@ def _open_in_window(win, path):
             did = secrets.token_urlsafe(8)
             server.DOCS[did] = server.Doc(os.path.basename(path), data)
             info = server.DOCS[did].info(did)
-        win.evaluate_js(f"showTool('edit'); Edit.loadInfo({json.dumps(info)});")
+        win.evaluate_js(f"showTool('library'); Library.openDoc({json.dumps(info)});")
     except Exception as ex:
         win.evaluate_js(f"toast({json.dumps('No se pudo abrir ' + os.path.basename(path) + ': ' + str(ex))}, 'err');")
 

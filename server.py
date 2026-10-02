@@ -1373,8 +1373,18 @@ def op_presets_save(req):
     return {}
 
 
+def op_ui(req):
+    """Preferencias de la interfaz (p. ej. barra lateral oculta). Se guardan en la configuración,
+    porque la ventana nativa no conserva el almacenamiento del navegador entre sesiones."""
+    ui = records.settings().get("ui", {})
+    if isinstance(req.get("set"), dict):
+        ui.update(req["set"])
+        records.save_settings(ui=ui)
+    return ui
+
+
 OPS = {
-    "presets": op_presets, "presets/save": op_presets_save,
+    "presets": op_presets, "presets/save": op_presets_save, "ui": op_ui,
     "open_result": op_open_result, "close": op_close, "info": op_info,
     "tabs/add": op_tabs_add, "tabs/list": op_tabs_list, "tabs/close": op_tabs_close,
     "wm/preview": op_wm_preview, "wm/export": op_wm_export, "wm/check": op_wm_check, "wm/report": op_wm_report,

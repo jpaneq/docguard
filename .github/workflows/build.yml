@@ -40,8 +40,10 @@ jobs:
           pip install -r requirements.txt pyinstaller
           python -c "from rapidocr import RapidOCR; RapidOCR()"
           python make_icon.py
+          python status_icons.py
           python -c "import shutil; shutil.copy('icon.png', 'web/icon.png')"
-          pyinstaller --noconfirm --windowed --name DocGuard --icon icon.ico --add-data "web;web" --collect-all rapidocr --collect-all onnxruntime --collect-all webview --collect-all pyhanko --collect-all pyhanko_certvalidator --hidden-import pkcs11 app.py
+          g++ -shared -O2 -s -static -static-libgcc -static-libstdc++ -o winthumbs/dg_thumbs.dll winthumbs/dg_thumbs.cpp winthumbs/dg_thumbs.def -lole32 -lwindowscodecs -lshlwapi -luuid -lgdi32
+          pyinstaller --noconfirm --windowed --name DocGuard --icon icon.ico --add-data "web;web" --add-data "iconos_estado;iconos_estado" --add-binary "winthumbs/dg_thumbs.dll;." --collect-all rapidocr --collect-all onnxruntime --collect-all webview --collect-all pyhanko --collect-all pyhanko_certvalidator --hidden-import pkcs11 app.py
       - name: Selftest (Windows)
         if: runner.os == 'Windows'
         shell: bash

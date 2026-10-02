@@ -33,6 +33,7 @@ import protect
 import records
 import scan
 import signing
+import status_icons
 import tracking
 
 TOKEN = secrets.token_urlsafe(18)
@@ -445,15 +446,18 @@ def op_wm_export(req):
                             layout = {"page": 0, "sig": None, "ack": None, "fs": 6}
                         if want_pdfa:  # primero PDF/A y después la firma (que no rompe la norma)
                             data = pdfa.convert(data, f"Copia de uso restringido {ref or ''}".strip())
+                        data = status_icons.mark_pdf(data, "protegido")  # para el icono de estado
                         if pw:
                             data = signing.encrypt_pdf_bytes(data, pw)
                         data, warn, used = signing.sign_copy(data, signer, layout, reason=reason[:150], password=pw or None,
                                                              tsa_url=sign.get("tsa") or None, ltv=bool(sign.get("ltv")))
                         notes += [x for x in warn if x not in notes]
-                    elif pw:  # el mismo cifrado que las copias firmadas (lo lee «Comprobar una copia»)
-                        data = signing.encrypt_pdf_bytes(data, pw)
-                    elif want_pdfa:
-                        data = pdfa.convert(data, f"Copia de uso restringido {ref or ''}".strip())
+                    else:
+                        if want_pdfa:
+                            data = pdfa.convert(data, f"Copia de uso restringido {ref or ''}".strip())
+                        data = status_icons.mark_pdf(data, "protegido")  # para el icono de estado
+                        if pw:  # el mismo cifrado que las copias firmadas (lo lee «Comprobar una copia»)
+                            data = signing.encrypt_pdf_bytes(data, pw)
                 done.append((name, data))
             if ref:
                 rec = {"sha256": [hashlib.sha256(data).hexdigest() for _, data in done]}
@@ -847,7 +851,8 @@ def op_redact(req):
     with tempfile.TemporaryDirectory() as tmp:
         dst = os.path.join(tmp, f"{d.base}_censurado.pdf")
         core.redact_pdf(doc, marks, dst, core.REDACT_STYLES.get(req.get("style"), "black"))
-        return store_result(read_outputs(tmp))
+        return store_result([(n, status_icons.mark_pdf(b, "censurado") if n.lower().endswith(".pdf") else b)
+                             for n, b in read_outputs(tmp)])
 
 
 # ---- páginas ----

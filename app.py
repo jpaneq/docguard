@@ -14,6 +14,27 @@ import webbrowser
 import server
 
 
+def _mark_icons(paths):
+    """Mac: icono de estado y etiquetas en los PDF guardados (si está activado)."""
+    import threading
+
+    import records
+    import status_icons
+    if sys.platform == "darwin" and records.settings().get("iconos_estado", True):
+        threading.Thread(target=lambda: [status_icons.mark_file(p) for p in paths or ()], daemon=True).start()
+
+
+def _windows_icons():
+    """Windows: miniaturas con icono de estado en el Explorador (solo para este usuario, sin permisos)."""
+    import records
+    import status_icons
+    if sys.platform == "win32" and records.settings().get("iconos_estado", True):
+        try:
+            status_icons.windows_register(True)
+        except Exception:
+            pass
+
+
 APP_URL = None  # dirección de la interfaz (con su clave): la comparten todas las ventanas
 
 
@@ -115,7 +136,30 @@ class Api:
         if not r:
             return None
         target = r if isinstance(r, str) else r[0]
-        return server.save_result_to(rid, target, folder)
+        paths = server.save_result_to(rid, target, folder)
+        _mark_icons(paths)
+        return paths
+
+    def mark_folder(self):
+        """Pone el icono de estado a los PDF de una carpeta (Mac)."""
+        import webview
+
+        import status_icons
+        dialogs = getattr(webview, "FileDialog", None)
+        r = webview.windows[0].create_file_dialog(dialogs.FOLDER if dialogs else webview.FOLDER_DIALOG)
+        if not r:
+            return None
+        return status_icons.mark_folder(r if isinstance(r, str) else r[0])
+
+    def icons_setting(self, enable=None):
+        """Lee o cambia «iconos de estado» (en Windows, registra o quita las miniaturas)."""
+        import records
+
+        import status_icons
+        if enable is not None:
+            records.save_settings(iconos_estado=bool(enable))
+            status_icons.windows_register(bool(enable))
+        return {"enabled": records.settings().get("iconos_estado", True), "platform": sys.platform}
 
     def email(self, path):
         """Abre un correo nuevo con el archivo adjunto (Mail en macOS, Outlook en Windows)."""
@@ -238,6 +282,23 @@ def _selftest_markup_objects():
             and style == {"stroke": "#1a4fd6", "fill": "#ffe066", "width": 3.0, "dash": "punteada", "opacity": 0.6})
 
 
+def _selftest_status():
+    import os
+
+    import pymupdf as fitz
+
+    import signing
+    import status_icons
+    doc = fitz.open()
+    doc.new_page()
+    base = doc.tobytes()
+    firmado = signing.sign_pdf(status_icons.mark_pdf(base, "protegido"), _test_p12(), "x", page=0, view_rect=[300, 700, 540, 770])
+    cases = [(base, []), (firmado, ["firmado", "protegido"]), (signing.encrypt_pdf_bytes(base, "x"), ["contrasena"]),
+             (status_icons.mark_pdf(base, "censurado"), ["censurado"])]
+    return all(status_icons.status(b) == f for b, f in cases) and all(
+        os.path.exists(status_icons.icon_path(f)) for _, f in cases)
+
+
 def _selftest_shapes():
     """Mover una forma no la agranda y los extremos de una flecha se cambian conservando su punta."""
     import pymupdf as fitz
@@ -341,6 +402,7 @@ def selftest():
         "edición": call("edit/state", {"id": info["id"], "n": 0})["spans"][0]["text"] == "DNI 12345678Z",
         "formas: extremos y mover sin crecer": _selftest_shapes(),
         "resaltar texto, estilo de formas y copiar campos": _selftest_markup_objects(),
+        "iconos de estado (firmado, contraseña, censurado, protegido)": _selftest_status(),
         "cambiar el tamaño del texto": (call("edit/scale_spans", {"id": info["id"], "n": 0, "indices": [0], "factor": 1.5,
                                                                   "anchor": [50, 60]}) is not None
                                         and call("edit/state", {"id": info["id"], "n": 0})["spans"][0]["size"] == 21.0
@@ -563,6 +625,8 @@ def main():
             global APP_URL
             APP_URL = url
             win = make_window()
+            import threading
+            threading.Thread(target=_windows_icons, daemon=True).start()
             if sys.platform == "darwin":
                 loaded = {"ok": False}
                 pending = _mac_open_files(win, loaded)

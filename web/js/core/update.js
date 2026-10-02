@@ -38,3 +38,26 @@ const Update = {
     await window.pywebview.api.restart_to_update();
   },
 };
+
+// Iconos de estado de los PDF en el Finder / Explorador (firmado, contraseña, censurado, protegido).
+const StatusIcons = {
+  async open() {
+    const apiN = window.pywebview?.api;
+    if (!apiN?.icons_setting) return toast('Solo disponible en el programa de escritorio.', '');
+    const st = await apiN.icons_setting(null);
+    const mac = st.platform === 'darwin';
+    const cb = h('input', { type: 'checkbox', checked: st.enabled });
+    modal({
+      title: 'Iconos de estado de los PDF',
+      body: h('div', {},
+        h('p', {}, 'Los PDF se ven en rojo, con una insignia si están firmados ✍, con contraseña 🔒, censurados ▬ o protegidos 🛡.'),
+        h('label', { class: 'inline' }, cb, 'Mostrar los iconos de estado'),
+        mac ? h('p', { class: 'muted' }, 'Mac: se aplican a los PDF que guarda DocGuard (también con etiquetas de color del Finder). Para los que ya tienes, usa el botón de abajo. El icono solo existe en tu Mac: al enviar el PDF se ve normal. El Finder deja de mostrar la miniatura de la primera página en esos archivos.')
+          : h('p', { class: 'muted' }, 'Windows: el Explorador los muestra en todos los PDF, en las vistas de iconos medianos o más grandes. Solo para tu usuario y sin permisos de administrador. Puede que los PDF que ya habías visto tarden en actualizarse (el Explorador guarda las miniaturas).')),
+      actions: [
+        ...(mac ? [{ label: 'Marcar los PDF de una carpeta…', fn: async () => { const n = await apiN.mark_folder(); if (n != null) toast(`${n} PDF marcados.`, 'ok'); return false; } }] : []),
+        { label: 'Cerrar', primary: true, fn: async () => { if (cb.checked !== st.enabled) await apiN.icons_setting(cb.checked); } },
+      ],
+    });
+  },
+};

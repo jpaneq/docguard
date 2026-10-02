@@ -1,0 +1,4 @@
+LIBRARY dg_thumbs
+EXPORTS
+    DllGetClassObject PRIVATE
+    DllCanUnloadNow PRIVATE

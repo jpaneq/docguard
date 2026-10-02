@@ -244,7 +244,7 @@ textarea.inline-edit { resize: none; border: 0; background: rgba(255, 255, 255, 
 .ctxmenu .mi.off { opacity: .4; pointer-events: none; }
 .ctxmenu .msep { height: 1px; background: var(--line); margin: 4px 0; }
 
-.stack { display: flex; flex-direction: column; align-items: center; gap: 16px; padding-bottom: 60px; }
+.stack { display: flex; flex-direction: column; align-items: center; gap: 16px; padding-bottom: 60px; width: max-content; min-width: 100%; }  /* con zoom, la página se puede desplazar entera (no se corta por la izquierda) */
 .stack .page-wrap { margin: 0; flex: none; }
 .stack .page-wrap img:not([src]) { visibility: hidden; }
 .pages-side { width: 190px; flex: none; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }

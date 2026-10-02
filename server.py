@@ -160,6 +160,27 @@ def op_close(req):
     return {}
 
 
+TABS = []  # documentos abiertos como pestañas (los comparten todas las ventanas)
+
+
+def op_tabs_add(req):
+    if req["id"] in DOCS and req["id"] not in TABS:
+        TABS.append(req["id"])
+    return {}
+
+
+def op_tabs_list(req):
+    TABS[:] = [t for t in TABS if t in DOCS]
+    return {"tabs": [DOCS[t].info(t) for t in TABS]}
+
+
+def op_tabs_close(req):
+    if req["id"] in TABS:
+        TABS.remove(req["id"])
+    DOCS.pop(req["id"], None)
+    return {}
+
+
 def op_info(req):
     return get_doc(req).info(req["id"])
 
@@ -1355,6 +1376,7 @@ def op_presets_save(req):
 OPS = {
     "presets": op_presets, "presets/save": op_presets_save,
     "open_result": op_open_result, "close": op_close, "info": op_info,
+    "tabs/add": op_tabs_add, "tabs/list": op_tabs_list, "tabs/close": op_tabs_close,
     "wm/preview": op_wm_preview, "wm/export": op_wm_export, "wm/check": op_wm_check, "wm/report": op_wm_report,
     "wm/registry": op_wm_registry, "idfields": op_idfields, "registry/export": op_registry_export,
     "registry/import": op_registry_import, "registry/delete": op_registry_delete, "registry/backup": op_registry_backup,

@@ -14,8 +14,66 @@ import webbrowser
 import server
 
 
+APP_URL = None  # dirección de la interfaz (con su clave): la comparten todas las ventanas
+
+
+def make_window(x=None, y=None, width=1320, height=880):
+    """Abre una ventana de DocGuard. Todas usan el mismo servidor: comparten documentos y pestañas."""
+    import webview
+    win = webview.create_window("DocGuard", APP_URL, js_api=Api(), width=width, height=height, x=x, y=y,
+                                min_size=(700, 450))
+    if sys.platform == "win32":
+        def repaint():  # fuerza a WebView2 a repintar cuando la interfaz ya ha cargado
+            win.resize(win.width + 1, win.height)
+            win.resize(win.width - 1, win.height)
+        win.events.loaded += repaint
+    return win
+
+
+def _screen():
+    import webview
+    sc = webview.screens[0] if webview.screens else None
+    return (sc.width, sc.height) if sc else (1440, 900)
+
+
+def new_window():
+    import webview
+    n = len(webview.windows)
+    make_window(x=60 + 30 * n, y=60 + 30 * n)
+
+
+def arrange(mode="mosaico"):
+    """Coloca las ventanas en mosaico (repartidas por la pantalla) o en cascada."""
+    import math
+
+    import webview
+    wins = list(webview.windows)
+    if not wins:
+        return
+    W, H = _screen()
+    top = 25 if sys.platform == "darwin" else 0  # barra de menús del Mac
+    if mode == "cascada":
+        w, h = int(W * 0.7), int((H - top) * 0.8)
+        for i, win in enumerate(wins):
+            win.resize(w, h)
+            win.move(30 + 32 * i, top + 10 + 32 * i)
+        return
+    cols = math.ceil(math.sqrt(len(wins)))
+    rows = math.ceil(len(wins) / cols)
+    w, h = W // cols, (H - top) // rows
+    for i, win in enumerate(wins):
+        win.resize(max(700, w), max(450, h))
+        win.move((i % cols) * w, top + (i // cols) * h)
+
+
 class Api:
     """Funciones que la interfaz puede llamar dentro de la ventana nativa."""
+
+    def new_window(self):
+        new_window()
+
+    def arrange(self, mode):
+        arrange(mode)
 
     def save_result(self, rid):
         import webview
@@ -464,12 +522,10 @@ def main():
                 # sin GPU no ocurre, y las páginas ya se dibujan en Python, así que no se pierde fluidez.
                 os.environ.setdefault("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--disable-gpu")
             import webview
-            win = webview.create_window("DocGuard", url, js_api=Api(), width=1320, height=880, min_size=(900, 600))
-            if sys.platform == "win32":
-                def repaint():  # fuerza a WebView2 a repintar cuando la interfaz ya ha cargado
-                    win.resize(win.width + 1, win.height)
-                    win.resize(win.width - 1, win.height)
-                win.events.loaded += repaint
+            from webview.menu import Menu, MenuAction, MenuSeparator
+            global APP_URL
+            APP_URL = url
+            win = make_window()
             if sys.platform == "darwin":
                 loaded = {"ok": False}
                 pending = _mac_open_files(win, loaded)
@@ -487,7 +543,10 @@ def main():
                     win.events.loaded -= open_file  # solo la primera vez que carga la interfaz
                     _open_in_window(win, path)
                 win.events.loaded += open_file
-            webview.start()
+            webview.start(menu=[Menu("Ventana", [
+                MenuAction("Nueva ventana", new_window), MenuSeparator(),
+                MenuAction("Organizar en mosaico", lambda: arrange("mosaico")),
+                MenuAction("Organizar en cascada", lambda: arrange("cascada"))])])
             return
         except Exception as ex:  # sin ventana nativa: se usa el navegador
             print("Ventana nativa no disponible, se abre el navegador:", ex)

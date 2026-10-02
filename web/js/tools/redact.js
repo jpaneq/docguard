@@ -13,9 +13,9 @@ const Redact = {
     this.viewer.onpage = n => { if (!this.preview) this.ensureWords(n); };
     this.viewer.on('mousedown', e => this.down(e));
     this.mode = 'text'; this.marks = {}; this.words = {};
-    dropTarget(this.viewer.el, f => this.openFile(f[0]));
+    dropTarget(this.viewer.el, async fs => { for (const f of fs) await this.openFile(f); });
     const act = (a, f) => { $(`[data-act=${a}]`, this.root).onclick = f; };
-    act('open', async () => { const [f] = await pickFiles(ACCEPT_DOCS); if (f) this.openFile(f); });
+    act('open', async () => { for (const f of await pickFiles(ACCEPT_DOCS, true)) await this.openFile(f); });
     act('search', () => this.search());
     $('[data-k=term]', this.root).addEventListener('keydown', e => { if (e.key === 'Enter') this.search(); });
     act('detect', () => this.detect());

@@ -72,7 +72,7 @@ const Edit = {
     this.widgetType = 'text'; this.sig = null; this.fonts = [];
     $$('[data-t]', this.root).forEach(b => b.onclick = () => this.setTool(b.dataset.t));
     const act = (a, f) => { $(`[data-act=${a}]`, this.root).onclick = f; };
-    act('open', async () => { const [f] = await pickFiles(ACCEPT_DOCS); if (f) this.openFile(f); });
+    act('open', async () => { for (const f of await pickFiles(ACCEPT_DOCS, true)) await this.openFile(f); });
     act('undo', () => this.undo());
     act('redo', () => this.redo());
     act('copy', () => this.copyAny(false));
@@ -89,7 +89,7 @@ const Edit = {
     act('findnext', () => this.findStep(1));
     act('findprev', () => this.findStep(-1));
     act('export', async () => saveResult(await run('Preparando…', () => api('edit/export', { id: this.info.id }))));
-    dropTarget(this.viewer.el, f => this.openFile(f[0]));
+    dropTarget(this.viewer.el, async fs => { for (const f of fs) await this.openFile(f); });
     document.addEventListener('keydown', e => this.key(e));
     document.addEventListener('mousedown', e => { if (this.menu && !this.menu.contains(e.target)) this.closeMenu(); });
     document.addEventListener('sigs-changed', () => { if (this.tool === 'sign') this.renderBar(); });
@@ -1046,6 +1046,7 @@ const Edit = {
       navigator.clipboard?.writeText(r.text).catch(() => {});
       if (cut) await this.op('delete_spans', { indices });
       toast(cut ? 'Cortado. Pega con ⌘V donde tengas el ratón.' : 'Copiado. Pega con ⌘V donde tengas el ratón.', 'ok', [], 2500);
+      this.saveClip(); this._clipAt = Date.now();
       return;
     }
     // campos de formulario y formas: se copian como objetos (se pegan editables)
@@ -1058,6 +1059,7 @@ const Edit = {
       this.clipAnchor = r.rect;
       if (cut) await this.op(obj === 'widget' ? 'delete_widget' : 'delete_annot', { xref: this.sel.id });
       toast(`${obj === 'widget' ? (cut ? 'Campo cortado' : 'Campo copiado') : (cut ? 'Forma cortada' : 'Forma copiada')}. Pega con ⌘V donde tengas el ratón (también en otra página).`, 'ok', [], 3000);
+      this.saveClip(); this._clipAt = Date.now();
       return;
     }
     // zona: la seleccionada, la de los textos seleccionados o la de la imagen seleccionada
@@ -1083,9 +1085,21 @@ const Edit = {
       else if (this.sel?.type === 'annot') await this.op('delete_annot', { xref: this.sel.id });
     }
     toast(this.clipAsImage ? 'Copiado como captura. Pega con ⌘V donde tengas el ratón.' : 'Zona copiada. Pega con ⌘V donde tengas el ratón.', 'ok', [], 2500);
+    this.saveClip(); this._clipAt = Date.now();
+  },
+  /** Lo copiado se comparte entre ventanas de DocGuard (el contenido está en el servidor). */
+  saveClip() {
+    try { localStorage.setItem('dg_clip', JSON.stringify({ clipKind: this.clipKind, clipObj: this.clipObj, clipAnchor: this.clipAnchor, clipAsImage: this.clipAsImage, at: Date.now() })); } catch (e) { /* sin almacenamiento */ }
+  },
+  loadClip() {
+    try {
+      const c = JSON.parse(localStorage.getItem('dg_clip') || 'null');
+      if (c && (!this._clipAt || c.at > this._clipAt)) { Object.assign(this, c); this._clipAt = c.at; if (c.clipKind === 'region') this.clip = true; }
+    } catch (e) { /* sin almacenamiento */ }
   },
   async pasteAny(asImage = false) {
     if (!this.info) return;
+    this.loadClip();
     const v = this.viewer;
     const at = this.mouse && this.mouse.n === v.n ? this.mouse.p : null;
     if (this.clipKind === 'spans') {

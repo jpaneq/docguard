@@ -227,6 +227,7 @@ let CURRENT = null;
 function setCurrent(info) {
   if (!info || !info.pages?.length) return;
   CURRENT = info;
+  if (typeof Tabs !== 'undefined') Tabs.add(info);
   const box = $('.current-doc');
   box.hidden = false;
   $('.cd-name', box).textContent = info.name;

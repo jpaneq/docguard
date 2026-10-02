@@ -59,6 +59,7 @@ function init() {
   TOOLS.scanner = Scanner;
   $$('.nav button').forEach(b => b.onclick = () => showTool(b.dataset.tool));
   Sigs.load();
+  Tabs.init();
 }
 
 init();

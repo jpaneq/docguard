@@ -13,11 +13,11 @@ const Sign = {
     this.viewer.on('mousedown', e => this.down(e));
     makeResizable($('.props', this.root), 'left', 'sign', 260, 620);
     this.rect = null; this.p12 = null;
-    dropTarget(this.viewer.el, f => this.openFile(f[0]));
+    dropTarget(this.viewer.el, async fs => { for (const f of fs) await this.openFile(f); });
     const act = (a, f) => { $(`[data-act=${a}]`, this.root).onclick = f; };
     const k = n => $(`[data-k=${n}]`, this.root);
     this.k = k;
-    act('open', async () => { const [f] = await pickFiles(ACCEPT_PDF); if (f) this.openFile(f); });
+    act('open', async () => { for (const f of await pickFiles(ACCEPT_PDF, true)) await this.openFile(f); });
     act('cert', () => this.pickCert());
     act('certinfo', () => this.certInfo());
     act('newsig', async () => { const id = await Sigs.create(); if (id) this.fillSigs(id); });

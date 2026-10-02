@@ -30,13 +30,22 @@ const Library = {
       if (!$('.reader', this.root).hidden && e.key === 'Enter' && document.activeElement === document.body) this.step(e.shiftKey ? -1 : 1);
     });
     this.viewer = new ContViewer($('.reader-host', this.root), { keepOverlays: true, firstClickActivates: false });
+    this.viewer.fitPage = true;  // «Ajustar» muestra la hoja entera
     this.viewer.onrender = () => this.drawHits();
     makeResizable($('.lib-results', this.root), 'left', 'lib', 220, 620);
   },
   loadInfo(info) { if (!this.docs.some(d => d.id === info.id)) { this.docs.push(info); this.render(); } },
+  /** Abre un documento directamente en el lector, con la hoja entera (doble clic, «Abrir con…», «Añadir» de un archivo). */
+  openDoc(info) {
+    if (!info?.pages?.length || info.encrypted) return toast(`${info?.name || 'El archivo'}: no se puede mostrar (con contraseña o formato no admitido).`, 'err');
+    this.loadInfo(info);
+    setCurrent(info);
+    this.openReader(this.docs.find(d => d.id === info.id) || info, 0);
+  },
 
   async add(files) {
     if (!files.length) return;
+    const before = this.docs.length;
     busy(true, 'Abriendo…');
     try {
       for (const f of files) {
@@ -49,6 +58,7 @@ const Library = {
     } finally { busy(false); }
     this.render();
     if (this.term) this.search(this.term);
+    if (files.length === 1 && this.docs.length > before) this.openDoc(this.docs[this.docs.length - 1]);  // uno solo: se abre ya
   },
   hitsOf(id) { return this.res?.docs.find(d => d.id === id); },
 

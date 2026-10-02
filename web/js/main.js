@@ -58,6 +58,7 @@ function init() {
   Scanner.init();
   TOOLS.scanner = Scanner;
   $$('.nav button').forEach(b => b.onclick = () => showTool(b.dataset.tool));
+  showTool('library');  // se abre en el Visor PDF
   Sigs.load();
   Tabs.init();
 }

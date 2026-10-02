@@ -19,6 +19,16 @@ class Viewer {
     this.info = null; this.n = 0; this.zoom = 1; this.v = 0; this.fitMode = true;
     this.onpage = null; this.onrender = null;
     new ResizeObserver(() => { if (this.info && this.fitMode) this.fit(); }).observe(this.el);
+    // Flechas ← →: página anterior / siguiente. En «window» llega después que en las herramientas,
+    // así que si una ya ha usado la tecla (p. ej. Editar moviendo un texto seleccionado) no se pasa página.
+    window.addEventListener('keydown', e => {
+      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || !this.info) return;
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      const a = document.activeElement;
+      if (!this.el.offsetParent || $('.modal-bg') || /INPUT|TEXTAREA|SELECT/.test(a?.tagName) || a?.isContentEditable) return;
+      e.preventDefault();
+      this.go(this.n + (e.key === 'ArrowRight' ? 1 : -1));
+    });
     // Ctrl + rueda (o pellizco en el trackpad): zoom manteniendo fijo el punto bajo el ratón.
     // Mientras se gira, la página se amplía al momento (imagen estirada); al parar se pide nítida.
     let wheelZoom = null;
@@ -78,8 +88,13 @@ class Viewer {
     const w = this.el.clientWidth - 40;
     if (w <= 0) return;
     this.fitMode = true;
-    this.zoom = clamp(w / this.size[0], 0.2, 2.2);
+    this.zoom = clamp(this.fitZoom(w, this.size[0], this.size[1]), 0.2, 2.2);
     this.render();
+  }
+  /** Zoom de «Ajustar»: al ancho o, con fitPage, la página entera (también de alto; deja sitio a la barra ◀ ▶). */
+  fitZoom(w, pw, ph) {
+    const zw = w / pw;
+    return this.fitPage ? Math.min(zw, (this.el.clientHeight - 80) / ph) : zw;
   }
   setZoom(z) { this.fitMode = false; this.zoom = clamp(z, 0.2, 5); this.render(); }
   go(n) {
@@ -357,7 +372,8 @@ class ContViewer extends Viewer {
     const w = this.el.clientWidth - 40;
     if (w <= 0) return;
     this.fitMode = true;
-    this.zoom = clamp(w / Math.max(...this.info.pages.map(p => p[0])), 0.2, 2.2);
+    const sz = this.info.pages[this.n] || this.info.pages[0];
+    this.zoom = clamp(this.fitZoom(w, Math.max(...this.info.pages.map(p => p[0])), sz[1]), 0.2, 2.2);
     this.render();
   }
   setZoom(z) {

@@ -37,6 +37,21 @@ function showTool(name) {
   if (name === 'watermark') Wm.schedule();
 }
 
+/** Botón ‹ / › para ocultar y mostrar la barra lateral. Se recuerda en la configuración de DocGuard
+ *  (la ventana nativa no conserva el almacenamiento del navegador entre sesiones). */
+function initNavToggle() {
+  const nav = $('.nav'), tg = $('.nav-toggle');
+  const set = (collapsed, save = true) => {
+    nav.classList.toggle('collapsed', collapsed);
+    tg.textContent = collapsed ? '›' : '‹';
+    tg.title = collapsed ? 'Mostrar la barra' : 'Ocultar la barra';
+    if (save) api('ui', { set: { nav_collapsed: collapsed } }).catch(() => {});
+  };
+  tg.onclick = e => { e.stopPropagation(); set(!nav.classList.contains('collapsed')); };
+  nav.addEventListener('click', () => { if (nav.classList.contains('collapsed')) set(false); });  // toda la tira la saca
+  api('ui', {}).then(ui => set(!!ui.nav_collapsed, false)).catch(() => {});
+}
+
 function init() {
   Edit.init(); Wm.init(); Redact.init(); Sign.init(); Pages.init(); Protect.init();
   Object.assign(TOOLS, { edit: Edit, watermark: Wm, redact: Redact, sign: Sign, pages: Pages, protect: Protect });
@@ -57,7 +72,8 @@ function init() {
   TOOLS.library = Library;
   Scanner.init();
   TOOLS.scanner = Scanner;
-  $$('.nav button').forEach(b => b.onclick = () => showTool(b.dataset.tool));
+  $$('.nav button[data-tool]').forEach(b => b.onclick = () => showTool(b.dataset.tool));
+  initNavToggle();
   Sigs.load();
   Tabs.init();
   Update.init();

@@ -25,6 +25,7 @@ p = "dist/DocGuard.app/Contents/Info.plist"
 d = plistlib.load(open(p, "rb"))
 d["CFBundleDocumentTypes"] = [
     {"CFBundleTypeName": "PDF", "CFBundleTypeRole": "Editor", "LSHandlerRank": "Alternate",
+     "CFBundleTypeIconFile": d.get("CFBundleIconFile", "icon.icns"),
      "LSItemContentTypes": ["com.adobe.pdf"]},
     {"CFBundleTypeName": "Imagen", "CFBundleTypeRole": "Viewer", "LSHandlerRank": "Alternate",
      "LSItemContentTypes": ["public.jpeg", "public.png", "public.tiff", "public.heic", "public.image"]},

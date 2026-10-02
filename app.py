@@ -20,7 +20,7 @@ APP_URL = None  # dirección de la interfaz (con su clave): la comparten todas l
 def make_window(x=None, y=None, width=1320, height=880):
     """Abre una ventana de DocGuard. Todas usan el mismo servidor: comparten documentos y pestañas."""
     import webview
-    win = webview.create_window("DocGuard", APP_URL, js_api=Api(), width=width, height=height, x=x, y=y,
+    win = webview.create_window(f"DocGuard {server.core.VERSION}", APP_URL, js_api=Api(), width=width, height=height, x=x, y=y,
                                 min_size=(700, 450))
     if sys.platform == "win32":
         def repaint():  # fuerza a WebView2 a repintar cuando la interfaz ya ha cargado

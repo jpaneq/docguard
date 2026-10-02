@@ -16,9 +16,13 @@ mask = Image.new("L", (S, S), 0)
 ImageDraw.Draw(mask).rounded_rectangle((40, 40, S - 40, S - 40), radius=200, fill=255)
 img.paste(grad, (0, 0), mask)
 
-# Documento blanco.
+# Documento blanco con «PDF» bien visible (se reconoce en el Finder y el Explorador incluso en pequeño).
 d.rounded_rectangle((250, 170, 700, 780), radius=40, fill=(255, 255, 255, 255))
-for i, y in enumerate(range(270, 640, 70)):
+import core  # noqa: E402  (fuente en negrita del sistema)
+f = core.get_font(190)
+tw = d.textlength("PDF", font=f)
+d.text((475 - tw / 2, 190), "PDF", font=f, fill=(190, 25, 35, 255))
+for i, y in enumerate(range(430, 700, 70)):
     color = (20, 20, 20, 255) if i in (1, 3) else (180, 190, 210, 255)  # líneas censuradas en negro
     d.rounded_rectangle((310, y, 640 - (i % 2) * 80, y + 34), radius=10, fill=color)
 

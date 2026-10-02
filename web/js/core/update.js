@@ -5,7 +5,10 @@ const Update = {
   async init() {
     const v = await api('version').catch(() => null);
     if (v) $$('[data-role=version]').forEach(el => { el.textContent = 'Versión ' + v.version; });
-    if (!window.pywebview && !('pywebview' in window)) return;  // solo en el programa
+    if (!window.pywebview) {  // en Windows pywebview se conecta un instante después de cargar
+      await new Promise(res => { window.addEventListener('pywebviewready', res, { once: true }); setTimeout(res, 3000); });
+      if (!window.pywebview) return;  // en el navegador no se actualiza
+    }
     try {  // una vez cada pocas horas aunque haya varias ventanas
       if (Date.now() - (+localStorage.getItem('dg_update_seen') || 0) < 6 * 3600e3) return;
     } catch (e) { /* sin almacenamiento */ }

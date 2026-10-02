@@ -19,11 +19,11 @@ class Viewer {
     this.info = null; this.n = 0; this.zoom = 1; this.v = 0; this.fitMode = true;
     this.onpage = null; this.onrender = null;
     new ResizeObserver(() => { if (this.info && this.fitMode) this.fit(); }).observe(this.el);
-    // Ctrl + rueda (o pellizco en el trackpad): zoom manteniendo fijo el punto bajo el ratón.
+    // Ctrl o ⌘ + rueda (o pellizco en el trackpad): zoom manteniendo fijo el punto bajo el ratón.
     // Mientras se gira, la página se amplía al momento (imagen estirada); al parar se pide nítida.
     let wheelZoom = null;
     this.el.addEventListener('wheel', e => {
-      if (!e.ctrlKey || !this.info) return;
+      if (!(e.ctrlKey || e.metaKey) || !this.info) return;
       e.preventDefault();
       if (!wheelZoom) {
         const r = this.el.getBoundingClientRect();

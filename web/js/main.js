@@ -37,6 +37,22 @@ function showTool(name) {
   if (name === 'watermark') Wm.schedule();
 }
 
+/** Botón ‹ / › para ocultar y mostrar la barra lateral (se recuerda en este equipo). */
+function initNavToggle() {
+  const nav = $('.nav'), tg = $('.nav-toggle');
+  const set = collapsed => {
+    nav.classList.toggle('collapsed', collapsed);
+    tg.textContent = collapsed ? '›' : '‹';
+    tg.title = collapsed ? 'Mostrar la barra' : 'Ocultar la barra';
+    try { localStorage.setItem('dg_nav_collapsed', collapsed ? '1' : ''); } catch (e) { /* sin almacenamiento */ }
+  };
+  tg.onclick = e => { e.stopPropagation(); set(!nav.classList.contains('collapsed')); };
+  nav.addEventListener('click', () => { if (nav.classList.contains('collapsed')) set(false); });  // toda la tira la saca
+  let saved = false;
+  try { saved = localStorage.getItem('dg_nav_collapsed') === '1'; } catch (e) { /* sin almacenamiento */ }
+  set(saved);
+}
+
 function init() {
   Edit.init(); Wm.init(); Redact.init(); Sign.init(); Pages.init(); Protect.init();
   Object.assign(TOOLS, { edit: Edit, watermark: Wm, redact: Redact, sign: Sign, pages: Pages, protect: Protect });
@@ -57,7 +73,8 @@ function init() {
   TOOLS.library = Library;
   Scanner.init();
   TOOLS.scanner = Scanner;
-  $$('.nav button').forEach(b => b.onclick = () => showTool(b.dataset.tool));
+  $$('.nav button[data-tool]').forEach(b => b.onclick = () => showTool(b.dataset.tool));
+  initNavToggle();
   Sigs.load();
   Tabs.init();
 }

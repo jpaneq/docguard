@@ -19,7 +19,8 @@ class Viewer {
     this.info = null; this.n = 0; this.zoom = 1; this.v = 0; this.fitMode = true;
     this.onpage = null; this.onrender = null;
     new ResizeObserver(() => { if (this.info && this.fitMode) this.fit(); }).observe(this.el);
-    // Ctrl + rueda (o pellizco en el trackpad): zoom manteniendo fijo el punto bajo el ratón
+    // Ctrl + rueda (o pellizco en el trackpad): zoom manteniendo fijo el punto bajo el ratón.
+    // Mientras se gira, la página se amplía al momento (imagen estirada); al parar se pide nítida.
     let wheelZoom = null;
     this.el.addEventListener('wheel', e => {
       if (!e.ctrlKey || !this.info) return;
@@ -28,18 +29,31 @@ class Viewer {
         const r = this.el.getBoundingClientRect();
         const cx = e.clientX - r.left, cy = e.clientY - r.top;
         wheelZoom = { z: this.zoom, old: this.zoom, cx, cy, x: cx + this.el.scrollLeft, y: cy + this.el.scrollTop };
+        this.el.classList.add('zooming');
       }
-      wheelZoom.z = clamp(wheelZoom.z * Math.exp(-clamp(e.deltaY, -100, 100) / 400), 0.2, 5);
-      clearTimeout(wheelZoom.t);
-      wheelZoom.t = setTimeout(() => {
-        const w = wheelZoom; wheelZoom = null;
-        this.setZoom(w.z);
-        const k = this.zoom / w.old;
-        this.el.scrollLeft = w.x * k - w.cx;
-        this.el.scrollTop = w.y * k - w.cy;
+      const w = wheelZoom;
+      w.z = clamp(w.z * Math.exp(-clamp(e.deltaY, -100, 100) / 400), 0.2, 5);
+      this.previewZoom(w.z);
+      const k = this.zoom / w.old;
+      this.el.scrollLeft = w.x * k - w.cx;
+      this.el.scrollTop = w.y * k - w.cy;
+      clearTimeout(w.t);
+      w.t = setTimeout(() => {
+        wheelZoom = null;
+        this.el.classList.remove('zooming');
+        this.render();
       }, 90);
     }, { passive: false });
   }
+  /** Vista previa del zoom: solo cambia el tamaño de las páginas, sin pedir imágenes nuevas. */
+  previewZoom(z) {
+    this.fitMode = false;
+    this.zoom = clamp(z, 0.2, 5);
+    const wraps = this.pages ? this.pages.map((p, i) => [p.wrap, this.info.pages[i]]) : [[this._wrap, this.size]];
+    for (const [w, [pw, ph]] of wraps) { w.style.width = pw * this.zoom + 'px'; w.style.height = ph * this.zoom + 'px'; }
+  }
+  /** Con zoom alto la página se pide en JPEG (mucho más rápido de generar; el texto ya es grande). */
+  fmt() { return this.zoom >= 1.5 ? '&fmt=jpg' : ''; }
   pageOv(i) { return i === this.n ? this._ov : null; }
   get wrap() { return this._wrap; }
   get img() { return this._img; }
@@ -77,7 +91,7 @@ class Viewer {
     this.wrap.style.width = w * this.zoom + 'px';
     this.wrap.style.height = hh * this.zoom + 'px';
     const z = (this.zoom * (window.devicePixelRatio || 1)).toFixed(3);
-    this.img.src = pageUrl(this.info.id, this.n, z, this.v);
+    this.img.src = pageUrl(this.info.id, this.n, z, this.v) + this.fmt();
     this.lbl.textContent = `${this.n + 1} / ${this.info.pages.length}`;
     this.onrender?.();
   }
@@ -375,11 +389,13 @@ class ContViewer extends Viewer {
   }
   loadVisible() {
     const top = this.el.scrollTop - 900, bottom = this.el.scrollTop + this.el.clientHeight + 900;
-    const z = (this.zoom * (window.devicePixelRatio || 1)).toFixed(3);
-    this.pages.forEach((p, i) => {
-      const y0 = p.wrap.offsetTop, y1 = y0 + p.wrap.offsetHeight;
-      if (y1 >= top && y0 <= bottom && p.v !== this.v) { p.img.src = pageUrl(this.info.id, i, z, this.v); p.v = this.v; }
-    });
+    const z = (this.zoom * (window.devicePixelRatio || 1)).toFixed(3), fmt = this.fmt();
+    // primero la página que se está mirando y luego las más cercanas (el servidor las genera de una en una)
+    const mid = this.el.scrollTop + this.el.clientHeight / 2;
+    this.pages.map((p, i) => ({ p, i, y0: p.wrap.offsetTop, y1: p.wrap.offsetTop + p.wrap.offsetHeight }))
+      .filter(({ p, y0, y1 }) => y1 >= top && y0 <= bottom && p.v !== this.v)
+      .sort((a, b) => Math.max(0, a.y0 - mid, mid - a.y1) - Math.max(0, b.y0 - mid, mid - b.y1))
+      .forEach(({ p, i }) => { p.img.src = pageUrl(this.info.id, i, z, this.v) + fmt; p.v = this.v; });
   }
   onScroll() {
     if (!this.info) return;

@@ -1460,6 +1460,11 @@ class Handler(BaseHTTPRequestHandler):
         page = doc[int(q["n"][0])]
         zoom = max(0.05, min(float(q.get("zoom", ["1"])[0]), 6))
         pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False, annots=True)
+        if q.get("fmt", [""])[0] == "jpg" and pix.n == 3:
+            # con zoom alto: JPEG es ~8 veces más rápido de generar que PNG y el texto ya es grande
+            buf = io.BytesIO()
+            Image.frombytes("RGB", (pix.width, pix.height), pix.samples).save(buf, "JPEG", quality=90, subsampling=0)
+            return self.send(200, buf.getvalue(), "image/jpeg")
         self.send(200, pix.tobytes("png"), "image/png")
 
     def font(self, q):

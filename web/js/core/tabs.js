@@ -15,6 +15,8 @@ const Tabs = {
     const native = !!window.pywebview || 'pywebview' in window;
     $$('[data-win]').forEach(b => { b.onclick = () => (b.dataset.win === 'new' ? this.newWindow() : this.arrange(b.dataset.win)); });
     if (!native) $$('[data-win=mosaico],[data-win=cascada]').forEach(b => { b.hidden = true; });
+    // En Windows pywebview se conecta un instante después de cargar la página: entonces se muestran
+    window.addEventListener('pywebviewready', () => $$('[data-win]').forEach(b => { b.hidden = false; }));
     this.refresh();
   },
   newWindow() {

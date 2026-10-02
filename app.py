@@ -33,7 +33,18 @@ def make_window(x=None, y=None, width=1320, height=880):
 def _screen():
     import webview
     sc = webview.screens[0] if webview.screens else None
-    return (sc.width, sc.height) if sc else (1440, 900)
+    size = (sc.width, sc.height) if sc else (1440, 900)
+    if sys.platform == "win32":  # zona útil: sin la barra de tareas (si no, tapa el borde de las ventanas)
+        try:
+            import ctypes
+            from ctypes import wintypes
+            u32, r = ctypes.windll.user32, wintypes.RECT()
+            if u32.SystemParametersInfoW(0x0030, 0, ctypes.byref(r), 0):  # SPI_GETWORKAREA
+                k = size[0] / (u32.GetSystemMetrics(0) or size[0])  # a la escala que usa pywebview
+                return (round((r.right - r.left) * k), round((r.bottom - r.top) * k))
+        except Exception:
+            pass
+    return size
 
 
 def new_window():

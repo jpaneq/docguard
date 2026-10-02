@@ -112,15 +112,34 @@ open "{old}"
         STATE["applied"] = True
         return True
     else:
-        script = os.path.join(tempfile.gettempdir(), "docguard_actualizar.bat")
+        # El script se ejecuta desde %TEMP%: si su carpeta de trabajo fuera la del programa, Windows no
+        # dejaría moverla. Reintenta unos segundos (antivirus, procesos que aún se cierran) y deja registro.
+        tmp = tempfile.gettempdir()
+        script = os.path.join(tmp, "docguard_actualizar.bat")
+        log = os.path.join(tmp, "docguard_actualizar.log")
+        exe = os.path.join(old, "DocGuard.exe")
         with open(script, "w", encoding="utf-8") as f:
             f.write(f'''@echo off
+chcp 65001 >nul
+cd /d "{tmp}"
+echo Actualizando DocGuard > "{log}"
 :espera
-tasklist /FI "PID eq {pid}" | find "{pid}" >nul && (timeout /t 1 /nobreak >nul & goto espera)
+tasklist /FI "PID eq {pid}" 2>nul | find "{pid}" >nul && (ping -n 2 127.0.0.1 >nul & goto espera)
+ping -n 3 127.0.0.1 >nul
 if exist "{backup}" rmdir /s /q "{backup}"
-move "{old}" "{backup}" && move "{new}" "{old}" || move "{backup}" "{old}"
-start "" "{os.path.join(old, "DocGuard.exe")}"
+set n=0
+:mover
+move "{old}" "{backup}" >> "{log}" 2>&1 && goto nuevo
+set /a n+=1
+if %n% lss 15 (ping -n 3 127.0.0.1 >nul & goto mover)
+echo No se pudo mover la version anterior >> "{log}"
+start "" "{exe}"
+exit /b 1
+:nuevo
+move "{new}" "{old}" >> "{log}" 2>&1 || (echo Fallo al instalar; se restaura >> "{log}" & move "{backup}" "{old}")
+echo Hecho >> "{log}"
+start "" "{exe}"
 ''')
-        subprocess.Popen(["cmd", "/c", script], creationflags=0x08000000 | 0x00000008)  # sin ventana, separado
+        subprocess.Popen(["cmd", "/c", script], cwd=tmp, creationflags=0x08000000)  # sin ventana
     STATE["applied"] = True
     return True

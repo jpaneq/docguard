@@ -78,6 +78,7 @@ function init() {
   Sigs.load();
   Tabs.init();
   Update.init();
+  StatusIcons.notice();
 }
 
 init();

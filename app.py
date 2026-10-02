@@ -162,7 +162,13 @@ class Api:
             if not enable and status_icons.windows_machine_status():
                 status_icons.windows_register_machine(False)
         return {"enabled": records.settings().get("iconos_estado", True), "platform": sys.platform,
-                "machine": status_icons.windows_machine_status()}
+                "machine": status_icons.windows_machine_status(),
+                "notice_seen": bool(records.settings().get("aviso_iconos_windows"))}
+
+    def icons_notice_seen(self):
+        import records
+        records.save_settings(aviso_iconos_windows=True)
+        return True
 
     def icons_machine(self, enable=True):
         """Windows: activa las miniaturas para todo el equipo (pide permiso de administrador una vez)."""

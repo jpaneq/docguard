@@ -41,6 +41,31 @@ const Update = {
 
 // Iconos de estado de los PDF en el Finder / Explorador (firmado, contraseña, censurado, protegido).
 const StatusIcons = {
+  /** Windows: la primera vez tras actualizar, explica cómo activar los iconos en el Explorador. */
+  async notice() {
+    if (!window.pywebview) await new Promise(res => { window.addEventListener('pywebviewready', res, { once: true }); setTimeout(res, 3000); });
+    const apiN = window.pywebview?.api;
+    if (!apiN?.icons_setting || window.opener) return;
+    const st = await apiN.icons_setting(null).catch(() => null);
+    if (!st || st.platform !== 'win32' || st.notice_seen || st.machine || !st.enabled) return;
+    await apiN.icons_notice_seen();
+    const step = (n, text, img) => h('div', { class: 'help-step' }, h('p', {}, h('b', {}, n + '. '), text), h('img', { src: 'ayuda/' + img, alt: '' }));
+    modal({
+      title: 'Novedad: iconos de estado en el Explorador',
+      wide: true,
+      body: h('div', { class: 'help-steps' },
+        h('p', {}, 'DocGuard puede mostrar en el Explorador de Windows si cada PDF está firmado, tiene contraseña, está censurado o protegido. Para activarlo:'),
+        step(1, 'En la barra lateral, abajo, pulsa «Iconos de estado…».', 'paso1.png'),
+        step(2, 'Pulsa «Activar en el Explorador…» y acepta el permiso de Windows (se pide una sola vez).', 'paso2.png'),
+        step(3, 'Listo: en las vistas de iconos medianos o más grandes verás así tus PDF.', 'paso3.png')),
+      actions: [{ label: 'Más tarde' }, {
+        label: 'Activar ahora', primary: true, fn: async () => {
+          const ok = await apiN.icons_machine(true);
+          toast(ok ? 'Iconos activados en el Explorador.' : 'No se han activado (se canceló el permiso de administrador). Puedes hacerlo luego en «Iconos de estado…».', ok ? 'ok' : 'err', [], 8000);
+        },
+      }],
+    });
+  },
   async open() {
     const apiN = window.pywebview?.api;
     if (!apiN?.icons_setting) return toast('Solo disponible en el programa de escritorio.', '');

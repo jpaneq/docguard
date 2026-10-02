@@ -408,6 +408,26 @@ def _open_in_window(win, path):
 
 def main():
     if "--selftest" in sys.argv:
+        if sys.platform == "win32":
+            # En Windows la salida suele ser cp1252 (fallaba al imprimir «↔») y el ejecutable se quedaba
+            # colgado al salir (en GitHub Actions, hasta el límite de 6 h): UTF-8 y salida inmediata.
+            for s in (sys.stdout, sys.stderr):
+                try:
+                    s.reconfigure(encoding="utf-8", errors="replace")
+                except Exception:
+                    pass
+            try:
+                ok = selftest()
+            except Exception:
+                import traceback
+                traceback.print_exc()
+                ok = False
+            for s in (sys.stdout, sys.stderr):
+                try:
+                    s.flush()
+                except Exception:
+                    pass
+            os._exit(0 if ok else 1)
         sys.exit(0 if selftest() else 1)
     url, httpd = server.start()
     path = _file_arg()

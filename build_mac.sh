@@ -18,5 +18,19 @@ SIGN=""
   --collect-all rapidocr --collect-all onnxruntime --collect-all webview \
   --collect-all pyhanko --collect-all pyhanko_certvalidator --hidden-import pkcs11 \
   $SIGN app.py
+# «Abrir con…» y doble clic: DocGuard se ofrece para PDF e imágenes (sin quitar el programa predeterminado)
+.venv/bin/python - <<'PY'
+import plistlib
+p = "dist/DocGuard.app/Contents/Info.plist"
+d = plistlib.load(open(p, "rb"))
+d["CFBundleDocumentTypes"] = [
+    {"CFBundleTypeName": "PDF", "CFBundleTypeRole": "Editor", "LSHandlerRank": "Alternate",
+     "LSItemContentTypes": ["com.adobe.pdf"]},
+    {"CFBundleTypeName": "Imagen", "CFBundleTypeRole": "Viewer", "LSHandlerRank": "Alternate",
+     "LSItemContentTypes": ["public.jpeg", "public.png", "public.tiff", "public.heic", "public.image"]},
+]
+plistlib.dump(d, open(p, "wb"))
+PY
+codesign --force --deep -s "${CODESIGN_IDENTITY:--}" dist/DocGuard.app
 dist/DocGuard.app/Contents/MacOS/DocGuard --selftest
 echo "Listo: dist/DocGuard.app"

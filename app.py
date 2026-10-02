@@ -406,6 +406,32 @@ def _open_in_window(win, path):
         win.evaluate_js(f"toast({json.dumps('No se pudo abrir ' + os.path.basename(path) + ': ' + str(ex))}, 'err');")
 
 
+def _mac_open_files(win, loaded):
+    """macOS no pasa los archivos por la línea de órdenes: los envía a la aplicación (doble clic,
+    «Abrir con…», arrastrar al icono), también cuando ya está abierta. Se atienden aquí."""
+    import threading
+
+    import objc
+    from webview.platforms import cocoa
+    pending = []
+
+    def handle(path):
+        if loaded["ok"]:  # evaluate_js no puede esperar en el hilo principal
+            threading.Thread(target=_open_in_window, args=(win, path), daemon=True).start()
+        else:
+            pending.append(path)
+
+    def application_openFiles_(self, app, filenames):
+        for f in filenames:
+            if os.path.isfile(str(f)):
+                handle(str(f))
+        app.replyToOpenOrPrint_(0)
+
+    objc.classAddMethods(cocoa.BrowserView.AppDelegate, [
+        objc.selector(application_openFiles_, selector=b"application:openFiles:", signature=b"v@:@@")])
+    return pending
+
+
 def main():
     if "--selftest" in sys.argv:
         if sys.platform == "win32":
@@ -444,7 +470,19 @@ def main():
                     win.resize(win.width + 1, win.height)
                     win.resize(win.width - 1, win.height)
                 win.events.loaded += repaint
-            if path:
+            if sys.platform == "darwin":
+                loaded = {"ok": False}
+                pending = _mac_open_files(win, loaded)
+                if path:
+                    pending.append(path)
+
+                def open_pending():
+                    win.events.loaded -= open_pending
+                    loaded["ok"] = True
+                    for p in dict.fromkeys(pending):
+                        _open_in_window(win, p)
+                win.events.loaded += open_pending
+            elif path:
                 def open_file():
                     win.events.loaded -= open_file  # solo la primera vez que carga la interfaz
                     _open_in_window(win, path)

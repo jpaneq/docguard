@@ -50,10 +50,17 @@ class Viewer {
     this.fitMode = false;
     this.zoom = clamp(z, 0.2, 5);
     const wraps = this.pages ? this.pages.map((p, i) => [p.wrap, this.info.pages[i]]) : [[this._wrap, this.size]];
-    for (const [w, [pw, ph]] of wraps) { w.style.width = pw * this.zoom + 'px'; w.style.height = ph * this.zoom + 'px'; }
+    for (const [w, sz] of wraps) this.sizeWrap(w, sz);
   }
-  /** Con zoom alto la página se pide en JPEG (mucho más rápido de generar; el texto ya es grande). */
-  fmt() { return this.zoom >= 1.5 ? '&fmt=jpg' : ''; }
+  /** Tamaño de una página en píxeles reales de pantalla (enteros): la imagen se pide justo a ese
+   *  tamaño para que el navegador no la reescale y el texto se vea nítido. */
+  pageGeom([pw, ph]) {
+    const d = window.devicePixelRatio || 1, W = Math.max(1, Math.round(pw * this.zoom * d));
+    return { w: W / d, h: Math.round(ph * this.zoom * d) / d, z: (W / pw).toFixed(6) };
+  }
+  sizeWrap(wrap, sz) { const g = this.pageGeom(sz); wrap.style.width = g.w + 'px'; wrap.style.height = g.h + 'px'; return g; }
+  /** Con muchos píxeles, PNG de compresión rápida (sin pérdida: misma imagen, se genera antes). */
+  fmt() { return this.zoom * (window.devicePixelRatio || 1) >= 1.5 ? '&fmt=fast' : ''; }
   pageOv(i) { return i === this.n ? this._ov : null; }
   get wrap() { return this._wrap; }
   get img() { return this._img; }
@@ -87,11 +94,8 @@ class Viewer {
   refresh() { this.v++; this.render(); }
   render() {
     if (!this.info) return;
-    const [w, hh] = this.size;
-    this.wrap.style.width = w * this.zoom + 'px';
-    this.wrap.style.height = hh * this.zoom + 'px';
-    const z = (this.zoom * (window.devicePixelRatio || 1)).toFixed(3);
-    this.img.src = pageUrl(this.info.id, this.n, z, this.v) + this.fmt();
+    const g = this.sizeWrap(this.wrap, this.size);
+    this.img.src = pageUrl(this.info.id, this.n, g.z, this.v) + this.fmt();
     this.lbl.textContent = `${this.n + 1} / ${this.info.pages.length}`;
     this.onrender?.();
   }
@@ -377,25 +381,20 @@ class ContViewer extends Viewer {
   refresh() { this.v++; this.render(); }
   render() {
     if (!this.info) return;
-    this.pages.forEach((p, i) => {
-      const [w, hh] = this.info.pages[i];
-      p.wrap.style.width = w * this.zoom + 'px';
-      p.wrap.style.height = hh * this.zoom + 'px';
-      p.v = -1;
-    });
+    this.pages.forEach((p, i) => { this.sizeWrap(p.wrap, this.info.pages[i]); p.v = -1; });
     this.lbl.textContent = `${this.n + 1} / ${this.pages.length}`;
     this.loadVisible();
     this.onrender?.();
   }
   loadVisible() {
     const top = this.el.scrollTop - 900, bottom = this.el.scrollTop + this.el.clientHeight + 900;
-    const z = (this.zoom * (window.devicePixelRatio || 1)).toFixed(3), fmt = this.fmt();
+    const fmt = this.fmt();
     // primero la página que se está mirando y luego las más cercanas (el servidor las genera de una en una)
     const mid = this.el.scrollTop + this.el.clientHeight / 2;
     this.pages.map((p, i) => ({ p, i, y0: p.wrap.offsetTop, y1: p.wrap.offsetTop + p.wrap.offsetHeight }))
       .filter(({ p, y0, y1 }) => y1 >= top && y0 <= bottom && p.v !== this.v)
       .sort((a, b) => Math.max(0, a.y0 - mid, mid - a.y1) - Math.max(0, b.y0 - mid, mid - b.y1))
-      .forEach(({ p, i }) => { p.img.src = pageUrl(this.info.id, i, z, this.v) + fmt; p.v = this.v; });
+      .forEach(({ p, i }) => { p.img.src = pageUrl(this.info.id, i, this.pageGeom(this.info.pages[i]).z, this.v) + fmt; p.v = this.v; });
   }
   onScroll() {
     if (!this.info) return;

@@ -28,6 +28,11 @@ def _windows_icons():
     """Windows: miniaturas con icono de estado en el Explorador (solo para este usuario, sin permisos)."""
     import records
     import status_icons
+    if sys.platform == "win32":
+        try:
+            status_icons.windows_open_with()
+        except Exception:
+            pass
     if sys.platform == "win32" and records.settings().get("iconos_estado", True):
         try:
             status_icons.windows_register(True)

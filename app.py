@@ -385,10 +385,32 @@ def selftest():
     return all(checks.values())
 
 
+def _file_arg():
+    """Archivo con el que se ha abierto DocGuard (doble clic, «Abrir con…»), o None."""
+    return next((os.path.abspath(a) for a in sys.argv[1:] if not a.startswith("-") and os.path.isfile(a)), None)
+
+
+def _open_in_window(win, path):
+    """Carga el archivo como «Abrir…» y lo muestra en Editar PDF (cuando la interfaz ya está lista)."""
+    import json
+    import secrets
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+        with server.LOCK:
+            did = secrets.token_urlsafe(8)
+            server.DOCS[did] = server.Doc(os.path.basename(path), data)
+            info = server.DOCS[did].info(did)
+        win.evaluate_js(f"showTool('edit'); Edit.loadInfo({json.dumps(info)});")
+    except Exception as ex:
+        win.evaluate_js(f"toast({json.dumps('No se pudo abrir ' + os.path.basename(path) + ': ' + str(ex))}, 'err');")
+
+
 def main():
     if "--selftest" in sys.argv:
         sys.exit(0 if selftest() else 1)
     url, httpd = server.start()
+    path = _file_arg()
     if "--browser" not in sys.argv:
         try:
             if sys.platform == "win32":
@@ -402,6 +424,11 @@ def main():
                     win.resize(win.width + 1, win.height)
                     win.resize(win.width - 1, win.height)
                 win.events.loaded += repaint
+            if path:
+                def open_file():
+                    win.events.loaded -= open_file  # solo la primera vez que carga la interfaz
+                    _open_in_window(win, path)
+                win.events.loaded += open_file
             webview.start()
             return
         except Exception as ex:  # sin ventana nativa: se usa el navegador

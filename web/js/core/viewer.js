@@ -19,7 +19,48 @@ class Viewer {
     this.info = null; this.n = 0; this.zoom = 1; this.v = 0; this.fitMode = true;
     this.onpage = null; this.onrender = null;
     new ResizeObserver(() => { if (this.info && this.fitMode) this.fit(); }).observe(this.el);
+    // Ctrl + rueda (o pellizco en el trackpad): zoom manteniendo fijo el punto bajo el ratón.
+    // Mientras se gira, la página se amplía al momento (imagen estirada); al parar se pide nítida.
+    let wheelZoom = null;
+    this.el.addEventListener('wheel', e => {
+      if (!e.ctrlKey || !this.info) return;
+      e.preventDefault();
+      if (!wheelZoom) {
+        const r = this.el.getBoundingClientRect();
+        const cx = e.clientX - r.left, cy = e.clientY - r.top;
+        wheelZoom = { z: this.zoom, old: this.zoom, cx, cy, x: cx + this.el.scrollLeft, y: cy + this.el.scrollTop };
+        this.el.classList.add('zooming');
+      }
+      const w = wheelZoom;
+      w.z = clamp(w.z * Math.exp(-clamp(e.deltaY, -100, 100) / 400), 0.2, 5);
+      this.previewZoom(w.z);
+      const k = this.zoom / w.old;
+      this.el.scrollLeft = w.x * k - w.cx;
+      this.el.scrollTop = w.y * k - w.cy;
+      clearTimeout(w.t);
+      w.t = setTimeout(() => {
+        wheelZoom = null;
+        this.el.classList.remove('zooming');
+        this.render();
+      }, 90);
+    }, { passive: false });
   }
+  /** Vista previa del zoom: solo cambia el tamaño de las páginas, sin pedir imágenes nuevas. */
+  previewZoom(z) {
+    this.fitMode = false;
+    this.zoom = clamp(z, 0.2, 5);
+    const wraps = this.pages ? this.pages.map((p, i) => [p.wrap, this.info.pages[i]]) : [[this._wrap, this.size]];
+    for (const [w, sz] of wraps) this.sizeWrap(w, sz);
+  }
+  /** Tamaño de una página en píxeles reales de pantalla (enteros): la imagen se pide justo a ese
+   *  tamaño para que el navegador no la reescale y el texto se vea nítido. */
+  pageGeom([pw, ph]) {
+    const d = window.devicePixelRatio || 1, W = Math.max(1, Math.round(pw * this.zoom * d));
+    return { w: W / d, h: Math.round(ph * this.zoom * d) / d, z: (W / pw).toFixed(6) };
+  }
+  sizeWrap(wrap, sz) { const g = this.pageGeom(sz); wrap.style.width = g.w + 'px'; wrap.style.height = g.h + 'px'; return g; }
+  /** Con muchos píxeles, PNG de compresión rápida (sin pérdida: misma imagen, se genera antes). */
+  fmt() { return this.zoom * (window.devicePixelRatio || 1) >= 1.5 ? '&fmt=fast' : ''; }
   pageOv(i) { return i === this.n ? this._ov : null; }
   get wrap() { return this._wrap; }
   get img() { return this._img; }
@@ -53,11 +94,8 @@ class Viewer {
   refresh() { this.v++; this.render(); }
   render() {
     if (!this.info) return;
-    const [w, hh] = this.size;
-    this.wrap.style.width = w * this.zoom + 'px';
-    this.wrap.style.height = hh * this.zoom + 'px';
-    const z = (this.zoom * (window.devicePixelRatio || 1)).toFixed(3);
-    this.img.src = pageUrl(this.info.id, this.n, z, this.v);
+    const g = this.sizeWrap(this.wrap, this.size);
+    this.img.src = pageUrl(this.info.id, this.n, g.z, this.v) + this.fmt();
     this.lbl.textContent = `${this.n + 1} / ${this.info.pages.length}`;
     this.onrender?.();
   }
@@ -343,23 +381,20 @@ class ContViewer extends Viewer {
   refresh() { this.v++; this.render(); }
   render() {
     if (!this.info) return;
-    this.pages.forEach((p, i) => {
-      const [w, hh] = this.info.pages[i];
-      p.wrap.style.width = w * this.zoom + 'px';
-      p.wrap.style.height = hh * this.zoom + 'px';
-      p.v = -1;
-    });
+    this.pages.forEach((p, i) => { this.sizeWrap(p.wrap, this.info.pages[i]); p.v = -1; });
     this.lbl.textContent = `${this.n + 1} / ${this.pages.length}`;
     this.loadVisible();
     this.onrender?.();
   }
   loadVisible() {
     const top = this.el.scrollTop - 900, bottom = this.el.scrollTop + this.el.clientHeight + 900;
-    const z = (this.zoom * (window.devicePixelRatio || 1)).toFixed(3);
-    this.pages.forEach((p, i) => {
-      const y0 = p.wrap.offsetTop, y1 = y0 + p.wrap.offsetHeight;
-      if (y1 >= top && y0 <= bottom && p.v !== this.v) { p.img.src = pageUrl(this.info.id, i, z, this.v); p.v = this.v; }
-    });
+    const fmt = this.fmt();
+    // primero la página que se está mirando y luego las más cercanas (el servidor las genera de una en una)
+    const mid = this.el.scrollTop + this.el.clientHeight / 2;
+    this.pages.map((p, i) => ({ p, i, y0: p.wrap.offsetTop, y1: p.wrap.offsetTop + p.wrap.offsetHeight }))
+      .filter(({ p, y0, y1 }) => y1 >= top && y0 <= bottom && p.v !== this.v)
+      .sort((a, b) => Math.max(0, a.y0 - mid, mid - a.y1) - Math.max(0, b.y0 - mid, mid - b.y1))
+      .forEach(({ p, i }) => { p.img.src = pageUrl(this.info.id, i, this.pageGeom(this.info.pages[i]).z, this.v) + fmt; p.v = this.v; });
   }
   onScroll() {
     if (!this.info) return;

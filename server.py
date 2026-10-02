@@ -1460,6 +1460,11 @@ class Handler(BaseHTTPRequestHandler):
         page = doc[int(q["n"][0])]
         zoom = max(0.05, min(float(q.get("zoom", ["1"])[0]), 6))
         pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False, annots=True)
+        if q.get("fmt", [""])[0] == "fast" and pix.n == 3:
+            # páginas grandes: PNG con compresión rápida (sin pérdida, misma imagen; se genera antes)
+            buf = io.BytesIO()
+            Image.frombytes("RGB", (pix.width, pix.height), pix.samples).save(buf, "PNG", compress_level=1)
+            return self.send(200, buf.getvalue(), "image/png")
         self.send(200, pix.tobytes("png"), "image/png")
 
     def font(self, q):

@@ -15,6 +15,7 @@ jobs:
             sep: ":"
             exe: dist/DocGuard.app/Contents/MacOS/DocGuard
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30  # si algo se cuelga, no consumir las 6 h por defecto
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -26,6 +27,7 @@ jobs:
       - run: pyinstaller --noconfirm --windowed --name DocGuard --icon ${{ matrix.icon }} --add-data "web${{ matrix.sep }}web" --collect-all rapidocr --collect-all onnxruntime --collect-all webview --collect-all pyhanko --collect-all pyhanko_certvalidator --hidden-import pkcs11 app.py
       - name: Selftest
         shell: bash
+        timeout-minutes: 10
         run: ${{ matrix.exe }} --selftest
       - uses: actions/upload-artifact@v4
         with:

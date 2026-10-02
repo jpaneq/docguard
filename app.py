@@ -385,14 +385,70 @@ def selftest():
     return all(checks.values())
 
 
+def _file_arg():
+    """Archivo con el que se ha abierto DocGuard (doble clic, «Abrir con…»), o None."""
+    return next((os.path.abspath(a) for a in sys.argv[1:] if not a.startswith("-") and os.path.isfile(a)), None)
+
+
+def _open_in_window(win, path):
+    """Carga el archivo como «Abrir…» y lo muestra en Editar PDF (cuando la interfaz ya está lista)."""
+    import json
+    import secrets
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+        with server.LOCK:
+            did = secrets.token_urlsafe(8)
+            server.DOCS[did] = server.Doc(os.path.basename(path), data)
+            info = server.DOCS[did].info(did)
+        win.evaluate_js(f"showTool('edit'); Edit.loadInfo({json.dumps(info)});")
+    except Exception as ex:
+        win.evaluate_js(f"toast({json.dumps('No se pudo abrir ' + os.path.basename(path) + ': ' + str(ex))}, 'err');")
+
+
 def main():
     if "--selftest" in sys.argv:
+        if sys.platform == "win32":
+            # En Windows la salida suele ser cp1252 (fallaba al imprimir «↔») y el ejecutable se quedaba
+            # colgado al salir (en GitHub Actions, hasta el límite de 6 h): UTF-8 y salida inmediata.
+            for s in (sys.stdout, sys.stderr):
+                try:
+                    s.reconfigure(encoding="utf-8", errors="replace")
+                except Exception:
+                    pass
+            try:
+                ok = selftest()
+            except Exception:
+                import traceback
+                traceback.print_exc()
+                ok = False
+            for s in (sys.stdout, sys.stderr):
+                try:
+                    s.flush()
+                except Exception:
+                    pass
+            os._exit(0 if ok else 1)
         sys.exit(0 if selftest() else 1)
     url, httpd = server.start()
+    path = _file_arg()
     if "--browser" not in sys.argv:
         try:
+            if sys.platform == "win32":
+                # WebView2 a veces deja la ventana con un fotograma congelado (sin iconos y sin responder):
+                # sin GPU no ocurre, y las páginas ya se dibujan en Python, así que no se pierde fluidez.
+                os.environ.setdefault("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--disable-gpu")
             import webview
-            webview.create_window("DocGuard", url, js_api=Api(), width=1320, height=880, min_size=(900, 600))
+            win = webview.create_window("DocGuard", url, js_api=Api(), width=1320, height=880, min_size=(900, 600))
+            if sys.platform == "win32":
+                def repaint():  # fuerza a WebView2 a repintar cuando la interfaz ya ha cargado
+                    win.resize(win.width + 1, win.height)
+                    win.resize(win.width - 1, win.height)
+                win.events.loaded += repaint
+            if path:
+                def open_file():
+                    win.events.loaded -= open_file  # solo la primera vez que carga la interfaz
+                    _open_in_window(win, path)
+                win.events.loaded += open_file
             webview.start()
             return
         except Exception as ex:  # sin ventana nativa: se usa el navegador

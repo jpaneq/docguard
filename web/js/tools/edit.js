@@ -106,6 +106,7 @@ const Edit = {
     if (info.encrypted) return toast('El PDF tiene contraseña: quítala primero en «Contraseña».', 'err');
     if (!info.pages.length) return toast('Solo se pueden editar PDFs e imágenes.', 'err');
     this.info = info; this.st = null; this.clearSel(false);
+    this.calibs = {}; this.graph = null;  // rectas por ecuación (graphline.js)
     setCurrent(info);
     $('.doc-name', this.root).textContent = info.name;
     $('[data-act=export]', this.root).disabled = false;
@@ -303,6 +304,7 @@ const Edit = {
       form: 'Arrastra para crear un campo del tipo elegido. Clic en la etiqueta de un campo para editarlo.',
       sign: 'Elige una firma y arrastra el recuadro donde colocarla, o usa «Al margen» para firmar todas las páginas.',
     }[t]);
+    this.drawGraph();
   },
 
   /* ---- resaltar como en un lector de PDF: seleccionando el texto ---- */
@@ -569,7 +571,7 @@ const Edit = {
       h('input', { type: 'number', value: sh.width, min: 0.5, max: 20, step: 0.5, class: 'num', title: 'Grosor', onchange: e => { sh.width = +e.target.value; } }),
       h('label', { class: 'inline' }, h('input', { type: 'checkbox', checked: sh.filled, onchange: e => { sh.filled = e.target.checked; } }), 'Relleno'),
       h('input', { type: 'color', value: sh.fill, onchange: e => { sh.fill = e.target.value; } }),
-      this.dashSelect(sh.dash, v => { sh.dash = v; }));
+      this.dashSelect(sh.dash, v => { sh.dash = v; }), ...this.graphButtons());
       return;
     }
     if (t === 'annot') {
@@ -632,7 +634,7 @@ const Edit = {
     }
     const has = this.selSpans.size || this.sel;
     if ((e.key === 'Delete' || e.key === 'Backspace') && has) { e.preventDefault(); return this.deleteSel(); }
-    if (e.key === 'Escape') { this.closeMenu(); if (has || this.region) this.clearSel(); }
+    if (e.key === 'Escape') { this.closeMenu(); if (this.graph) { this.graph = null; this.draw(); } if (has || this.region) this.clearSel(); }
     const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
     if (this.selSpans.size && arrows[e.key]) {
       e.preventDefault();
@@ -686,6 +688,7 @@ const Edit = {
     if (!this.st || this.st.n !== this.viewer.n) return;  // la página aún se está cargando
     const v = this.viewer, t = this.tool;
     if (this.inline) { this.commitInline(); return; }
+    if (this.graph) return this.graphClick(e);
     if (t === 'text') { const [x, y] = v.pt(e); this.newInline(x, y); return; }
     if (t === 'annot' && ['highlight', 'underline', 'strikeout'].includes(this.ann.kind)) return this.markupDown(e);
     if (t === 'annot' && this.ann.kind === 'note') {

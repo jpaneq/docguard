@@ -67,7 +67,7 @@ main { flex: 1; min-width: 0; position: relative; }
 .viewer { position: relative; flex: 1; overflow: auto; background: var(--canvas); padding: 20px; }
 .viewer .empty, .preview .empty, .thumbs .empty { margin: 60px auto; text-align: center; color: var(--muted); border: 2px dashed var(--line); border-radius: 12px; padding: 50px 30px; max-width: 480px; }
 .page-wrap { position: relative; margin: 0 auto; box-shadow: var(--shadow); background: #fff; user-select: none; }
-.page-wrap img { display: block; width: 100%; height: 100%; pointer-events: none; }
+.page-wrap img { display: block; width: 100%; height: auto; pointer-events: none; }  /* alto proporcional: sin reescalar en vertical */
 .ov { position: absolute; inset: 0; }
 .ov.draw { cursor: crosshair; }
 .vbar { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 4px 8px; display: flex; gap: 4px; align-items: center; box-shadow: var(--shadow); }
@@ -244,9 +244,10 @@ textarea.inline-edit { resize: none; border: 0; background: rgba(255, 255, 255, 
 .ctxmenu .mi.off { opacity: .4; pointer-events: none; }
 .ctxmenu .msep { height: 1px; background: var(--line); margin: 4px 0; }
 
-.stack { display: flex; flex-direction: column; align-items: center; gap: 16px; padding-bottom: 60px; }
+.stack { display: flex; flex-direction: column; align-items: center; gap: 16px; padding-bottom: 60px; width: max-content; min-width: 100%; }  /* con zoom, la página se puede desplazar entera (no se corta por la izquierda) */
 .stack .page-wrap { margin: 0; flex: none; }
 .stack .page-wrap img:not([src]) { visibility: hidden; }
+.viewer.zooming .ov > * { visibility: hidden; }  /* marcas ocultas durante la vista previa del zoom */
 .pages-side { width: 190px; flex: none; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
 .side-tabs { display: flex; margin: 8px; } .side-tabs button { flex: 1; font-size: 12px; padding: 4px; }
 .thumb-list { overflow: auto; padding: 4px 12px 20px; display: flex; flex-direction: column; gap: 12px; align-items: center; }

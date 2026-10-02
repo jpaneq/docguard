@@ -110,8 +110,15 @@ class Api:
 
         import webview
         if updater.apply_on_exit():
+            # El script espera a que este proceso termine; cerrar las ventanas no siempre lo cierra
+            # (se quedaba la rueda girando), así que se sale del todo al momento.
+            import threading
+            threading.Timer(0.3, lambda: os._exit(0)).start()
             for w in list(webview.windows):
-                w.destroy()
+                try:
+                    w.hide()
+                except Exception:
+                    pass
             return True
         return False
 

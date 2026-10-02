@@ -130,7 +130,7 @@ def windows_register(enable=True):
     src = core.resource_path("dg_thumbs.dll")
     if not os.path.exists(src):
         return False
-    dest_dir = os.path.join(os.environ.get("LOCALAPPDATA", core.config_dir()), "DocGuard", "miniaturas", core.VERSION)
+    dest_dir = _dll_dir()
     os.makedirs(dest_dir, exist_ok=True)
     dll = os.path.join(dest_dir, "dg_thumbs.dll")
     try:
@@ -147,6 +147,54 @@ def windows_register(enable=True):
         winreg.SetValueEx(k, None, 0, winreg.REG_SZ, CLSID)
     _notify()
     return True
+
+
+def _dll_dir():
+    return os.path.join(os.environ.get("LOCALAPPDATA", core.config_dir()), "DocGuard", "miniaturas", core.VERSION)
+
+
+def windows_machine_status():
+    """¿Están registradas las miniaturas para todo el equipo (HKLM)? En muchos Windows el Explorador
+    solo usa los componentes de miniaturas registrados ahí, no los de HKCU."""
+    if sys.platform != "win32":
+        return None
+    import winreg
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, rf"Software\Classes\CLSID\{CLSID}\InprocServer32") as k:
+            dll = winreg.QueryValueEx(k, None)[0]
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, rf"Software\Classes\.pdf\ShellEx\{THUMB_IID}") as k:
+            ok = winreg.QueryValueEx(k, None)[0].upper() == CLSID.upper()
+        return ok and os.path.exists(dll)
+    except OSError:
+        return False
+
+
+def windows_register_machine(enable=True):
+    """Registra (o quita) las miniaturas para todo el equipo: Windows pide permiso de administrador
+    una sola vez (regedit con un archivo .reg). Devuelve True si queda hecho."""
+    if sys.platform != "win32":
+        return False
+    import tempfile
+    base = r"HKEY_LOCAL_MACHINE\Software\Classes"
+    if enable:
+        windows_register(True)  # copia la DLL y las imágenes a su carpeta
+        dll = os.path.join(_dll_dir(), "dg_thumbs.dll").replace("\\", "\\\\")
+        body = (f'[{base}\\CLSID\\{CLSID}]\r\n@="DocGuard: iconos de estado de los PDF"\r\n\r\n'
+                f'[{base}\\CLSID\\{CLSID}\\InprocServer32]\r\n@="{dll}"\r\n"ThreadingModel"="Apartment"\r\n\r\n'
+                f'[{base}\\.pdf\\ShellEx\\{THUMB_IID}]\r\n@="{CLSID}"\r\n')
+    else:
+        body = (f'[-{base}\\.pdf\\ShellEx\\{THUMB_IID}]\r\n\r\n[-{base}\\CLSID\\{CLSID}]\r\n')
+    reg = os.path.join(tempfile.gettempdir(), "docguard_miniaturas.reg")
+    with open(reg, "w", encoding="utf-16", newline="") as f:
+        f.write("Windows Registry Editor Version 5.00\r\n\r\n" + body)
+    ps = f"Start-Process regedit.exe -Verb RunAs -Wait -ArgumentList '/s','\"{reg}\"'"
+    subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, creationflags=0x08000000)
+    try:
+        os.remove(reg)
+    except OSError:
+        pass
+    _notify()
+    return windows_machine_status() == bool(enable)
 
 
 def _notify():

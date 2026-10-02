@@ -159,7 +159,15 @@ class Api:
         if enable is not None:
             records.save_settings(iconos_estado=bool(enable))
             status_icons.windows_register(bool(enable))
-        return {"enabled": records.settings().get("iconos_estado", True), "platform": sys.platform}
+            if not enable and status_icons.windows_machine_status():
+                status_icons.windows_register_machine(False)
+        return {"enabled": records.settings().get("iconos_estado", True), "platform": sys.platform,
+                "machine": status_icons.windows_machine_status()}
+
+    def icons_machine(self, enable=True):
+        """Windows: activa las miniaturas para todo el equipo (pide permiso de administrador una vez)."""
+        import status_icons
+        return status_icons.windows_register_machine(bool(enable))
 
     def email(self, path):
         """Abre un correo nuevo con el archivo adjunto (Mail en macOS, Outlook en Windows)."""

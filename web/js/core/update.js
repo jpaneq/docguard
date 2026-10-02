@@ -53,8 +53,15 @@ const StatusIcons = {
         h('p', {}, 'Los PDF se ven en rojo, con una insignia si están firmados ✍, con contraseña 🔒, censurados ▬ o protegidos 🛡.'),
         h('label', { class: 'inline' }, cb, 'Mostrar los iconos de estado'),
         mac ? h('p', { class: 'muted' }, 'Mac: se aplican a los PDF que guarda DocGuard (también con etiquetas de color del Finder). Para los que ya tienes, usa el botón de abajo. El icono solo existe en tu Mac: al enviar el PDF se ve normal. El Finder deja de mostrar la miniatura de la primera página en esos archivos.')
-          : h('p', { class: 'muted' }, 'Windows: el Explorador los muestra en todos los PDF, en las vistas de iconos medianos o más grandes. Solo para tu usuario y sin permisos de administrador. Puede que los PDF que ya habías visto tarden en actualizarse (el Explorador guarda las miniaturas).')),
+          : h('div', {},
+            h('p', { class: 'muted' }, 'Windows: el Explorador los muestra en todos los PDF, en las vistas de iconos medianos o más grandes. Puede que los PDF que ya habías visto tarden en actualizarse (el Explorador guarda las miniaturas).'),
+            st.machine ? h('p', { class: 'ok' }, '✔ Activados en el Explorador.')
+              : h('p', {}, 'Windows solo deja que el Explorador use estos iconos si se activan con permiso de administrador. Se pide una sola vez; las actualizaciones de DocGuard no lo vuelven a pedir.'))),
       actions: [
+        ...(!mac && !st.machine ? [{ label: 'Activar en el Explorador…', fn: async () => {
+          const ok = await apiN.icons_machine(true);
+          toast(ok ? 'Iconos activados en el Explorador.' : 'No se han activado (se canceló el permiso de administrador).', ok ? 'ok' : 'err');
+        } }] : []),
         ...(mac ? [{ label: 'Marcar los PDF de una carpeta…', fn: async () => { const n = await apiN.mark_folder(); if (n != null) toast(`${n} PDF marcados.`, 'ok'); return false; } }] : []),
         { label: 'Cerrar', primary: true, fn: async () => { if (cb.checked !== st.enabled) await apiN.icons_setting(cb.checked); } },
       ],

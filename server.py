@@ -1466,6 +1466,8 @@ class Handler(BaseHTTPRequestHandler):
                         return self.result(q)
                     if url.path == "/api/font":
                         return self.font(q)
+                    if url.path == "/api/pdf":
+                        return self.pdf(q)
             except Exception as ex:
                 return self.send(400, {"error": str(ex)})
             return self.send(404, {"error": "no encontrado"})
@@ -1488,6 +1490,13 @@ class Handler(BaseHTTPRequestHandler):
             Image.frombytes("RGB", (pix.width, pix.height), pix.samples).save(buf, "PNG", compress_level=1)
             return self.send(200, buf.getvalue(), "image/png")
         self.send(200, pix.tobytes("png"), "image/png")
+
+    def pdf(self, q):
+        """El documento tal como está ahora (con las ediciones), para verlo e imprimirlo."""
+        d = DOCS[q["id"][0]]
+        need_pdf(d)
+        disp = "inline; filename*=UTF-8''" + urllib.parse.quote(os.path.splitext(d.name)[0] + ".pdf")
+        self.send(200, d.pdf_bytes(), "application/pdf", {"Content-Disposition": disp})
 
     def font(self, q):
         if "key" in q:

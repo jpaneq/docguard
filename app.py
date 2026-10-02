@@ -121,6 +121,21 @@ class Api:
         r = webview.windows[0].create_file_dialog(dialogs.FOLDER if dialogs else webview.FOLDER_DIALOG)
         return (r if isinstance(r, str) else r[0]) if r else None
 
+    def print_pdf(self, did):
+        """Mac: la ventana nativa no imprime PDFs; se abre el documento (con los cambios) en Vista Previa."""
+        import tempfile
+        d = server.DOCS.get(did)
+        if not d or not d.doc:
+            return None
+        with server.LOCK:
+            data = d.pdf_bytes()
+        folder = tempfile.mkdtemp(prefix="docguard_")
+        path = os.path.join(folder, os.path.splitext(d.name)[0] + ".pdf")
+        with open(path, "wb") as f:
+            f.write(data)
+        subprocess.Popen(["open", "-a", "Preview", path])
+        return path
+
     def open_result(self, rid):
         """Abre un resultado (p. ej. el PDF de prueba de firma) con el programa predeterminado."""
         import tempfile

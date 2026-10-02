@@ -14,6 +14,7 @@ const Library = {
     act('rclose', () => this.closeReader());
     act('rnext', () => this.step(1));
     act('rprev', () => this.step(-1));
+    act('rprint', () => printDoc(this.reading));
     act('redit', () => { const d = this.reading; this.closeReader(); showTool('edit'); Edit.loadInfo(d); });
     dropTarget($('.lib-list', this.root), f => this.add(f));
     const term = $('[data-k=term]', this.root);

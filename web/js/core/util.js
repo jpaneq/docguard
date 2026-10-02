@@ -152,6 +152,35 @@ window.addEventListener('drop', e => e.preventDefault());
 /* ---- resultados: guardar y continuar en otra herramienta ---- */
 
 /** Guarda el resultado. `actions` = botones extra del aviso: {label, fn(rutas guardadas o null)}. */
+/** Imprime el documento tal como está ahora (con las ediciones). En Windows y en el navegador el PDF se
+ *  carga en un marco invisible y se abre el diálogo de impresión del sistema (impresión vectorial, con
+ *  impresora, copias y páginas). En la ventana nativa de Mac se abre en Vista Previa para imprimirlo. */
+function printDoc(info) {
+  if (!info?.id) return toast('Abre primero un documento.', 'err');
+  if (info.encrypted) return toast('El PDF tiene contraseña: quítala primero en «Contraseña».', 'err');
+  if (window.pywebview?.api?.print_pdf && /Mac/.test(navigator.platform)) return window.pywebview.api.print_pdf(info.id);
+  let f = $('#print-frame');
+  if (!f) {
+    f = h('iframe', { id: 'print-frame', title: 'Impresión', style: 'position:fixed;right:0;bottom:0;width:1px;height:1px;border:0;opacity:0;pointer-events:none' });
+    document.body.append(f);
+  }
+  toast('Preparando la impresión…', '', [], 2000);
+  f.onload = () => setTimeout(() => {
+    try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { toast('No se pudo abrir la impresión: ' + e.message, 'err'); }
+  }, 300);
+  f.src = `/api/pdf?id=${encodeURIComponent(info.id)}&t=${TOKEN}&v=${Date.now()}`;
+}
+
+/** ⌘P / Ctrl+P: imprime el documento que se está viendo (y no la pantalla de DocGuard). */
+document.addEventListener('keydown', e => {
+  if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'p') return;
+  e.preventDefault();
+  const tool = $('.tool.active')?.id;
+  if (tool === 'tool-redact') return toast('En Censurar las marcas aún no se han aplicado: guarda el PDF censurado y imprime ese.', 'err', [], 6000);
+  const reading = typeof Library !== 'undefined' && !$('#tool-library .reader')?.hidden && Library.reading;
+  printDoc((tool === 'tool-library' && reading) || (tool === 'tool-edit' && Edit.info) || CURRENT);
+});
+
 async function saveResult(res, notes = [], actions = []) {
   if (!res || !res.rid) {
     if (res?.errors?.length) toast('Errores:\n' + res.errors.join('\n'), 'err');

@@ -175,3 +175,9 @@ Cada módulo se puede trabajar por separado. El servidor expone cada función co
 - `v1.13`: formas con Mayús (ángulos de 15°, cuadrados y círculos), ocho tiradores para redimensionar, extremos de líneas y flechas arrastrables, y las formas ya no crecen al moverlas.
 - `v1.14`: resaltar, subrayar y tachar seleccionando el texto con el ratón (recuadro solo en páginas sin texto), propiedades editables de las formas (color, relleno, grosor, tipo de línea, opacidad, flechas) y copiar/pegar campos de formulario y formas como objetos.
 - `v1.16`: pestañas de documentos en Editar, Censurar y Firma digital (varios PDF abiertos a la vez, con sus cambios), abrir varios archivos de golpe, «Nueva ventana» (⌘N / Ctrl+N) con documentos y portapapeles compartidos, y organizar las ventanas en mosaico o en cascada (menú Ventana y botones laterales). Incluye las mejoras del visor y las rectas de la versión de Windows.
+- `v1.17`: actualizaciones automáticas (al abrirse, DocGuard consulta las versiones publicadas en GitHub, ofrece instalarlas, comprueba su huella SHA-256 y guarda la anterior), «Buscar actualizaciones», zoom con ⌘ + rueda, y compilación en GitHub solo al publicar una versión.
+
+## Publicar una versión nueva
+1. Cambia `VERSION` en `core.py` (por ejemplo `1.18`).
+2. Crea la etiqueta igual y súbela: `git tag v1.18 && git push origin main --tags`.
+3. GitHub compila Mac y Windows y los publica en *Releases*; las copias instaladas avisarán solas.

@@ -1,5 +1,13 @@
 name: build
-on: [push, workflow_dispatch]
+# Solo se compila al publicar una versión (etiqueta v1.17, v1.18…) o a mano: así se gastan pocos minutos.
+# Cada versión se publica en «Releases» con el programa de Mac y de Windows y su huella SHA-256,
+# que es lo que descarga y comprueba el actualizador de DocGuard.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+permissions:
+  contents: write
 jobs:
   build:
     strategy:
@@ -7,29 +15,53 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            icon: icon.ico
-            sep: ";"
-            exe: dist/DocGuard/DocGuard.exe
+            asset: DocGuard-windows.zip
           - os: macos-latest
-            icon: icon.icns
-            sep: ":"
-            exe: dist/DocGuard.app/Contents/MacOS/DocGuard
+            asset: DocGuard-mac.zip
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30  # si algo se cuelga, no consumir las 6 h por defecto
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
-      - run: pip install -r requirements.txt pyinstaller
-      - run: python -c "from rapidocr import RapidOCR; RapidOCR()"
-      - run: python make_icon.py
-      - run: python -c "import shutil; shutil.copy('icon.png', 'web/icon.png')"
-      - run: pyinstaller --noconfirm --windowed --name DocGuard --icon ${{ matrix.icon }} --add-data "web${{ matrix.sep }}web" --collect-all rapidocr --collect-all onnxruntime --collect-all webview --collect-all pyhanko --collect-all pyhanko_certvalidator --hidden-import pkcs11 app.py
-      - name: Selftest
+      - name: La etiqueta coincide con core.VERSION
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          v=$(python -c "import re;print(re.search(r'VERSION = \"([^\"]+)\"', open('core.py', encoding='utf-8').read()).group(1))")
+          test "v$v" = "${GITHUB_REF_NAME}" || { echo "core.VERSION=$v no coincide con ${GITHUB_REF_NAME}"; exit 1; }
+      - name: Compilar (macOS)
+        if: runner.os == 'macOS'
+        run: ./build_mac.sh
+      - name: Compilar (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          pip install -r requirements.txt pyinstaller
+          python -c "from rapidocr import RapidOCR; RapidOCR()"
+          python make_icon.py
+          python -c "import shutil; shutil.copy('icon.png', 'web/icon.png')"
+          pyinstaller --noconfirm --windowed --name DocGuard --icon icon.ico --add-data "web;web" --collect-all rapidocr --collect-all onnxruntime --collect-all webview --collect-all pyhanko --collect-all pyhanko_certvalidator --hidden-import pkcs11 app.py
+      - name: Selftest (Windows)
+        if: runner.os == 'Windows'
         shell: bash
         timeout-minutes: 10
-        run: ${{ matrix.exe }} --selftest
+        run: dist/DocGuard/DocGuard.exe --selftest
+      - name: Empaquetar
+        shell: bash
+        run: |
+          cd dist
+          if [ "$RUNNER_OS" = "macOS" ]; then ditto -c -k --keepParent DocGuard.app ${{ matrix.asset }}; shasum -a 256 ${{ matrix.asset }} > ${{ matrix.asset }}.sha256
+          else powershell -Command "Compress-Archive -Path DocGuard -DestinationPath ${{ matrix.asset }}"; sha256sum ${{ matrix.asset }} > ${{ matrix.asset }}.sha256; fi
       - uses: actions/upload-artifact@v4
         with:
-          name: DocGuard-${{ runner.os }}
-          path: dist/
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}*
+      - name: Publicar en Releases
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/${{ matrix.asset }}
+            dist/${{ matrix.asset }}.sha256
+          generate_release_notes: true

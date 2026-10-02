@@ -72,6 +72,17 @@ class Api:
     def new_window(self):
         new_window()
 
+    def restart_to_update(self):
+        """Cierra DocGuard; un script instala la versión descargada y la vuelve a abrir."""
+        import updater
+
+        import webview
+        if updater.apply_on_exit():
+            for w in list(webview.windows):
+                w.destroy()
+            return True
+        return False
+
     def arrange(self, mode):
         arrange(mode)
 
@@ -547,6 +558,9 @@ def main():
                 MenuAction("Nueva ventana", new_window), MenuSeparator(),
                 MenuAction("Organizar en mosaico", lambda: arrange("mosaico")),
                 MenuAction("Organizar en cascada", lambda: arrange("cascada"))])])
+            import updater  # si se descargó una versión nueva y se cerró sin reiniciar, se instala ahora
+            if updater.STATE.get("new") and not updater.STATE.get("applied"):
+                updater.apply_on_exit()
             return
         except Exception as ex:  # sin ventana nativa: se usa el navegador
             print("Ventana nativa no disponible, se abre el navegador:", ex)

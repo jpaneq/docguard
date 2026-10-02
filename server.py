@@ -181,6 +181,16 @@ def op_tabs_close(req):
     return {}
 
 
+def op_update_check(req):
+    import updater
+    return updater.check()
+
+
+def op_update_download(req):
+    import updater
+    return updater.download(req)
+
+
 def op_info(req):
     return get_doc(req).info(req["id"])
 
@@ -1376,6 +1386,7 @@ def op_presets_save(req):
 OPS = {
     "presets": op_presets, "presets/save": op_presets_save,
     "open_result": op_open_result, "close": op_close, "info": op_info,
+    "update/check": op_update_check, "update/download": op_update_download, "version": lambda req: {"version": core.VERSION},
     "tabs/add": op_tabs_add, "tabs/list": op_tabs_list, "tabs/close": op_tabs_close,
     "wm/preview": op_wm_preview, "wm/export": op_wm_export, "wm/check": op_wm_check, "wm/report": op_wm_report,
     "wm/registry": op_wm_registry, "idfields": op_idfields, "registry/export": op_registry_export,

@@ -60,6 +60,7 @@ function init() {
   $$('.nav button').forEach(b => b.onclick = () => showTool(b.dataset.tool));
   Sigs.load();
   Tabs.init();
+  Update.init();
 }
 
 init();

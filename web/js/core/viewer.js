@@ -330,6 +330,9 @@ class ContViewer extends Viewer {
       wrap.dataset.page = i + 1;
       this.stack.append(wrap);
       const p = { wrap, img, ov, v: -1 };
+      const done = () => { if (p.loading) { p.loading = null; this.pump(); } };
+      img.addEventListener('load', done);
+      img.addEventListener('error', done);
       this.handlers.forEach(([t, f]) => this.bind(p, i, t, f));
       return p;
     });
@@ -388,13 +391,44 @@ class ContViewer extends Viewer {
   }
   loadVisible() {
     const top = this.el.scrollTop - 900, bottom = this.el.scrollTop + this.el.clientHeight + 900;
-    const fmt = this.fmt();
-    // primero la página que se está mirando y luego las más cercanas (el servidor las genera de una en una)
-    const mid = this.el.scrollTop + this.el.clientHeight / 2;
-    this.pages.map((p, i) => ({ p, i, y0: p.wrap.offsetTop, y1: p.wrap.offsetTop + p.wrap.offsetHeight }))
-      .filter(({ p, y0, y1 }) => y1 >= top && y0 <= bottom && p.v !== this.v)
-      .sort((a, b) => Math.max(0, a.y0 - mid, mid - a.y1) - Math.max(0, b.y0 - mid, mid - b.y1))
-      .forEach(({ p, i }) => { p.img.src = pageUrl(this.info.id, i, this.pageGeom(this.info.pages[i]).z, this.v) + fmt; p.v = this.v; });
+    // Cola con prioridad (se rehace en cada desplazamiento): el servidor genera las páginas de una en
+    // una, así que no se piden las que solo se han cruzado al desplazarse rápido. Primero una vista
+    // previa pequeña de las páginas visibles que están vacías y luego la nítida, de la más cercana al
+    // centro a la más lejana.
+    const vTop = this.el.scrollTop, vBot = vTop + this.el.clientHeight, mid = (vTop + vBot) / 2;
+    const jobs = [];
+    this.pages.forEach((p, i) => {
+      const y0 = p.wrap.offsetTop, y1 = y0 + p.wrap.offsetHeight;
+      if (y1 < top || y0 > bottom || p.v === this.v) return;
+      const dist = Math.max(0, y0 - mid, mid - y1), visible = y1 >= vTop && y0 <= vBot;
+      const sz = this.info.pages[i];
+      if (visible && !p.img.getAttribute('src') && this.pageGeom(sz).z * sz[0] > 450) jobs.push({ p, i, preview: true, pri: dist });
+      jobs.push({ p, i, preview: false, pri: (visible ? 1e7 : 2e7) + dist });
+    });
+    this.queue = jobs.sort((a, b) => a.pri - b.pri);
+    this.pump();
+  }
+  /** Lanza peticiones de la cola, como mucho 2 a la vez. */
+  pump() {
+    const q = this.queue || [];
+    let busy = this.pages.filter(p => p.loading).length;
+    for (let k = 0; k < q.length && busy < 2;) {
+      const { p, i, preview } = q[k];
+      if (p.v === this.v || (preview && p.img.getAttribute('src'))) { q.splice(k, 1); continue; }  // ya no hace falta
+      if (p.loading) { k++; continue; }  // esa página aún carga: espera su turno
+      q.splice(k, 1);
+      busy++;
+      const sz = this.info.pages[i];
+      if (preview) {
+        const z = Math.min(+this.pageGeom(sz).z, 300 / sz[0]).toFixed(4);  // ~300 px de ancho: se genera en pocos ms
+        p.loading = 'preview';
+        p.img.src = pageUrl(this.info.id, i, z, this.v);
+      } else {
+        p.loading = 'full';
+        p.v = this.v;
+        p.img.src = pageUrl(this.info.id, i, this.pageGeom(sz).z, this.v) + this.fmt();
+      }
+    }
   }
   onScroll() {
     if (!this.info) return;

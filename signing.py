@@ -359,11 +359,13 @@ def _plain(value):
     return str(value) if value else ""
 
 
-def verify_pdf(pdf_bytes, password=None):
-    """Lista las firmas del PDF y si el documento se ha modificado después."""
+def verify_pdf(pdf_bytes, password=None, online=False):
+    """Lista las firmas del PDF, si el documento se ha modificado después y, por firma, un
+    veredicto («ok», «aviso» o «mal») con sus motivos. online: consulta si el certificado está revocado."""
     from pyhanko.pdf_utils.crypt import AuthStatus
     from pyhanko.pdf_utils.reader import PdfFileReader
     from pyhanko.sign.validation import validate_pdf_signature
+    import trust
     reader = PdfFileReader(io.BytesIO(pdf_bytes))
     if reader.encrypted:
         if not password:
@@ -371,13 +373,22 @@ def verify_pdf(pdf_bytes, password=None):
         if reader.decrypt(password).status == AuthStatus.FAILED:
             raise ValueError("Contraseña incorrecta.")
     dss = "/DSS" in reader.root
+    try:
+        ctx = trust.context(online)
+    except Exception:
+        ctx = None
     results = []
-    for sig in reader.embedded_signatures:
+    sigs = list(reader.embedded_signatures)
+    for idx, sig in enumerate(sigs):
         error = None
         tsa = None
+        revoked = None
+        docmdp_ok = True
         try:
-            st = validate_pdf_signature(sig)
+            st = validate_pdf_signature(sig, signer_validation_context=ctx) if ctx else validate_pdf_signature(sig)
             intact, valid, trusted = st.intact, st.valid, st.trusted
+            revoked = getattr(st, "revoked", None)
+            docmdp_ok = getattr(st, "docmdp_ok", True) is not False
             coverage = st.coverage.name if st.coverage else ""
             ts = st.timestamp_validity
             if ts is not None:
@@ -389,19 +400,69 @@ def verify_pdf(pdf_bytes, password=None):
             coverage = None
             error = f"{ex.__class__.__name__}: {ex}"
         when = sig.self_reported_timestamp
+        cert = sig.signer_cert
+        expired = None
+        until = ""
+        if cert is not None:
+            end = cert["tbs_certificate"]["validity"]["not_after"].native
+            until = end.astimezone().strftime("%d/%m/%Y")
+            expired = end < datetime.datetime.now(datetime.timezone.utc)
+        modified_after = coverage not in ("ENTIRE_FILE", "ENTIRE_REVISION") if coverage else None
+        later_sigs = idx < len(sigs) - 1
+        # veredicto para el visor
+        bad, warn, good = [], [], []
+        if error or not intact:
+            bad.append("El documento se ha alterado después de firmarlo o la firma está dañada.")
+        elif not valid:
+            bad.append("La firma no es válida.")
+        else:
+            good.append("Firma íntegra: el contenido firmado no ha cambiado.")
+        if revoked:
+            bad.append("El certificado del firmante está revocado.")
+        if not docmdp_ok:
+            bad.append("Hay cambios no permitidos por la certificación del documento.")
+        if intact and valid and not error:
+            if trusted:
+                good.append("Certificado de confianza (cadena verificada).")
+            else:
+                warn.append("No se ha podido verificar el certificado con una autoridad de confianza.")
+            if expired and not tsa:
+                warn.append(f"El certificado caducó el {until} y la firma no tiene sello de tiempo.")
+            elif expired:
+                good.append(f"El certificado caducó el {until}, pero el sello de tiempo prueba que se firmó antes.")
+            elif until:
+                good.append(f"Certificado vigente hasta el {until}.")
+            if tsa and tsa["ok"]:
+                good.append(f"Sello de tiempo {'de confianza ' if tsa['trusted'] else ''}del {tsa['time']}.")
+            elif tsa:
+                warn.append("El sello de tiempo no es válido.")
+            else:
+                warn.append("Sin sello de tiempo: la hora la indica el propio firmante.")
+            if dss:
+                good.append("Incluye datos de validación a largo plazo (LTV).")
+            if modified_after and not later_sigs:
+                warn.append("Hay cambios posteriores a la firma (anotaciones o formularios).")
+            elif modified_after:
+                good.append("Después se añadieron otras firmas.")
+            if online and revoked is False and trusted:
+                good.append("Comprobado en línea: el certificado no está revocado.")
+        level = "mal" if bad else ("aviso" if warn else "ok")
         results.append({
             "field": sig.field_name,
-            "signer": sig.signer_cert.subject.human_friendly if sig.signer_cert else "?",
-            "issuer": sig.signer_cert.issuer.human_friendly if sig.signer_cert else "?",
+            "signer": cert.subject.human_friendly if cert else "?",
+            "name": (cert.subject.native.get("common_name") if cert else None) or "?",
+            "issuer": cert.issuer.human_friendly if cert else "?",
             "time": when.astimezone().strftime("%d/%m/%Y %H:%M") if isinstance(when, datetime.datetime) else "",
             "intact": bool(intact), "valid": bool(valid), "trusted": bool(trusted),
             "whole_file": coverage == "ENTIRE_FILE",
-            "modified_after": coverage not in ("ENTIRE_FILE", "ENTIRE_REVISION") if coverage else None,
+            "modified_after": modified_after,
             "reason": _plain(sig.sig_object.get("/Reason")),
             "certified": sig.docmdp_level is not None,
-            "timestamp": tsa, "ltv": dss,
+            "timestamp": tsa, "ltv": dss, "revoked": revoked, "expired": expired, "cert_until": until,
             "covered_end": _covered_end(sig),
             "error": error,
+            "level": level, "notes": [{"t": t, "k": "b"} for t in bad] + [{"t": t, "k": "w"} for t in warn]
+                     + [{"t": t, "k": "g"} for t in good],
         })
     return results
 

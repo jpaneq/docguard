@@ -418,3 +418,17 @@ html, body { overflow: hidden; }
 .win-btns { display: flex; gap: 4px; padding: 8px 12px; flex-wrap: wrap; }
 .win-btns button { font-size: 11px; padding: 3px 6px; }
 .update-notes { white-space: pre-wrap; max-height: 260px; overflow: auto; background: var(--panel2); padding: 8px; border-radius: 6px; font-size: 12px; }
+
+/* estado de las firmas digitales en el visor */
+.sig-banner { padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; gap: 4px; }
+.sig-row { border-radius: 6px; padding: 6px 10px; border-left: 5px solid; cursor: pointer; font-size: 13px; }
+.sig-row.ok { background: rgba(31, 157, 85, .12); border-color: #1f9d55; }
+.sig-row.aviso { background: rgba(230, 140, 0, .14); border-color: #e68c00; }
+.sig-row.mal { background: rgba(210, 59, 59, .13); border-color: #d23b3b; }
+.sig-row .st { font-weight: 600; }
+.sig-row.ok .st { color: #1f9d55; } .sig-row.aviso .st { color: #c27400; } .sig-row.mal .st { color: #d23b3b; }
+.sig-row ul { margin: 4px 0 0; padding-left: 18px; }
+.sig-row li.g::marker { content: '✔ '; color: #1f9d55; }
+.sig-row li.w::marker { content: '⚠ '; color: #e68c00; }
+.sig-row li.b::marker { content: '✘ '; color: #d23b3b; }
+.sig-row .chk { color: var(--muted); font-size: 12px; }

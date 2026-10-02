@@ -49,7 +49,22 @@ async function uploadFile(file) {
   });
   const j = await r.json();
   if (!r.ok) throw new Error(`${file.name}: ${j.error}`);
-  return j;
+  return unlockInfo(j);
+}
+
+/** Si el PDF tiene contraseña, la pide (hasta acertar o cancelar) y devuelve el documento ya abierto. */
+async function unlockInfo(info) {
+  if (!info?.encrypted || info.kind !== 'pdf') return info;
+  const hidden = busyCount;  // el indicador de carga taparía la pregunta
+  if (hidden) $('#busy').classList.remove('on');
+  try {
+    let label = `«${info.name}» está protegido. Escribe su contraseña:`;
+    for (;;) {
+      const pw = await ask('PDF con contraseña', label, '', { password: true });
+      if (pw === null) return info;
+      try { return await api('unlock', { id: info.id, password: pw }); } catch (e) { label = 'Contraseña incorrecta. Vuelve a intentarlo:'; }
+    }
+  } finally { if (hidden) $('#busy').classList.toggle('on', busyCount > 0); }
 }
 
 // En la ventana nativa de macOS solo cuentan los tipos MIME (las extensiones se ignoran).
@@ -98,6 +113,7 @@ function modal({ title, body, actions = [], wide = false, onclose = null }) {
 function ask(title, label, value = '', { password = false, textarea = false } = {}) {
   return new Promise(res => {
     const inp = textarea ? h('textarea', { rows: 4 }, value) : h('input', { value, type: password ? 'password' : 'text' });
+    setTimeout(() => inp.focus(), 50);
     let done = false;
     const finish = v => { if (!done) { done = true; res(v); } };
     const close = modal({

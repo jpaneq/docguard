@@ -64,6 +64,7 @@ class Doc:
         else:
             self.kind = "other"
         self.doc = None
+        self.password = None
         if self.kind == "pdf":
             self.doc = fitz.open("pdf", data)
             self.encrypted = self.doc.needs_pass
@@ -79,8 +80,10 @@ class Doc:
         return os.path.splitext(self.name)[0]
 
     def pdf_bytes(self):
-        if self.kind == "pdf" and not self.edited:
+        if self.kind == "pdf" and not self.edited and not self.password:
             return self.orig
+        if self.password:  # abierto con su contraseña: se trabaja con la versión descifrada
+            return self.doc.tobytes(garbage=3, deflate=True, encryption=fitz.PDF_ENCRYPT_NONE)
         return self.doc.tobytes(garbage=3, deflate=True)
 
     def info(self, did):
@@ -1376,7 +1379,22 @@ def op_verify(req):
     d = get_doc(req)
     if d.kind != "pdf":
         raise ValueError("Solo se pueden verificar PDFs.")
-    return {"signatures": signing.verify_pdf(d.orig if not d.edited else d.pdf_bytes())}
+    data = d.orig if not d.edited else d.pdf_bytes()
+    return {"signatures": signing.verify_pdf(data, password=d.password if not d.edited else None,
+                                             online=bool(req.get("online")))}
+
+
+def op_unlock(req):
+    """Abre un PDF con contraseña: se trabaja con él descifrado (el original sigue igual)."""
+    d = get_doc(req)
+    if d.kind != "pdf" or not d.encrypted:
+        return d.info(req["id"])
+    pw = req.get("password") or ""
+    if not d.doc.authenticate(pw):
+        raise ValueError("Contraseña incorrecta.")
+    d.password = pw
+    d.encrypted = False
+    return d.info(req["id"])
 
 
 def op_presets(req):
@@ -1418,7 +1436,7 @@ OPS = {
     "sigimgs": op_sigimgs, "sigimg/save": op_sigimg_save, "sigimg/delete": op_sigimg_delete,
     "sigimg/place": op_place_sigimg, "sigimg/margin": op_sign_margin, "edit/copy": op_copy, "edit/copy_spans": op_copy_spans, "certinfo": op_certinfo, "sign": op_sign, "sign/test": op_sign_test, "sign/batch": op_sign_batch,
     "track/add": op_track_add, "track/check": op_track_check, "track/list": op_track_list, "track/delete": op_track_delete,
-    "p11/modules": op_p11_modules, "p11/list": op_p11_list, "p11/login": op_p11_login, "verify": op_verify,
+    "p11/modules": op_p11_modules, "p11/list": op_p11_list, "p11/login": op_p11_login, "verify": op_verify, "unlock": op_unlock,
 }
 for _name in EDIT_OPS:
     OPS["edit/" + _name] = (lambda nm: lambda req: op_edit(req, nm))(_name)

@@ -88,6 +88,7 @@ const Edit = {
     });
     act('findnext', () => this.findStep(1));
     act('findprev', () => this.findStep(-1));
+    act('print', () => printDoc(this.info));
     act('export', async () => saveResult(await run('Preparando…', () => api('edit/export', { id: this.info.id }))));
     dropTarget(this.viewer.el, async fs => { for (const f of fs) await this.openFile(f); });
     document.addEventListener('keydown', e => this.key(e));
@@ -110,6 +111,7 @@ const Edit = {
     setCurrent(info);
     $('.doc-name', this.root).textContent = info.name;
     $('[data-act=export]', this.root).disabled = false;
+    $('[data-act=print]', this.root).disabled = false;
     this.viewer.load(info);
     this.outline = null;
     if (!this.side.hidden) this.renderSide();

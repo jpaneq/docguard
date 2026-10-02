@@ -6,12 +6,12 @@ S = 1024
 img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
 d = ImageDraw.Draw(img)
 
-# Fondo: cuadrado redondeado con degradado azul.
+# Fondo: cuadrado redondeado con degradado rojo.
 grad = Image.new("RGBA", (S, S))
 gd = ImageDraw.Draw(grad)
 for y in range(S):
     t = y / S
-    gd.line([(0, y), (S, y)], fill=(int(30 + 20 * t), int(90 + 40 * t), int(200 - 40 * t), 255))
+    gd.line([(0, y), (S, y)], fill=(int(225 - 45 * t), int(45 - 15 * t), int(50 - 10 * t), 255))
 mask = Image.new("L", (S, S), 0)
 ImageDraw.Draw(mask).rounded_rectangle((40, 40, S - 40, S - 40), radius=200, fill=255)
 img.paste(grad, (0, 0), mask)

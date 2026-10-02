@@ -491,7 +491,7 @@ const Sign = {
     try {
       const r = await api('verify', { id });
       box.replaceChildren(...(r.signatures.length ? r.signatures.map((s, i) => h('div', { class: 'sig-result' },
-        h('b', { class: s.intact && s.valid ? 'ok' : 'bad' }, `${s.intact && s.valid ? '✔' : '✘'} ${i + 1}. `), s.signer.replace('Common Name: ', ''),
+        h('b', { class: s.level === 'ok' ? 'ok' : (s.level === 'aviso' ? 'warn' : 'bad'), style: s.level === 'aviso' ? 'color:#e68c00' : '' }, `${{ ok: '✔', aviso: '⚠', mal: '✘' }[s.level]} ${i + 1}. `), s.signer.replace('Common Name: ', ''),
         h('div', { class: 'muted' }, s.time))) : [h('span', {}, 'Todavía no hay firmas digitales.')]));
     } catch (e) { box.textContent = '—'; }
   },
@@ -506,6 +506,7 @@ const Sign = {
         : h('b', { class: 'bad' }, '✘ Firma NO válida o documento alterado')),
       h('div', { class: 'muted' }, s.trusted ? 'Certificado de confianza.' : 'Certificado no verificado contra una autoridad de confianza de este equipo (normal con certificados propios o si falta la cadena).'),
       s.modified_after ? h('div', { class: 'muted' }, 'Hay cambios posteriores a esta firma (otras firmas o anotaciones).') : null,
+      h('ul', {}, s.notes.map(n => h('li', { style: `color:${{ g: '#1f9d55', w: '#c27400', b: '#d23b3b' }[n.k]}` }, n.t))),
     )) : h('p', {}, 'Este PDF no tiene firmas digitales.'));
     modal({ title: 'Firmas del documento', body, actions: [{ label: 'Cerrar', primary: true }] });
   },

@@ -33,6 +33,7 @@ import protect
 import records
 import scan
 import signing
+import status_icons
 import tracking
 
 TOKEN = secrets.token_urlsafe(18)
@@ -63,6 +64,7 @@ class Doc:
         else:
             self.kind = "other"
         self.doc = None
+        self.password = None
         if self.kind == "pdf":
             self.doc = fitz.open("pdf", data)
             self.encrypted = self.doc.needs_pass
@@ -78,8 +80,10 @@ class Doc:
         return os.path.splitext(self.name)[0]
 
     def pdf_bytes(self):
-        if self.kind == "pdf" and not self.edited:
+        if self.kind == "pdf" and not self.edited and not self.password:
             return self.orig
+        if self.password:  # abierto con su contraseña: se trabaja con la versión descifrada
+            return self.doc.tobytes(garbage=3, deflate=True, encryption=fitz.PDF_ENCRYPT_NONE)
         return self.doc.tobytes(garbage=3, deflate=True)
 
     def info(self, did):
@@ -445,15 +449,18 @@ def op_wm_export(req):
                             layout = {"page": 0, "sig": None, "ack": None, "fs": 6}
                         if want_pdfa:  # primero PDF/A y después la firma (que no rompe la norma)
                             data = pdfa.convert(data, f"Copia de uso restringido {ref or ''}".strip())
+                        data = status_icons.mark_pdf(data, "protegido")  # para el icono de estado
                         if pw:
                             data = signing.encrypt_pdf_bytes(data, pw)
                         data, warn, used = signing.sign_copy(data, signer, layout, reason=reason[:150], password=pw or None,
                                                              tsa_url=sign.get("tsa") or None, ltv=bool(sign.get("ltv")))
                         notes += [x for x in warn if x not in notes]
-                    elif pw:  # el mismo cifrado que las copias firmadas (lo lee «Comprobar una copia»)
-                        data = signing.encrypt_pdf_bytes(data, pw)
-                    elif want_pdfa:
-                        data = pdfa.convert(data, f"Copia de uso restringido {ref or ''}".strip())
+                    else:
+                        if want_pdfa:
+                            data = pdfa.convert(data, f"Copia de uso restringido {ref or ''}".strip())
+                        data = status_icons.mark_pdf(data, "protegido")  # para el icono de estado
+                        if pw:  # el mismo cifrado que las copias firmadas (lo lee «Comprobar una copia»)
+                            data = signing.encrypt_pdf_bytes(data, pw)
                 done.append((name, data))
             if ref:
                 rec = {"sha256": [hashlib.sha256(data).hexdigest() for _, data in done]}
@@ -847,7 +854,8 @@ def op_redact(req):
     with tempfile.TemporaryDirectory() as tmp:
         dst = os.path.join(tmp, f"{d.base}_censurado.pdf")
         core.redact_pdf(doc, marks, dst, core.REDACT_STYLES.get(req.get("style"), "black"))
-        return store_result(read_outputs(tmp))
+        return store_result([(n, status_icons.mark_pdf(b, "censurado") if n.lower().endswith(".pdf") else b)
+                             for n, b in read_outputs(tmp)])
 
 
 # ---- páginas ----
@@ -1371,7 +1379,22 @@ def op_verify(req):
     d = get_doc(req)
     if d.kind != "pdf":
         raise ValueError("Solo se pueden verificar PDFs.")
-    return {"signatures": signing.verify_pdf(d.orig if not d.edited else d.pdf_bytes())}
+    data = d.orig if not d.edited else d.pdf_bytes()
+    return {"signatures": signing.verify_pdf(data, password=d.password if not d.edited else None,
+                                             online=bool(req.get("online")))}
+
+
+def op_unlock(req):
+    """Abre un PDF con contraseña: se trabaja con él descifrado (el original sigue igual)."""
+    d = get_doc(req)
+    if d.kind != "pdf" or not d.encrypted:
+        return d.info(req["id"])
+    pw = req.get("password") or ""
+    if not d.doc.authenticate(pw):
+        raise ValueError("Contraseña incorrecta.")
+    d.password = pw
+    d.encrypted = False
+    return d.info(req["id"])
 
 
 def op_presets(req):
@@ -1413,7 +1436,7 @@ OPS = {
     "sigimgs": op_sigimgs, "sigimg/save": op_sigimg_save, "sigimg/delete": op_sigimg_delete,
     "sigimg/place": op_place_sigimg, "sigimg/margin": op_sign_margin, "edit/copy": op_copy, "edit/copy_spans": op_copy_spans, "certinfo": op_certinfo, "sign": op_sign, "sign/test": op_sign_test, "sign/batch": op_sign_batch,
     "track/add": op_track_add, "track/check": op_track_check, "track/list": op_track_list, "track/delete": op_track_delete,
-    "p11/modules": op_p11_modules, "p11/list": op_p11_list, "p11/login": op_p11_login, "verify": op_verify,
+    "p11/modules": op_p11_modules, "p11/list": op_p11_list, "p11/login": op_p11_login, "verify": op_verify, "unlock": op_unlock,
 }
 for _name in EDIT_OPS:
     OPS["edit/" + _name] = (lambda nm: lambda req: op_edit(req, nm))(_name)

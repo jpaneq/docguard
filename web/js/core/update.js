@@ -38,3 +38,58 @@ const Update = {
     await window.pywebview.api.restart_to_update();
   },
 };
+
+// Iconos de estado de los PDF en el Finder / Explorador (firmado, contraseña, censurado, protegido).
+const StatusIcons = {
+  /** Windows: la primera vez tras actualizar, explica cómo activar los iconos en el Explorador. */
+  async notice() {
+    if (!window.pywebview) await new Promise(res => { window.addEventListener('pywebviewready', res, { once: true }); setTimeout(res, 3000); });
+    const apiN = window.pywebview?.api;
+    if (!apiN?.icons_setting || window.opener) return;
+    const st = await apiN.icons_setting(null).catch(() => null);
+    if (!st || st.platform !== 'win32' || st.notice_seen || st.machine || !st.enabled) return;
+    await apiN.icons_notice_seen();
+    const step = (n, text, img) => h('div', { class: 'help-step' }, h('p', {}, h('b', {}, n + '. '), text), h('img', { src: 'ayuda/' + img, alt: '' }));
+    modal({
+      title: 'Novedad: iconos de estado en el Explorador',
+      wide: true,
+      body: h('div', { class: 'help-steps' },
+        h('p', {}, 'DocGuard puede mostrar en el Explorador de Windows si cada PDF está firmado, tiene contraseña, está censurado o protegido. Para activarlo:'),
+        step(1, 'En la barra lateral, abajo, pulsa «Iconos de estado…».', 'paso1.png'),
+        step(2, 'Pulsa «Activar en el Explorador…» y acepta el permiso de Windows (se pide una sola vez).', 'paso2.png'),
+        step(3, 'Listo: en las vistas de iconos medianos o más grandes verás así tus PDF.', 'paso3.png')),
+      actions: [{ label: 'Más tarde' }, {
+        label: 'Activar ahora', primary: true, fn: async () => {
+          const ok = await apiN.icons_machine(true);
+          toast(ok ? 'Iconos activados en el Explorador.' : 'No se han activado (se canceló el permiso de administrador). Puedes hacerlo luego en «Iconos de estado…».', ok ? 'ok' : 'err', [], 8000);
+        },
+      }],
+    });
+  },
+  async open() {
+    const apiN = window.pywebview?.api;
+    if (!apiN?.icons_setting) return toast('Solo disponible en el programa de escritorio.', '');
+    const st = await apiN.icons_setting(null);
+    const mac = st.platform === 'darwin';
+    const cb = h('input', { type: 'checkbox', checked: st.enabled });
+    modal({
+      title: 'Iconos de estado de los PDF',
+      body: h('div', {},
+        h('p', {}, 'Los PDF se ven en rojo, con una insignia si están firmados ✍, con contraseña 🔒, censurados ▬ o protegidos 🛡.'),
+        h('label', { class: 'inline' }, cb, 'Mostrar los iconos de estado'),
+        mac ? h('p', { class: 'muted' }, 'Mac: se aplican a los PDF que guarda DocGuard (también con etiquetas de color del Finder). Para los que ya tienes, usa el botón de abajo. El icono solo existe en tu Mac: al enviar el PDF se ve normal. El Finder deja de mostrar la miniatura de la primera página en esos archivos.')
+          : h('div', {},
+            h('p', { class: 'muted' }, 'Windows: el Explorador los muestra en todos los PDF, en las vistas de iconos medianos o más grandes. Puede que los PDF que ya habías visto tarden en actualizarse (el Explorador guarda las miniaturas).'),
+            st.machine ? h('p', { class: 'ok' }, '✔ Activados en el Explorador.')
+              : h('p', {}, 'Windows solo deja que el Explorador use estos iconos si se activan con permiso de administrador. Se pide una sola vez; las actualizaciones de DocGuard no lo vuelven a pedir.'))),
+      actions: [
+        ...(!mac && !st.machine ? [{ label: 'Activar en el Explorador…', fn: async () => {
+          const ok = await apiN.icons_machine(true);
+          toast(ok ? 'Iconos activados en el Explorador.' : 'No se han activado (se canceló el permiso de administrador).', ok ? 'ok' : 'err');
+        } }] : []),
+        ...(mac ? [{ label: 'Marcar los PDF de una carpeta…', fn: async () => { const n = await apiN.mark_folder(); if (n != null) toast(`${n} PDF marcados.`, 'ok'); return false; } }] : []),
+        { label: 'Cerrar', primary: true, fn: async () => { if (cb.checked !== st.enabled) await apiN.icons_setting(cb.checked); } },
+      ],
+    });
+  },
+};

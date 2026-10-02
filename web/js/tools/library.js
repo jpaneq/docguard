@@ -37,7 +37,8 @@ const Library = {
   },
   loadInfo(info) { if (!this.docs.some(d => d.id === info.id)) { this.docs.push(info); this.render(); } },
   /** Abre un documento directamente en el lector, con la hoja entera (doble clic, «Abrir con…», «Añadir» de un archivo). */
-  openDoc(info) {
+  async openDoc(info) {
+    info = await unlockInfo(info);
     if (!info?.pages?.length || info.encrypted) return toast(`${info?.name || 'El archivo'}: no se puede mostrar (con contraseña o formato no admitido).`, 'err');
     this.loadInfo(info);
     setCurrent(info);
@@ -134,6 +135,7 @@ const Library = {
     r.hidden = false;
     $('.reader-name', this.root).textContent = d.name;
     this.viewer.load(d);
+    this.showSignatures(d);
     this.readerHits();
     requestAnimationFrame(() => {
       this.viewer.fit();
@@ -143,6 +145,32 @@ const Library = {
     });
   },
   closeReader() { $('.reader', this.root).hidden = true; this.reading = null; },
+  /** Franja con el estado de cada firma digital: verde si todo está bien, naranja si hay avisos, rojo si no vale.
+   *  Primero se verifica sin conexión (rápido) y luego se consulta en línea si el certificado está revocado. */
+  async showSignatures(d) {
+    const box = $('.sig-banner', this.root);
+    box.hidden = true;
+    box.replaceChildren();
+    if (d.kind !== 'pdf' || d.encrypted) return;
+    const paint = (sigs, checking) => {
+      if (this.reading !== d) return;
+      box.hidden = !sigs.length;
+      const n = sigs.length;
+      box.replaceChildren(...sigs.map((s, i) => {
+        const st = { ok: '✔ Firma válida', aviso: '⚠ Firma válida con avisos', mal: '✘ Firma NO válida' }[s.level];
+        const list = h('ul', { hidden: s.level === 'ok' }, s.notes.map(t => h('li', { class: t.k }, t.t)));
+        return h('div', { class: 'sig-row ' + s.level, title: 'Ver detalles', onclick: () => { list.hidden = !list.hidden; } },
+          h('span', { class: 'st' }, st), ` · ${n > 1 ? `Firma ${i + 1} de ${n} · ` : ''}${s.name}${s.time ? ' · ' + s.time : ''}`,
+          checking ? h('span', { class: 'chk' }, ' · comprobando revocación…') : null, list);
+      }));
+    };
+    let sigs;
+    try { sigs = (await api('verify', { id: d.id })).signatures; } catch (e) { return; }
+    if (!sigs.length) return;
+    paint(sigs, true);
+    try { sigs = (await api('verify', { id: d.id, online: true })).signatures; } catch (e) { /* sin conexión */ }
+    paint(sigs, false);
+  },
   readerHits() {
     const hd = this.reading && this.hitsOf(this.reading.id);
     this.hits = (hd?.pages || []).flatMap(p => p.rects.map(r => ({ n: p.n, r })));

@@ -149,6 +149,33 @@ def windows_register(enable=True):
     return True
 
 
+def windows_open_with():
+    """Mantiene DocGuard en «Abrir con» apuntando al DocGuard.exe actual (solo este usuario, sin
+    permisos). Si se movió de carpeta, el programa predeterminado para los PDF sigue funcionando."""
+    if sys.platform != "win32" or not getattr(sys, "frozen", False):
+        return False
+    import winreg
+    exe = os.path.abspath(sys.executable)
+    cmd = f'"{exe}" "%1"'
+    base = r"Software\Classes"
+    exts = (".pdf", ".png", ".jpg", ".jpeg")
+    for key in (rf"{base}\Applications\DocGuard.exe", rf"{base}\DocGuard.PDF"):
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key) as k:
+            winreg.SetValueEx(k, "FriendlyAppName" if "Applications" in key else None, 0, winreg.REG_SZ, "DocGuard")
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key + r"\DefaultIcon") as k:
+            winreg.SetValueEx(k, None, 0, winreg.REG_SZ, f"{exe},0")
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key + r"\shell\open\command") as k:
+            winreg.SetValueEx(k, None, 0, winreg.REG_SZ, cmd)
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, rf"{base}\Applications\DocGuard.exe\SupportedTypes") as k:
+        for e in exts:
+            winreg.SetValueEx(k, e, 0, winreg.REG_SZ, "")
+    for e in exts:
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, rf"{base}\{e}\OpenWithProgids") as k:
+            winreg.SetValueEx(k, "DocGuard.PDF", 0, winreg.REG_NONE, b"")
+    _notify()
+    return True
+
+
 def _dll_dir():
     return os.path.join(os.environ.get("LOCALAPPDATA", core.config_dir()), "DocGuard", "miniaturas", core.VERSION)
 

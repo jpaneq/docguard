@@ -28,6 +28,11 @@ def _windows_icons():
     """Windows: miniaturas con icono de estado en el Explorador (solo para este usuario, sin permisos)."""
     import records
     import status_icons
+    if sys.platform == "win32":
+        try:
+            status_icons.windows_open_with()
+        except Exception:
+            pass
     if sys.platform == "win32" and records.settings().get("iconos_estado", True):
         try:
             status_icons.windows_register(True)
@@ -110,8 +115,15 @@ class Api:
 
         import webview
         if updater.apply_on_exit():
+            # El script espera a que este proceso termine; cerrar las ventanas no siempre lo cierra
+            # (se quedaba la rueda girando), así que se sale del todo al momento.
+            import threading
+            threading.Timer(0.3, lambda: os._exit(0)).start()
             for w in list(webview.windows):
-                w.destroy()
+                try:
+                    w.hide()
+                except Exception:
+                    pass
             return True
         return False
 

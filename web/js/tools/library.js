@@ -186,7 +186,11 @@ const Library = {
     $('.reader-count', this.root).textContent = `${k + 1} / ${this.hits.length}`;
     this.drawHits();
   },
-  step(d) { if (this.hits?.length) this.showHit((this.hitIdx + d + this.hits.length) % this.hits.length); },
+  /** ▲ ▼: con una búsqueda, coincidencia anterior / siguiente; sin búsqueda, página anterior / siguiente. */
+  step(d) {
+    if (this.hits?.length) this.showHit((this.hitIdx + d + this.hits.length) % this.hits.length);
+    else this.viewer.go(this.viewer.n + d);
+  },
   drawHits() {
     const v = this.viewer;
     if (!v.pages) return;

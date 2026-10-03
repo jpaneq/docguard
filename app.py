@@ -43,11 +43,11 @@ def _windows_icons():
 APP_URL = None  # dirección de la interfaz (con su clave): la comparten todas las ventanas
 
 
-def make_window(x=None, y=None, width=1320, height=880):
+def make_window(x=None, y=None, width=1320, height=880, maximized=False):
     """Abre una ventana de DocGuard. Todas usan el mismo servidor: comparten documentos y pestañas."""
     import webview
     win = webview.create_window(f"DocGuard {server.core.VERSION}", APP_URL, js_api=Api(), width=width, height=height, x=x, y=y,
-                                min_size=(700, 450))
+                                min_size=(700, 450), maximized=maximized)
     if sys.platform == "win32":
         def repaint():  # fuerza a WebView2 a repintar cuando la interfaz ya ha cargado
             win.resize(win.width + 1, win.height)
@@ -650,7 +650,7 @@ def main():
             from webview.menu import Menu, MenuAction, MenuSeparator
             global APP_URL
             APP_URL = url
-            win = make_window()
+            win = make_window(maximized=True)  # la principal se abre maximizada; las de «+ Ventana», en cascada
             import threading
             threading.Thread(target=_windows_icons, daemon=True).start()
             if sys.platform == "darwin":

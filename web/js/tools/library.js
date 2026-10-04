@@ -134,6 +134,7 @@ const Library = {
     const r = $('.reader', this.root);
     r.hidden = false;
     $('.reader-name', this.root).textContent = d.name;
+    updateTitle(d.name);
     this.viewer.load(d);
     this.showSignatures(d);
     this.readerHits();
@@ -144,7 +145,7 @@ const Library = {
       if (k >= 0) this.showHit(k); else this.drawHits();
     });
   },
-  closeReader() { $('.reader', this.root).hidden = true; this.reading = null; },
+  closeReader() { $('.reader', this.root).hidden = true; this.reading = null; updateTitle(); },
   /** Franja con el estado de cada firma digital: verde si todo está bien, naranja si hay avisos, rojo si no vale.
    *  Primero se verifica sin conexión (rápido) y luego se consulta en línea si el certificado está revocado. */
   async showSignatures(d) {

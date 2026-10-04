@@ -277,12 +277,21 @@ function setCurrent(info) {
   box.hidden = false;
   $('.cd-name', box).textContent = info.name;
   box.title = info.name;
+  updateTitle();
 }
 
 function clearCurrent() {
   CURRENT = null;
   $('.current-doc').hidden = true;
+  updateTitle();
 }
+
+/** Título de la ventana (y de la barra de tareas): el documento que se está viendo. */
+function updateTitle(name = CURRENT?.name) {
+  document.title = name ? `${name} — DocGuard` : 'DocGuard';
+  window.pywebview?.api?.set_title?.(name || '');
+}
+window.addEventListener('pywebviewready', () => updateTitle());  // en Windows la API llega tras cargar
 
 /* ======================================================================
    Paneles con anchura ajustable

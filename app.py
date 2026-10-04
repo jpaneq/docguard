@@ -46,8 +46,10 @@ APP_URL = None  # dirección de la interfaz (con su clave): la comparten todas l
 def make_window(x=None, y=None, width=1320, height=880, maximized=False):
     """Abre una ventana de DocGuard. Todas usan el mismo servidor: comparten documentos y pestañas."""
     import webview
-    win = webview.create_window(f"DocGuard {server.core.VERSION}", APP_URL, js_api=Api(), width=width, height=height, x=x, y=y,
+    api = Api()
+    win = webview.create_window(f"DocGuard {server.core.VERSION}", APP_URL, js_api=api, width=width, height=height, x=x, y=y,
                                 min_size=(700, 450), maximized=maximized)
+    api._win = win  # para que set_title cambie el título de su propia ventana
     if sys.platform == "win32":
         def repaint():  # fuerza a WebView2 a repintar cuando la interfaz ya ha cargado
             win.resize(win.width + 1, win.height)
@@ -105,6 +107,14 @@ def arrange(mode="mosaico"):
 
 class Api:
     """Funciones que la interfaz puede llamar dentro de la ventana nativa."""
+
+    _win = None
+
+    def set_title(self, name):
+        """Título de la ventana (lo que se ve en la barra de tareas): el documento abierto y la versión."""
+        base = f"DocGuard {server.core.VERSION}"
+        if self._win:
+            self._win.set_title(f"{name} — {base}" if name else base)
 
     def new_window(self):
         new_window()

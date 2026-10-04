@@ -32,7 +32,8 @@ const Library = {
     });
     this.viewer = new ContViewer($('.reader-host', this.root), { keepOverlays: true, firstClickActivates: false });
     this.viewer.fitPage = true;  // «Ajustar» muestra la hoja entera
-    this.viewer.onrender = () => this.drawHits();
+    this.viewer.onrender = () => { this.drawHits(); this.textLayers(); };
+    this.viewer.el.addEventListener('scroll', () => { clearTimeout(this._tl); this._tl = setTimeout(() => this.textLayers(), 120); });
     makeResizable($('.lib-results', this.root), 'left', 'lib', 220, 620);
   },
   loadInfo(info) { if (!this.docs.some(d => d.id === info.id)) { this.docs.push(info); this.render(); } },
@@ -191,6 +192,40 @@ const Library = {
   step(d) {
     if (this.hits?.length) this.showHit((this.hitIdx + d + this.hits.length) % this.hits.length);
     else this.viewer.go(this.viewer.n + d);
+  },
+  /** Capa de texto invisible sobre las páginas del lector, para seleccionar y copiar (⌘C) como en un
+   *  lector de PDF. Se crea para las páginas cercanas a la vista y se escala con el zoom. */
+  textLayers() {
+    const v = this.viewer, d = this.reading;
+    if (!v.pages || !d) return;
+    const top = v.el.scrollTop - 600, bottom = v.el.scrollTop + v.el.clientHeight + 600;
+    v.pages.forEach((p, i) => {
+      const [pw, ph] = v.info.pages[i];
+      let tl = $('.textlayer', p.wrap);
+      if (tl) { tl.style.transform = `scale(${p.wrap.clientWidth / pw})`; return; }
+      const y0 = p.wrap.offsetTop, y1 = y0 + p.wrap.offsetHeight;
+      if (y1 < top || y0 > bottom) return;
+      tl = h('div', { class: 'textlayer' });
+      Object.assign(tl.style, { width: pw + 'px', height: ph + 'px', transform: `scale(${p.wrap.clientWidth / pw})` });
+      p.wrap.append(tl);
+      api('edit/words', { id: d.id, n: i }).then(r => { if (this.reading?.id === d.id) this.fillText(tl, r.words); }).catch(() => {});
+    });
+  },
+  fillText(tl, words) {
+    const ctx = this._measure || (this._measure = document.createElement('canvas').getContext('2d'));
+    const frag = document.createDocumentFragment();
+    words.forEach((w, k) => {
+      const [x0, y0, x1, y1] = w.bbox, hh = y1 - y0, ww = x1 - x0;
+      if (hh <= 0 || ww <= 0) return;
+      const next = words[k + 1];
+      const sep = !next ? '' : next.line === w.line ? ' ' : '\n';  // al copiar: espacios y saltos de línea
+      const fs = hh * 0.9;
+      ctx.font = `${fs}px sans-serif`;
+      const s = h('span', {}, w.text + sep);
+      s.style.cssText = `left:${x0}px;top:${y0}px;font-size:${fs}px;transform:scaleX(${ww / (ctx.measureText(w.text).width || ww)})`;
+      frag.append(s);
+    });
+    tl.append(frag);
   },
   drawHits() {
     const v = this.viewer;

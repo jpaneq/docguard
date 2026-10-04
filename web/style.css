@@ -254,7 +254,12 @@ textarea.inline-edit { resize: none; border: 0; background: rgba(255, 255, 255, 
 .stack { display: flex; flex-direction: column; align-items: center; gap: 16px; padding-bottom: 60px; width: max-content; min-width: 100%; }  /* con zoom, la página se puede desplazar entera (no se corta por la izquierda) */
 .stack .page-wrap { margin: 0; flex: none; }
 .stack .page-wrap img:not([src]) { visibility: hidden; }
-.viewer.zooming .ov > * { visibility: hidden; }  /* marcas ocultas durante la vista previa del zoom */
+.viewer.zooming .ov > * { visibility: hidden; }
+/* Capa de texto del Visor: palabras invisibles sobre la imagen para seleccionar y copiar */
+.textlayer { position: absolute; left: 0; top: 0; transform-origin: 0 0; line-height: 1; user-select: text; z-index: 2; }
+.textlayer span { position: absolute; white-space: pre; color: transparent; font-family: sans-serif; transform-origin: 0 0; cursor: text; }
+.textlayer span::selection { background: rgba(26, 79, 214, .32); color: transparent; }
+.viewer.zooming .textlayer { visibility: hidden; }  /* marcas ocultas durante la vista previa del zoom */
 .pages-side { width: 190px; flex: none; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
 .side-tabs { display: flex; margin: 8px; } .side-tabs button { flex: 1; font-size: 12px; padding: 4px; }
 .thumb-list { overflow: auto; padding: 4px 12px 20px; display: flex; flex-direction: column; gap: 12px; align-items: center; }

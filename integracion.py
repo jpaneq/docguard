@@ -201,6 +201,8 @@ def word_addin(enable=True):
     """Instala (o quita) el botón «Exportar a DocGuard» en Word para este usuario."""
     pem, key, cer = _ensure_cert() if enable else _cert_paths()
     if not enable:
+        _stop_listener()
+        _autostart(False)
         if sys.platform == "darwin":
             p = os.path.join(_mac_wef_dir(), "DocGuard-Word.xml")
             if os.path.exists(p):
@@ -247,16 +249,146 @@ def word_addin_status():
     return None
 
 
-# ---- servidor https://localhost:47821 para el complemento ----
+# ---- escucha del botón de Word ----
+# Un proceso pequeño de DocGuard («DocGuard --escucha») arranca al iniciar sesión y atiende
+# https://localhost:47821: sirve las páginas del complemento y recibe los PDF. Si DocGuard está
+# abierto, se lo pasa a su ventana; si no, lo abre con el PDF.
 
 _SERVER = {}
+LISTENER_LABEL = "com.docguard.escucha"
+RUN_VALUE = "DocGuard (botón de Word)"
+
+
+def _open_file():
+    return os.path.join(_office_dir(), "abierto.json")
+
+
+def announce_open(url_with_token):
+    """La ventana de DocGuard anuncia dónde recibir archivos mientras está abierta."""
+    import json
+    base, _, tok = url_with_token.partition("?t=")
+    with open(_open_file(), "w") as f:
+        json.dump({"url": base, "token": tok, "pid": os.getpid()}, f)
+
+
+def announce_closed():
+    try:
+        os.remove(_open_file())
+    except OSError:
+        pass
+
+
+def _deliver(path):
+    """Abre el PDF en la ventana de DocGuard si está abierta; si no, abre DocGuard con él."""
+    import json
+    import urllib.request
+    try:
+        with open(_open_file()) as f:
+            info = json.load(f)
+        req = urllib.request.Request(info["url"] + "api/external/open", data=json.dumps({"path": path}).encode(),
+                                     headers={"X-Token": info["token"], "Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=5).read()
+        return
+    except Exception:
+        pass
+    app = _exe()
+    if sys.platform == "darwin" and app:
+        subprocess.Popen(["open", "-a", app, path])
+    elif app:
+        subprocess.Popen([app, path], creationflags=0x00000008)  # separado de la escucha
+    else:  # desde el código
+        subprocess.Popen([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"), path])
+
+
+def _listener_cmd():
+    if getattr(sys, "frozen", False):
+        return [os.path.abspath(sys.executable), "--escucha"]
+    return [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"), "--escucha"]
+
+
+def _listener_version():
+    """Versión de la escucha que esté en marcha, o None."""
+    import urllib.request
+    pem = _cert_paths()[0]
+    try:
+        ctx = ssl.create_default_context(cafile=pem)
+        with urllib.request.urlopen(ORIGIN + "/version", context=ctx, timeout=2) as r:
+            return r.read().decode().strip()
+    except Exception:
+        return None
+
+
+def _stop_listener():
+    import urllib.request
+    try:
+        ctx = ssl.create_default_context(cafile=_cert_paths()[0])
+        urllib.request.urlopen(urllib.request.Request(ORIGIN + "/salir", data=b"", headers={"Origin": ORIGIN}),
+                               context=ctx, timeout=2).read()
+    except Exception:
+        pass
+
+
+def _autostart(enable):
+    """Arranque de la escucha al iniciar sesión (solo este usuario, sin permisos)."""
+    cmd = _listener_cmd()
+    if sys.platform == "darwin":
+        import plistlib
+        plist = os.path.expanduser(f"~/Library/LaunchAgents/{LISTENER_LABEL}.plist")
+        uid = str(os.getuid())
+        subprocess.run(["launchctl", "bootout", f"gui/{uid}/{LISTENER_LABEL}"], capture_output=True)
+        if not enable:
+            if os.path.exists(plist):
+                os.remove(plist)
+            return
+        os.makedirs(os.path.dirname(plist), exist_ok=True)
+        with open(plist, "wb") as f:
+            plistlib.dump({"Label": LISTENER_LABEL, "ProgramArguments": cmd, "RunAtLoad": True,
+                           "ProcessType": "Background", "LimitLoadToSessionType": "Aqua"}, f)
+        subprocess.run(["launchctl", "bootstrap", f"gui/{uid}", plist], capture_output=True)
+    elif sys.platform == "win32":
+        import winreg
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run") as k:
+            if enable:
+                winreg.SetValueEx(k, RUN_VALUE, 0, winreg.REG_SZ, " ".join(f'"{c}"' if " " in c else c for c in cmd))
+            else:
+                try:
+                    winreg.DeleteValue(k, RUN_VALUE)
+                except OSError:
+                    pass
+
+
+def ensure_listener():
+    """Deja la escucha en marcha con la versión actual de DocGuard (y su arranque al iniciar sesión)."""
+    if not word_addin_status():
+        return False
+    v = _listener_version()
+    if v == core.VERSION:
+        return True
+    if v:
+        _stop_listener()
+        import time
+        time.sleep(1)
+    _autostart(True)
+    if sys.platform == "win32" or _listener_version() is None:
+        if sys.platform == "win32":
+            subprocess.Popen(_listener_cmd(), creationflags=0x00000008 | 0x08000000)
+        elif _listener_version() is None:
+            subprocess.Popen(_listener_cmd(), start_new_session=True)
+    return True
+
+
+def run_listener():
+    """Proceso «DocGuard --escucha»: atiende el botón de Word hasta que se le pide salir."""
+    if not start_addin_server(_deliver):
+        return
+    _SERVER["stop"] = threading.Event()
+    _SERVER["stop"].wait()
 
 
 def start_addin_server(on_pdf):
-    """Sirve las páginas del complemento y recibe los PDF que envía Word. on_pdf(ruta) los abre.
-    Solo arranca si el certificado ya existe (es decir, si se instaló el complemento)."""
+    """Sirve las páginas del complemento y recibe los PDF que envía Word. on_pdf(ruta) los abre."""
     pem, key, _ = _cert_paths()
-    if _SERVER or not (os.path.exists(pem) and os.path.exists(key)):
+    if "httpd" in _SERVER or not (os.path.exists(pem) and os.path.exists(key)):
         return False
     root = core.resource_path(os.path.join("web", "addin"))
 
@@ -274,6 +406,8 @@ def start_addin_server(on_pdf):
 
         def do_GET(self):
             name = urllib.parse.urlparse(self.path).path.lstrip("/") or "funciones.html"
+            if name == "version":
+                return self._send(200, core.VERSION.encode())
             if name == "manifest.xml":
                 return self._send(200, _manifest_xml().encode(), "application/xml")
             path = os.path.normpath(os.path.join(root, name))
@@ -285,11 +419,17 @@ def start_addin_server(on_pdf):
                 self._send(200, f.read(), ctype)
 
         def do_POST(self):
-            if urllib.parse.urlparse(self.path).path != "/recibir":
-                return self._send(404)
+            route = urllib.parse.urlparse(self.path).path
             origin = self.headers.get("Origin")
             if origin and origin != ORIGIN:  # solo las páginas del propio complemento
                 return self._send(403, b"origen no permitido")
+            if route == "/salir":
+                self._send(200, b"adios")
+                if "stop" in _SERVER:
+                    threading.Thread(target=lambda: (_SERVER["httpd"].shutdown(), _SERVER["stop"].set()), daemon=True).start()
+                return
+            if route != "/recibir":
+                return self._send(404)
             n = int(self.headers.get("Content-Length", 0))
             if not 0 < n <= 300 << 20:
                 return self._send(400, b"tamano no valido")
@@ -309,7 +449,7 @@ def start_addin_server(on_pdf):
     try:
         httpd = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     except OSError:
-        return False  # otra ventana de DocGuard ya lo tiene abierto
+        return False  # ya hay una escucha en marcha
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.load_cert_chain(pem, key)
     httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
@@ -332,6 +472,7 @@ def refresh_at_startup():
             mac_pdf_service(True)
         if sys.platform == "win32" and windows_send_to_status():
             windows_send_to(True)
+        ensure_listener()
     except Exception:
         pass
 

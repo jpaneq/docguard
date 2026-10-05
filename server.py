@@ -197,6 +197,19 @@ def op_update_download(req):
     return updater.download(req)
 
 
+EXTERNAL_OPEN = None  # la ventana de DocGuard abre aquí los archivos que llegan de Word
+
+
+def op_external_open(req):
+    """Abre en la ventana un PDF que ha llegado del botón de Word (solo rutas temporales de DocGuard)."""
+    path = os.path.abspath(req["path"])
+    folder = os.path.join(tempfile.gettempdir(), "DocGuard-Word")
+    if not path.startswith(folder + os.sep) or not os.path.isfile(path) or not EXTERNAL_OPEN:
+        raise ValueError("no se puede abrir")
+    threading.Thread(target=EXTERNAL_OPEN, args=(path,), daemon=True).start()
+    return {}
+
+
 def op_update_progress(req):
     import updater
     return updater.STATE.get("progress") or {}
@@ -1594,7 +1607,7 @@ OPS = {
     "sigimgs": op_sigimgs, "sigimg/save": op_sigimg_save, "sigimg/delete": op_sigimg_delete,
     "sigimg/place": op_place_sigimg, "sigimg/margin": op_sign_margin, "edit/copy": op_copy, "edit/copy_spans": op_copy_spans, "certinfo": op_certinfo, "sign": op_sign, "sign/test": op_sign_test, "sign/batch": op_sign_batch,
     "track/add": op_track_add, "track/check": op_track_check, "track/list": op_track_list, "track/delete": op_track_delete,
-    "p11/modules": op_p11_modules, "p11/list": op_p11_list, "p11/login": op_p11_login, "verify": op_verify, "update/progress": op_update_progress, "unlock": op_unlock,
+    "p11/modules": op_p11_modules, "p11/list": op_p11_list, "p11/login": op_p11_login, "verify": op_verify, "external/open": op_external_open, "update/progress": op_update_progress, "unlock": op_unlock,
 }
 for _name in EDIT_OPS:
     OPS["edit/" + _name] = (lambda nm: lambda req: op_edit(req, nm))(_name)

@@ -79,7 +79,7 @@
         <bt:String id="DG.Exportar.Etiqueta" DefaultValue="Exportar a DocGuard"/>
       </bt:ShortStrings>
       <bt:LongStrings>
-        <bt:String id="DG.Exportar.Ayuda" DefaultValue="Convierte el documento a PDF y lo abre en DocGuard (DocGuard debe estar abierto)."/>
+        <bt:String id="DG.Exportar.Ayuda" DefaultValue="Convierte el documento a PDF y lo abre en DocGuard."/>
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>

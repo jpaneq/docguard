@@ -126,7 +126,7 @@ const Integration = {
         win ? row('send_to', st.send_to, 'Botón derecho → «Enviar a» → DocGuard',
           'Con el botón derecho sobre un PDF o un documento de Word. Los documentos de Word se convierten a PDF (con Word o LibreOffice si están instalados).') : null,
         row('word', st.word, 'Botón «Exportar a DocGuard» en Word',
-          'Aparece en la pestaña Inicio de Word (cierra y vuelve a abrir Word). Funciona con DocGuard abierto. Al activarlo, ' +
+          'Aparece en la pestaña Inicio de Word (cierra y vuelve a abrir Word). Funciona aunque DocGuard esté cerrado: un proceso pequeño de DocGuard arranca al iniciar sesión y lo abre cuando hace falta. Al activarlo, ' +
           (mac ? 'el Mac pedirá tu contraseña' : 'Windows mostrará un aviso de seguridad') +
           ' para confiar en un certificado propio de DocGuard, que solo sirve en este equipo. Si no aparece, en Word: Insertar → Complementos → Mis complementos.')),
       actions: [{ label: 'Cerrar', primary: true }],

@@ -40,7 +40,7 @@ async function exportarADocGuard(event) {
     if (!r.ok) throw new Error(await r.text());
     avisar('Enviado a DocGuard: se ha abierto en su Visor PDF.');
   } catch (e) {
-    avisar('No se pudo enviar a DocGuard: ' + (e && e.message ? e.message : e) + '. Comprueba que DocGuard está abierto.');
+    avisar('No se pudo enviar a DocGuard: ' + (e && e.message ? e.message : e) + '. Abre DocGuard una vez y vuelve a intentarlo.');
   }
   event.completed();
 }

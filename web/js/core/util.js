@@ -246,7 +246,7 @@ function composeMail(subject, body) {
   window.location.href = url;
 }
 
-const CONTINUE_TOOLS = { watermark: 'Marca de agua (proteger)', edit: 'Editar PDF', redact: 'Censurar', sign: 'Firma digital',
+const CONTINUE_TOOLS = { watermark: 'Proteger documentación sensible', edit: 'Editar PDF', redact: 'Censurar', sign: 'Firma digital',
   pages: 'Páginas', protect: 'Contraseña' };
 
 function continueIn(res) {

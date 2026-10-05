@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Complemento de Word de DocGuard: botón «Exportar a DocGuard» en la pestaña Inicio.
+     DocGuard lo sirve en {ORIGIN} y lo instala solo para el usuario actual. -->
+<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+           xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
+           xsi:type="TaskPaneApp">
+  <Id>{ID}</Id>
+  <Version>{VERSION}</Version>
+  <ProviderName>DocGuard</ProviderName>
+  <DefaultLocale>es-ES</DefaultLocale>
+  <DisplayName DefaultValue="DocGuard"/>
+  <Description DefaultValue="Exporta el documento a PDF y lo abre en DocGuard para protegerlo, firmarlo o censurarlo."/>
+  <IconUrl DefaultValue="{ORIGIN}/icono-32.png"/>
+  <HighResolutionIconUrl DefaultValue="{ORIGIN}/icono-64.png"/>
+  <SupportUrl DefaultValue="https://github.com/jpaneq/docguard"/>
+  <AppDomains>
+    <AppDomain>{ORIGIN}</AppDomain>
+  </AppDomains>
+  <Hosts>
+    <Host Name="Document"/>
+  </Hosts>
+  <Requirements>
+    <Sets DefaultMinVersion="1.1">
+      <Set Name="WordApi" MinVersion="1.1"/>
+    </Sets>
+  </Requirements>
+  <DefaultSettings>
+    <SourceLocation DefaultValue="{ORIGIN}/funciones.html"/>
+  </DefaultSettings>
+  <Permissions>ReadDocument</Permissions>
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
+    <Hosts>
+      <Host xsi:type="Document">
+        <DesktopFormFactor>
+          <FunctionFile resid="DG.Funciones"/>
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <OfficeTab id="TabHome">
+              <Group id="DG.Grupo">
+                <Label resid="DG.Grupo.Etiqueta"/>
+                <Icon>
+                  <bt:Image size="16" resid="DG.Icono16"/>
+                  <bt:Image size="32" resid="DG.Icono32"/>
+                  <bt:Image size="80" resid="DG.Icono80"/>
+                </Icon>
+                <Control xsi:type="Button" id="DG.Exportar">
+                  <Label resid="DG.Exportar.Etiqueta"/>
+                  <Supertip>
+                    <Title resid="DG.Exportar.Etiqueta"/>
+                    <Description resid="DG.Exportar.Ayuda"/>
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="DG.Icono16"/>
+                    <bt:Image size="32" resid="DG.Icono32"/>
+                    <bt:Image size="80" resid="DG.Icono80"/>
+                  </Icon>
+                  <Action xsi:type="ExecuteFunction">
+                    <FunctionName>exportarADocGuard</FunctionName>
+                  </Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
+    </Hosts>
+    <Resources>
+      <bt:Images>
+        <bt:Image id="DG.Icono16" DefaultValue="{ORIGIN}/icono-16.png"/>
+        <bt:Image id="DG.Icono32" DefaultValue="{ORIGIN}/icono-32.png"/>
+        <bt:Image id="DG.Icono80" DefaultValue="{ORIGIN}/icono-80.png"/>
+      </bt:Images>
+      <bt:Urls>
+        <bt:Url id="DG.Funciones" DefaultValue="{ORIGIN}/funciones.html"/>
+      </bt:Urls>
+      <bt:ShortStrings>
+        <bt:String id="DG.Grupo.Etiqueta" DefaultValue="DocGuard"/>
+        <bt:String id="DG.Exportar.Etiqueta" DefaultValue="Exportar a DocGuard"/>
+      </bt:ShortStrings>
+      <bt:LongStrings>
+        <bt:String id="DG.Exportar.Ayuda" DefaultValue="Convierte el documento a PDF y lo abre en DocGuard (DocGuard debe estar abierto)."/>
+      </bt:LongStrings>
+    </Resources>
+  </VersionOverrides>
+</OfficeApp>

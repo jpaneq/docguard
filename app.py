@@ -24,6 +24,24 @@ def _mark_icons(paths):
         threading.Thread(target=lambda: [status_icons.mark_file(p) for p in paths or ()], daemon=True).start()
 
 
+def _integration_startup():
+    """Accesos desde otros programas (menú PDF de Imprimir, «Enviar a», botón de Word)."""
+    import integracion
+
+    def recibido(path):
+        import webview
+        if webview.windows:
+            win = webview.windows[0]
+            try:
+                win.restore()
+                win.show()
+            except Exception:
+                pass
+            _open_in_window(win, path)
+    integracion.refresh_at_startup()
+    integracion.start_addin_server(recibido)
+
+
 def _windows_icons():
     """Windows: miniaturas con icono de estado en el Explorador (solo para este usuario, sin permisos)."""
     import records
@@ -191,6 +209,18 @@ class Api:
         import records
         records.save_settings(aviso_iconos_windows=True)
         return True
+
+    def integration(self, kind=None, enable=None):
+        """Lee o cambia la integración con otros programas: kind = pdf_service | send_to | word."""
+        import integracion
+        ok = None
+        if kind and enable is not None:
+            fn = {"pdf_service": integracion.mac_pdf_service, "send_to": integracion.windows_send_to,
+                  "word": integracion.word_addin}[kind]
+            ok = bool(fn(bool(enable)))
+            if kind == "word" and enable and ok:
+                _integration_startup()
+        return dict(integracion.status(), ok=ok)
 
     def icons_machine(self, enable=True):
         """Windows: activa las miniaturas para todo el equipo (pide permiso de administrador una vez)."""
@@ -588,6 +618,16 @@ def _open_in_window(win, path):
     import json
     import secrets
     try:
+        import core
+        if core.ext_of(path) in core.OFFICE_EXTS | {".doc", ".rtf", ".odt", ".txt", ".html", ".htm"}:
+            # «Enviar a → DocGuard» con un documento de Word: se convierte a PDF y se abre ese
+            import tempfile
+
+            import convert
+            pdf = os.path.join(tempfile.mkdtemp(prefix="docguard_word_"), os.path.splitext(os.path.basename(path))[0] + ".pdf")
+            win.evaluate_js("toast('Convirtiendo a PDF…', '', [], 4000);")
+            convert.document_to_pdf(path, pdf)
+            path = pdf
         with open(path, "rb") as f:
             data = f.read()
         with server.LOCK:
@@ -664,6 +704,7 @@ def main():
             win = make_window(maximized=True)  # la principal se abre maximizada; las de «+ Ventana», en cascada
             import threading
             threading.Thread(target=_windows_icons, daemon=True).start()
+            threading.Thread(target=_integration_startup, daemon=True).start()
             if sys.platform == "darwin":
                 loaded = {"ok": False}
                 pending = _mac_open_files(win, loaded)

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>DocGuard</title>
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <style>
+    body { font: 14px -apple-system, "Segoe UI", sans-serif; margin: 18px; color: #1b2130; }
+    button { margin-top: 14px; padding: 6px 16px; border: 0; border-radius: 6px; background: #2563d9; color: #fff; font: inherit; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <p id="m"></p>
+  <button id="ok">Aceptar</button>
+  <script>
+    document.getElementById('m').textContent = new URLSearchParams(location.search).get('m') || '';
+    const cerrar = () => { try { Office.context.ui.messageParent('ok'); } catch (e) { window.close(); } };
+    document.getElementById('ok').onclick = cerrar;
+    Office.onReady(() => {});
+    setTimeout(cerrar, 6000);
+  </script>
+</body>
+</html>

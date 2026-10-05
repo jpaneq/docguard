@@ -60,7 +60,7 @@ const TOOL_META = {
   sign: { label: 'Firma digital', c: '#a259e6', d: 'Firma con certificado o DNIe, varios firmantes y comprobación de firmas.' },
   library: { label: 'Visor PDF', c: '#3b82f6', d: 'Abre muchos PDFs a la vez y busca en todos.' },
   compare: { label: 'Comparar versiones', c: '#d95bb0', d: 'Muestra lo quitado y lo añadido entre dos versiones.' },
-  watermark: { label: 'Marca de agua', c: '#3f8ef0', d: 'Marca de agua, ocultar datos de DNI y rastreo de cada copia.' },
+  watermark: { label: 'Proteger documentación sensible', c: '#3f8ef0', d: 'Marca de agua, ocultar datos de DNI y rastreo de cada copia.' },
   redact: { label: 'Censurar', c: '#ee5a5a', d: 'Tapa datos sensibles de forma irreversible.' },
   protect: { label: 'Contraseña', c: '#6f7ff0', d: 'Cifra un PDF con contraseña y permisos.' },
   sanitize: { label: 'Limpiar metadatos', c: '#f0a030', d: 'Quita metadatos de PDF, imágenes y documentos Office.' },

@@ -309,7 +309,7 @@ body.resizing iframe, body.resizing img { pointer-events: none; }
 .qsign .seg { display: flex; } .qsign .seg button { flex: 1; }
 .qsign .card-status { margin: 0; }
 .q-cert { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
-button.link { background: none; border: 0; color: var(--accent); text-decoration: underline; padding: 2px 0; text-align: left; }
+button.link { background: none; border: 0; color: var(--accent); text-decoration: underline; padding: 2px 0; text-align: left; white-space: normal; height: auto; line-height: 1.35; }
 .share label { display: block; margin-bottom: 8px; }
 .test-line { margin: 6px 0; }
 .mobile { text-align: center; } .mobile .help, .mobile p { text-align: left; }
@@ -596,3 +596,10 @@ button .mi-ic { vertical-align: -3px; margin-right: 2px; color: inherit; }
 @container ribbon (max-width: 1010px) { .ribbon .findbox { display: none; } }
 .fx-crumbs { -webkit-mask-image: linear-gradient(to right, transparent 0, #000 18px); mask-image: linear-gradient(to right, transparent 0, #000 18px); }
 .hm-doc-ic { color: var(--c, var(--accent)); }
+
+.integ-row { margin: 10px 0 14px; max-width: 560px; }
+.integ-row p { margin: 4px 0 0 26px; }
+
+/* nombres largos de herramienta en el panel derecho: en dos líneas en vez de cortarse */
+.nav-list button { white-space: normal; height: auto; text-align: left; }
+.nav-list button .lb { white-space: normal; line-height: 1.25; }

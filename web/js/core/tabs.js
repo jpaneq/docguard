@@ -47,6 +47,7 @@ const Tabs = {
       h('button', { class: 'x', title: 'Cerrar', onclick: e => { e.stopPropagation(); this.close(t); } }, '✕'))),
       h('button', { class: 'doc-tab-add', title: 'Abrir otro documento', onclick: () => $(`#tool-${k} [data-act=open]`)?.click() }, '+'));
     }
+    if (typeof Shell !== 'undefined') Shell.renderDocs();
   },
   async open(k, id) {
     const info = await run('Abriendo…', () => api('info', { id }));

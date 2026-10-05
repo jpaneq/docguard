@@ -16,6 +16,7 @@ const ICON = {
   copy: '<rect x="6.5" y="6.5" width="10" height="11" rx="1.5"/><path d="M4 13.5V4.2c0-.7.5-1.2 1.2-1.2H13"/>',
   cut: '<circle cx="5.5" cy="15" r="2.3"/><circle cx="14.5" cy="15" r="2.3"/><path d="M7.2 13.3L15 3M12.8 13.3L5 3"/>',
   paste: '<rect x="3.5" y="4" width="13" height="14" rx="1.5"/><rect x="7" y="2.2" width="6" height="3.6" rx="1"/>',
+  print: '<path d="M6 7V3.5h8V7"/><rect x="2.5" y="7" width="15" height="7" rx="1.5"/><rect x="6" y="11.5" width="8" height="5.5" rx=".8"/>',
   trash: '<path d="M3.5 5.5h13M8 5.5V3.5h4v2M5.5 5.5l.8 11.5h7.4l.8-11.5M8.5 8.5v6M11.5 8.5v6"/>',
   undo: '<path d="M7 5L3 9l4 4"/><path d="M3 9h9.5a4.5 4.5 0 010 9H9"/>',
   redo: '<path d="M13 5l4 4-4 4"/><path d="M17 9H7.5a4.5 4.5 0 000 9H11"/>',

@@ -594,6 +594,7 @@ def _open_in_window(win, path):
             did = secrets.token_urlsafe(8)
             server.DOCS[did] = server.Doc(os.path.basename(path), data)
             info = server.DOCS[did].info(did)
+        server._remember(os.path.abspath(path))
         win.evaluate_js(f"showTool('library'); Library.openDoc({json.dumps(info)});")
     except Exception as ex:
         win.evaluate_js(f"toast({json.dumps('No se pudo abrir ' + os.path.basename(path) + ': ' + str(ex))}, 'err');")

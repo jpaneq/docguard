@@ -1032,8 +1032,9 @@ def op_copy_object(req):
 def op_edit_words(req):
     """Palabras de la página en orden de lectura (para seleccionar texto al resaltar)."""
     d = get_doc(req)
-    words = editor.reading_words(need_pdf(d)[int(req["n"])])
-    return {"words": words, "has_text": bool(words)}
+    page = need_pdf(d)[int(req["n"])]
+    words = editor.reading_words(page)
+    return {"words": words, "has_text": bool(words), "rotation": page.rotation}
 
 
 def op_outline(req):
@@ -1050,7 +1051,14 @@ def op_fonts(req):
     return {"fonts": editor.font_choices()}
 
 
+def rotate_pages(doc, deg, pages=None):
+    """Gira las páginas (todas si no se indican) en múltiplos de 90°."""
+    for i in (range(len(doc)) if pages is None else pages):
+        doc[int(i)].set_rotation((doc[int(i)].rotation + int(deg)) % 360)
+
+
 EDIT_OPS = {
+    "rotate": lambda doc, r: rotate_pages(doc, r["deg"], r.get("pages")),
     "replace_text": lambda doc, r: editor.replace_span(doc, r["n"], r["i"], r.get("text", ""), r.get("font", "auto"),
                                                       r.get("size"), r.get("color"), r.get("bold"), r.get("italic")),
     "add_text": lambda doc, r: editor.add_text(doc, r["n"], r["x"], r["y"], r["text"], r.get("font", "base:helv"),

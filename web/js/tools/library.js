@@ -29,7 +29,14 @@ const Library = {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') { e.preventDefault(); term.focus(); term.select(); }
       if (e.key === 'Escape' && !$('.reader', this.root).hidden) this.closeReader();
       if (!$('.reader', this.root).hidden && e.key === 'Enter' && document.activeElement === document.body) this.step(e.shiftKey ? -1 : 1);
+      // ⌘Z / ⇧⌘Z en el lector: deshacer / rehacer (p. ej. un giro)
+      if (!$('.reader', this.root).hidden && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) {
+        e.preventDefault();
+        this.undoRedo(e.shiftKey ? 'redo' : 'undo');
+      }
     });
+    act('rrotl', () => this.rotate(-90));
+    act('rrotr', () => this.rotate(90));
     this.viewer = new ContViewer($('.reader-host', this.root), { keepOverlays: true, firstClickActivates: false });
     this.viewer.fitPage = true;  // «Ajustar» muestra la hoja entera
     this.viewer.onrender = () => { this.drawHits(); this.textLayers(); };
@@ -193,6 +200,33 @@ const Library = {
     if (this.hits?.length) this.showHit((this.hitIdx + d + this.hits.length) % this.hits.length);
     else this.viewer.go(this.viewer.n + d);
   },
+  /** Gira todas las páginas del documento que se está leyendo (cambio real del PDF, con deshacer):
+   *  así se imprime, se copia el texto y se guarda ya girado. */
+  async rotate(deg) {
+    const d = this.reading;
+    if (!d) return;
+    const r = await run('Girando…', () => api('edit/rotate', { id: d.id, deg }));
+    if (r !== undefined) this.reloadReading();
+  },
+  async undoRedo(what) {
+    const d = this.reading;
+    if (!d) return;
+    const r = await run(what === 'undo' ? 'Deshaciendo…' : 'Rehaciendo…', () => api('edit/' + what, { id: d.id }));
+    if (r !== undefined) this.reloadReading();
+  },
+  /** Vuelve a cargar el documento del lector tras cambiarlo (tamaños de página nuevos), en la misma página. */
+  async reloadReading() {
+    const d = this.reading, n = this.viewer.n;
+    const info = await api('info', { id: d.id }).catch(() => null);
+    if (!info) return;
+    // el mismo documento puede estar abierto en Editar, en las pestañas o como documento actual
+    for (const o of new Set([d, CURRENT, typeof Edit !== 'undefined' ? Edit.info : null, ...this.docs])) {
+      if (o && o.id === d.id) Object.assign(o, info);
+    }
+    this.viewer.load(d);
+    requestAnimationFrame(() => { this.viewer.fit(); this.viewer.go(n); });
+    if (typeof Tabs !== 'undefined') Tabs.refresh();
+  },
   /** Capa de texto invisible sobre las páginas del lector, para seleccionar y copiar (⌘C) como en un
    *  lector de PDF. Se crea para las páginas cercanas a la vista y se escala con el zoom. */
   textLayers() {
@@ -208,21 +242,25 @@ const Library = {
       tl = h('div', { class: 'textlayer' });
       Object.assign(tl.style, { width: pw + 'px', height: ph + 'px', transform: `scale(${p.wrap.clientWidth / pw})` });
       p.wrap.append(tl);
-      api('edit/words', { id: d.id, n: i }).then(r => { if (this.reading?.id === d.id) this.fillText(tl, r.words); }).catch(() => {});
+      api('edit/words', { id: d.id, n: i }).then(r => { if (this.reading?.id === d.id) this.fillText(tl, r.words, r.rotation || 0); }).catch(() => {});
     });
   },
-  fillText(tl, words) {
+  fillText(tl, words, rot = 0) {
     const ctx = this._measure || (this._measure = document.createElement('canvas').getContext('2d'));
     const frag = document.createDocumentFragment();
+    const side = rot === 90 || rot === 270;  // página girada: el texto va en vertical
     words.forEach((w, k) => {
       const [x0, y0, x1, y1] = w.bbox, hh = y1 - y0, ww = x1 - x0;
       if (hh <= 0 || ww <= 0) return;
       const next = words[k + 1];
       const sep = !next ? '' : next.line === w.line ? ' ' : '\n';  // al copiar: espacios y saltos de línea
-      const fs = hh * 0.9;
+      const fs = (side ? ww : hh) * 0.9, len = side ? hh : ww;
       ctx.font = `${fs}px sans-serif`;
+      const sx = len / (ctx.measureText(w.text).width || len);
+      // origen y giro de la palabra según cómo esté girada la página (como el texto de la imagen)
+      const [left, top] = { 0: [x0, y0], 90: [x1, y0], 180: [x1, y1], 270: [x0, y1] }[rot] || [x0, y0];
       const s = h('span', {}, w.text + sep);
-      s.style.cssText = `left:${x0}px;top:${y0}px;font-size:${fs}px;transform:scaleX(${ww / (ctx.measureText(w.text).width || ww)})`;
+      s.style.cssText = `left:${left}px;top:${top}px;font-size:${fs}px;transform:rotate(${rot}deg) scaleX(${sx})`;
       frag.append(s);
     });
     tl.append(frag);

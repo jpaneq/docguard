@@ -103,6 +103,7 @@ def apply_on_exit():
         with open(script, "w") as f:
             f.write(f'''#!/bin/sh
 while kill -0 {pid} 2>/dev/null; do sleep 0.5; done
+mkdir -p "{backup_dir}"
 rm -rf "{backup}"
 mv "{old}" "{backup}" && mv "{new}" "{old}" || mv "{backup}" "{old}"
 xattr -dr com.apple.quarantine "{old}" 2>/dev/null
@@ -127,6 +128,7 @@ echo Actualizando DocGuard > "{log}"
 :espera
 tasklist /FI "PID eq {pid}" 2>nul | find "{pid}" >nul && (ping -n 2 127.0.0.1 >nul & goto espera)
 ping -n 3 127.0.0.1 >nul
+if not exist "{backup_dir}" mkdir "{backup_dir}"
 if exist "{backup}" rmdir /s /q "{backup}"
 set n=0
 :mover

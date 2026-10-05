@@ -93,7 +93,8 @@ def apply_on_exit():
     new, old = STATE.get("new"), installed()
     if not new or not old:
         return False
-    backup_dir = os.path.join(core.config_dir(), "versiones_anteriores")
+    # «.noindex»: en Mac, Spotlight no muestra las copias guardadas al buscar DocGuard con ⌘Espacio
+    backup_dir = os.path.join(core.config_dir(), "versiones_anteriores.noindex" if sys.platform == "darwin" else "versiones_anteriores")
     os.makedirs(backup_dir, exist_ok=True)
     backup = os.path.join(backup_dir, f"DocGuard-{core.VERSION}" + (".app" if sys.platform == "darwin" else ""))
     pid = os.getpid()

@@ -55,7 +55,7 @@ const StatusIcons = {
       wide: true,
       body: h('div', { class: 'help-steps' },
         h('p', {}, 'DocGuard puede mostrar en el Explorador de Windows si cada PDF está firmado, tiene contraseña, está censurado o protegido. Para activarlo:'),
-        step(1, 'En la barra lateral, abajo, pulsa «Iconos de estado…».', 'paso1.png'),
+        step(1, 'Arriba a la derecha, abre el menú «⋯» y pulsa «Iconos de estado…».', 'paso1.png'),
         step(2, 'Pulsa «Activar en el Explorador…» y acepta el permiso de Windows (se pide una sola vez).', 'paso2.png'),
         step(3, 'Listo: en las vistas de iconos medianos o más grandes verás así tus PDF.', 'paso3.png')),
       actions: [{ label: 'Más tarde' }, {

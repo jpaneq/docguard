@@ -13,6 +13,7 @@ import json
 import os
 import secrets
 import shutil
+import sys
 import tempfile
 import threading
 import traceback
@@ -1416,7 +1417,158 @@ def op_ui(req):
     return ui
 
 
+# --------------------------------------------------------------------------
+# Explorador de archivos del lateral: carpetas, abrir por ruta, recientes y carpetas fijadas
+# --------------------------------------------------------------------------
+
+FS_EXTS = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".gif", ".webp"}
+FS_MAX = 3000
+
+
+def _fs_hidden(entry):
+    if entry.name.startswith("."):
+        return True
+    if sys.platform == "win32":
+        try:
+            return bool(entry.stat(follow_symlinks=False).st_file_attributes & 0x2)  # oculto
+        except OSError:
+            return False
+    return False
+
+
+def _fs_drives():
+    if sys.platform == "win32":
+        import ctypes
+        mask = ctypes.windll.kernel32.GetLogicalDrives()  # sin sondear las unidades (las de red pueden tardar)
+        return [{"name": f"{chr(65 + i)}:", "path": f"{chr(65 + i)}:\\"} for i in range(26) if mask >> i & 1]
+    drives = [{"name": "Equipo", "path": "/"}]
+    if sys.platform == "darwin" and os.path.isdir("/Volumes"):
+        for n in sorted(os.listdir("/Volumes")):
+            if os.path.isdir(os.path.join("/Volumes", n)):
+                drives.append({"name": n, "path": os.path.join("/Volumes", n)})
+    return drives
+
+
+def _fs_places():
+    home = os.path.expanduser("~")
+    places = [{"name": "Inicio", "path": home}]
+    for label, names in (("Escritorio", ("Desktop", "Escritorio")), ("Documentos", ("Documents", "Documentos")),
+                         ("Descargas", ("Downloads", "Descargas"))):
+        found = next((p for base in (home, os.path.join(home, "OneDrive")) for n in names
+                      for p in [os.path.join(base, n)] if os.path.isdir(p)), None)
+        if found:
+            places.append({"name": label, "path": found})
+    return places
+
+
+def _fs_crumbs(path):
+    crumbs = [{"name": "Este equipo", "path": ""}] if sys.platform == "win32" else []
+    if not path:
+        return crumbs
+    drive, rest = os.path.splitdrive(os.path.normpath(path))
+    acc = (drive + os.sep) if drive else os.sep
+    crumbs.append({"name": drive or os.sep, "path": acc})
+    for part in [x for x in rest.split(os.sep) if x]:
+        acc = os.path.join(acc, part)
+        crumbs.append({"name": part, "path": acc})
+    return crumbs
+
+
+def _fs_pins():
+    pins = [p for p in records.settings().get("ui", {}).get("fx_pins", []) if os.path.isdir(p)]
+    return [{"name": os.path.basename(p.rstrip("\\/")) or p, "path": p} for p in pins]
+
+
+def op_fs_list(req):
+    ui = records.settings().get("ui", {})
+    path = req.get("path")
+    if path is None:
+        path = ui.get("fx_path") or os.path.expanduser("~")
+    if path and not os.path.isdir(path):
+        path = os.path.expanduser("~")
+    if not path and sys.platform != "win32":
+        path = "/"
+    out = {"places": _fs_places(), "drives": _fs_drives(), "pins": _fs_pins(), "sep": os.sep}
+    entries, truncated = [], False
+    if not path and sys.platform == "win32":  # «Este equipo»: las unidades
+        entries = [{"name": d["name"], "path": d["path"], "kind": "dir"} for d in _fs_drives()]
+        parent = None
+    else:
+        path = os.path.abspath(path)
+        parent = os.path.dirname(path)
+        parent = ("" if sys.platform == "win32" else None) if parent == path else parent
+        try:
+            with os.scandir(path) as it:
+                for e in it:
+                    if len(entries) >= FS_MAX:
+                        truncated = True
+                        break
+                    try:
+                        if _fs_hidden(e):
+                            continue
+                        if e.is_dir():
+                            entries.append({"name": e.name, "path": e.path, "kind": "dir"})
+                        elif os.path.splitext(e.name)[1].lower() in FS_EXTS:
+                            st = e.stat()
+                            ext = os.path.splitext(e.name)[1].lower()
+                            entries.append({"name": e.name, "path": e.path, "kind": "pdf" if ext == ".pdf" else "img",
+                                            "size": st.st_size, "mtime": st.st_mtime})
+                    except OSError:
+                        continue
+        except OSError as ex:
+            raise ValueError(f"No se puede abrir la carpeta: {ex.strerror or ex}")
+        records.save_settings(ui={**ui, "fx_path": path})
+    entries.sort(key=lambda x: (x["kind"] != "dir", x["name"].lower()))
+    out.update(path=path, parent=parent, crumbs=_fs_crumbs(path), entries=entries, truncated=truncated,
+               pinned=bool(path) and path in ui.get("fx_pins", []))
+    return out
+
+
+def _remember(path):
+    s = records.settings()
+    rec = [r for r in s.get("recientes", []) if r != path]
+    records.save_settings(recientes=([path] + rec)[:15])
+
+
+def op_fs_open(req):
+    path = os.path.abspath(req["path"])
+    if os.path.splitext(path)[1].lower() not in FS_EXTS or not os.path.isfile(path):
+        raise ValueError("Solo se pueden abrir PDFs e imágenes.")
+    with open(path, "rb") as f:
+        data = f.read()
+    did = secrets.token_urlsafe(8)
+    DOCS[did] = Doc(os.path.basename(path), data)
+    _remember(path)
+    return DOCS[did].info(did)
+
+
+def op_fs_pin(req):
+    ui = records.settings().get("ui", {})
+    pins = [p for p in ui.get("fx_pins", [])]
+    p = req["path"]
+    if req.get("pin", True):
+        if p not in pins:
+            pins.append(p)
+    else:
+        pins = [x for x in pins if x != p]
+    records.save_settings(ui={**ui, "fx_pins": pins})
+    return {"pins": _fs_pins(), "pinned": p in pins}
+
+
+def op_recent(req):
+    out = []
+    for p in records.settings().get("recientes", []):
+        try:
+            st = os.stat(p)
+        except OSError:
+            continue
+        out.append({"name": os.path.basename(p), "path": p, "folder": os.path.dirname(p), "mtime": st.st_mtime,
+                    "size": st.st_size, "kind": "pdf" if p.lower().endswith(".pdf") else "img"})
+    return {"files": out[:8]}
+
+
 OPS = {
+    "fs/list": op_fs_list, "fs/open": op_fs_open, "fs/pin": op_fs_pin, "recent": op_recent,
     "presets": op_presets, "presets/save": op_presets_save, "ui": op_ui,
     "open_result": op_open_result, "close": op_close, "info": op_info,
     "update/check": op_update_check, "update/download": op_update_download, "version": lambda req: {"version": core.VERSION},

@@ -146,6 +146,7 @@ Cada módulo se puede trabajar por separado. El servidor expone cada función co
 | `report.py` | Informe de comprobación en PDF con sello de tiempo del propio informe. |
 | `pdfa.py` | PDF/A-2b para los PDF de DocGuard (XMP, perfil sRGB, comprobaciones). |
 | `mobile.py` | Escanear con el móvil: servidor temporal en la red local que solo recibe fotos. |
+(el servidor también ofrece `fs/list`, `fs/open`, `fs/pin` y `recent` para el explorador de archivos: listar carpetas, abrir por ruta, carpetas fijadas y archivos recientes.)
 
 **Interfaz (`web/`)**
 | Archivo | Contenido |
@@ -154,6 +155,8 @@ Cada módulo se puede trabajar por separado. El servidor expone cada función co
 | `js/core/viewer.js` | Visor de páginas (una a una o continuo) y fuentes para la edición directa. |
 | `js/core/filelist.js`, `js/core/sigs.js` | Listas de archivos y firmas manuscritas guardadas. |
 | `js/tools/*.js` | Una herramienta por archivo: `edit`, `watermark`, `redact`, `sign`, `pages`, `merge`, `compare`, `library` (visor PDF), `scanner`, `share` (textos de MiDNI y de la copia), `misc` (contraseña, convertir, limpiar). |
+| `js/core/shell.js` | Estructura de la aplicación: barra superior (Inicio, Herramientas y pestañas de documentos), vistas de Inicio y Herramientas, panel de herramientas ocultable y tema claro/oscuro. |
+| `js/core/files.js` | Explorador de archivos del lateral: carpetas, unidades, carpetas fijadas y apertura de PDFs e imágenes. |
 | `js/main.js` | Registro de herramientas y navegación. |
 | `verificar.html` | Página de verificación del QR (también en `docs/` para publicarla). |
 
@@ -176,6 +179,7 @@ Cada módulo se puede trabajar por separado. El servidor expone cada función co
 - `v1.14`: resaltar, subrayar y tachar seleccionando el texto con el ratón (recuadro solo en páginas sin texto), propiedades editables de las formas (color, relleno, grosor, tipo de línea, opacidad, flechas) y copiar/pegar campos de formulario y formas como objetos.
 - `v1.16`: pestañas de documentos en Editar, Censurar y Firma digital (varios PDF abiertos a la vez, con sus cambios), abrir varios archivos de golpe, «Nueva ventana» (⌘N / Ctrl+N) con documentos y portapapeles compartidos, y organizar las ventanas en mosaico o en cascada (menú Ventana y botones laterales). Incluye las mejoras del visor y las rectas de la versión de Windows.
 - `v1.17`: icono rojo con «PDF», versión visible en el título de la ventana y en la barra lateral, barra lateral ocultable, imprimir (⌘P/Ctrl+P), se abre en el Visor PDF, flechas ← → para pasar de página; actualizaciones automáticas (al abrirse, DocGuard consulta las versiones publicadas en GitHub, ofrece instalarlas, comprueba su huella SHA-256 y guarda la anterior), «Buscar actualizaciones», zoom con ⌘ + rueda, y compilación en GitHub solo al publicar una versión.
+- `v1.20`: interfaz renovada al estilo de Acrobat: barra superior con Inicio, Herramientas y pestañas de los documentos abiertos; vista de Herramientas en cuadrícula por categorías con buscador; panel de herramientas a la derecha (ocultable); tema claro, oscuro o automático; iconos propios de trazo fino; menú «⋯» con ventanas, actualizaciones e iconos de estado. Nuevo **explorador de archivos** en el lateral izquierdo (Ctrl+Mayús+E): carpetas, unidades, carpetas fijadas, filtro y apertura de PDFs e imágenes en la herramienta en la que estés; Inicio muestra los archivos recientes.
 
 ## Publicar una versión nueva
 1. Cambia `VERSION` en `core.py` (por ejemplo `1.18`).

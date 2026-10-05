@@ -70,12 +70,18 @@ def download(info):
     h = hashlib.sha256()
     req = urllib.request.Request(info["url"], headers={"User-Agent": "DocGuard"})
     with urllib.request.urlopen(req, timeout=60) as r, open(zpath, "wb") as f:
+        total = int(r.headers.get("Content-Length") or 0)
+        done = 0
+        STATE["progress"] = {"done": 0, "total": total}
         while chunk := r.read(1 << 20):
             h.update(chunk)
             f.write(chunk)
+            done += len(chunk)
+            STATE["progress"] = {"done": done, "total": total}
     if h.hexdigest() != expected:
         shutil.rmtree(tmp, ignore_errors=True)
         raise ValueError("La descarga no coincide con la huella publicada: no se instala.")
+    STATE["progress"] = {"done": done, "total": total, "unpacking": True}
     dest = os.path.join(tmp, "nuevo")
     if sys.platform == "darwin":  # ditto conserva la firma y los permisos de la app
         subprocess.run(["ditto", "-x", "-k", zpath, dest], check=True)

@@ -32,7 +32,13 @@ const Update = {
     });
   },
   async install(r) {
-    const ok = await run('Descargando la versión ' + r.version + '…', () => api('update/download', r));
+    const timer = setInterval(async () => {
+      const p = await api('update/progress').catch(() => null);
+      if (!p?.done) return;
+      busyText(p.unpacking ? 'Descomprimiendo la versión ' + r.version + '…'
+        : `Descargando la versión ${r.version}… ${Math.round(p.done / 1048576)}${p.total ? ' de ' + Math.round(p.total / 1048576) : ''} MB`);
+    }, 700);
+    const ok = await run('Descargando la versión ' + r.version + '…', () => api('update/download', r)).finally(() => clearInterval(timer));
     if (!ok) return;
     if (!(await confirmBox('Actualización lista', `DocGuard ${r.version} está descargado y comprobado. ¿Reiniciar ahora? (si no, se instalará al cerrar DocGuard)`, 'Reiniciar ahora'))) return;
     await window.pywebview.api.restart_to_update();

@@ -197,6 +197,8 @@ Cada módulo se puede trabajar por separado. El servidor expone cada función co
 
 - `v1.29`: «Quitar marca de agua…» en Editar (con nada seleccionado): quita «BORRADOR», «COPIA»… en diagonal, contenido marcado como marca de agua y anotaciones de marca de agua, borrando solo esas órdenes del PDF (sin tapar el resto) y con ⌘Z para deshacer (`marcas_agua.py`).
 
+- `v1.30`: el botón «Quitar marca de agua» pasa a la barra principal de Editar (junto a la búsqueda), siempre visible con un documento abierto.
+
 ## Publicar una versión nueva
 1. Cambia `VERSION` en `core.py` (por ejemplo `1.18`).
 2. Crea la etiqueta igual y súbela: `git tag v1.18 && git push origin main --tags`.

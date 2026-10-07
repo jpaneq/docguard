@@ -222,6 +222,7 @@ textarea.inline-edit { resize: none; border: 0; background: rgba(255, 255, 255, 
 .rgroup { display: inline-flex; gap: 2px; }
 .ribbon [data-i], .ib { width: 34px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-color: transparent; background: transparent; }
 .ribbon [data-i]:hover:not(:disabled), .ib:hover { background: var(--panel2); border-color: var(--line); }
+.ribbon [data-i].unwm { width: auto; padding: 0 10px 0 6px; gap: 6px; white-space: nowrap; }  /* icono + texto */
 .ribbon [data-t].on, .ib.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .ib.txt { font-size: 15px; width: 30px; }
 .svg { display: inline-flex; }

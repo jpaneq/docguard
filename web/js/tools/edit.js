@@ -43,6 +43,7 @@ const ICON = {
   margin: '<rect x="4" y="2.5" width="12" height="15" rx="1"/><path d="M13.5 5c-1 2 1 3 0 5s1 3 0 5"/>',
   pages: '<rect x="2.5" y="3" width="5" height="6.5" rx="1"/><rect x="2.5" y="11" width="5" height="6.5" rx="1"/><path d="M10 4.5h7.5M10 8h5M10 12.5h7.5M10 16h5"/>',
   flatten: '<path d="M3 7l7-4 7 4-7 4z"/><path d="M3 11l7 4 7-4"/>',
+  unwm: '<path d="M10 2.8c2.9 3.3 5 5.800 5 8.500a5 5 0 01-10 0c0-2.700 2.100-5.200 5-8.500z"/><path d="M3.500 3.500l13 13"/>',
 };
 
 function icon(name) {
@@ -95,6 +96,7 @@ const Edit = {
     act('findnext', () => this.findStep(1));
     act('findprev', () => this.findStep(-1));
     act('print', () => printDoc(this.info));
+    act('unwm', () => this.removeWatermarks());
     act('export', async () => saveResult(await run('Preparando…', () => api('edit/export', { id: this.info.id }))));
     dropTarget(this.viewer.el, async fs => { for (const f of fs) await this.openFile(f); });
     document.addEventListener('keydown', e => this.key(e));
@@ -120,6 +122,7 @@ const Edit = {
     $('.doc-name', this.root).textContent = info.name;
     $('[data-act=export]', this.root).disabled = false;
     $('[data-act=print]', this.root).disabled = false;
+    $('[data-act=unwm]', this.root).disabled = false;
     this.viewer.load(info);
     this.outline = null;
     if (!this.side.hidden) this.renderSide();
@@ -635,9 +638,7 @@ const Edit = {
         h('span', { class: 'muted' }, this.pendingImage ? 'Arrastra en la página dónde colocarla.' : ''));
       return;
     }
-    add(h('span', { class: 'muted' }, this.info ? 'Selecciona algo en la página para ver sus opciones.' : ''),
-      this.info ? h('span', { class: 'grow' }) : null,
-      this.info ? h('button', { title: 'Quita marcas de agua como «BORRADOR» o «COPIA» en diagonal, sin tocar el resto (⌘Z para deshacer)', onclick: () => this.removeWatermarks() }, 'Quitar marca de agua…') : null);
+    add(h('span', { class: 'muted' }, this.info ? 'Selecciona algo en la página para ver sus opciones.' : ''));
   },
 
   /** Busca las marcas de agua del documento, las enseña y, si se acepta, las quita (con deshacer). */

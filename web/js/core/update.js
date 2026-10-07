@@ -32,7 +32,13 @@ const Update = {
     });
   },
   async install(r) {
-    const ok = await run('Descargando la versión ' + r.version + '…', () => api('update/download', r));
+    const timer = setInterval(async () => {
+      const p = await api('update/progress').catch(() => null);
+      if (!p?.done) return;
+      busyText(p.unpacking ? 'Descomprimiendo la versión ' + r.version + '…'
+        : `Descargando la versión ${r.version}… ${Math.round(p.done / 1048576)}${p.total ? ' de ' + Math.round(p.total / 1048576) : ''} MB`);
+    }, 700);
+    const ok = await run('Descargando la versión ' + r.version + '…', () => api('update/download', r)).finally(() => clearInterval(timer));
     if (!ok) return;
     if (!(await confirmBox('Actualización lista', `DocGuard ${r.version} está descargado y comprobado. ¿Reiniciar ahora? (si no, se instalará al cerrar DocGuard)`, 'Reiniciar ahora'))) return;
     await window.pywebview.api.restart_to_update();
@@ -90,6 +96,40 @@ const StatusIcons = {
         ...(mac ? [{ label: 'Marcar los PDF de una carpeta…', fn: async () => { const n = await apiN.mark_folder(); if (n != null) toast(`${n} PDF marcados.`, 'ok'); return false; } }] : []),
         { label: 'Cerrar', primary: true, fn: async () => { if (cb.checked !== st.enabled) await apiN.icons_setting(cb.checked); } },
       ],
+    });
+  },
+};
+
+// Integración con otros programas: menú PDF de Imprimir (Mac), «Enviar a» (Windows) y botón en Word.
+const Integration = {
+  async open() {
+    const apiN = window.pywebview?.api;
+    if (!apiN?.integration) return toast('Solo disponible en el programa de escritorio.', '');
+    const st = await apiN.integration();
+    const mac = st.platform === 'darwin', win = st.platform === 'win32';
+    const row = (kind, on, title, text) => {
+      const cb = h('input', { type: 'checkbox', checked: !!on });
+      cb.onchange = async () => {
+        cb.disabled = true;
+        const r = await run(cb.checked ? 'Activando…' : 'Quitando…', () => apiN.integration(kind, cb.checked));
+        cb.disabled = false;
+        if (!r?.ok) { cb.checked = !cb.checked; toast('No se ha podido cambiar (¿se canceló el permiso?).', 'err'); return; }
+        toast(cb.checked ? 'Activado.' : 'Quitado.', 'ok');
+      };
+      return h('div', { class: 'integ-row' }, h('label', { class: 'inline' }, cb, h('b', {}, title)), h('p', { class: 'muted' }, text));
+    };
+    modal({
+      title: 'Integración con Word y otros programas',
+      body: h('div', {},
+        mac ? row('pdf_service', st.pdf_service, 'Imprimir → PDF → «Abrir en DocGuard»',
+          'En el diálogo de imprimir de Word (y de cualquier programa), el menú «PDF» de abajo a la izquierda tendrá «Abrir en DocGuard».') : null,
+        win ? row('send_to', st.send_to, 'Botón derecho → «Enviar a» → DocGuard',
+          'Con el botón derecho sobre un PDF o un documento de Word. Los documentos de Word se convierten a PDF (con Word o LibreOffice si están instalados).') : null,
+        row('word', st.word, 'Botón «Exportar a DocGuard» en Word',
+          'Aparece en la pestaña Inicio de Word (cierra y vuelve a abrir Word). Funciona aunque DocGuard esté cerrado: un proceso pequeño de DocGuard arranca al iniciar sesión y lo abre cuando hace falta. Al activarlo, ' +
+          (mac ? 'el Mac pedirá tu contraseña' : 'Windows mostrará un aviso de seguridad') +
+          ' para confiar en un certificado propio de DocGuard, que solo sirve en este equipo. Si no aparece, en Word: Insertar → Complementos → Mis complementos.')),
+      actions: [{ label: 'Cerrar', primary: true }],
     });
   },
 };

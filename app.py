@@ -24,6 +24,12 @@ def _mark_icons(paths):
         threading.Thread(target=lambda: [status_icons.mark_file(p) for p in paths or ()], daemon=True).start()
 
 
+def _integration_startup():
+    """Accesos desde otros programas (menú PDF de Imprimir, «Enviar a», escucha del botón de Word)."""
+    import integracion
+    integracion.refresh_at_startup()
+
+
 def _windows_icons():
     """Windows: miniaturas con icono de estado en el Explorador (solo para este usuario, sin permisos)."""
     import records
@@ -191,6 +197,18 @@ class Api:
         import records
         records.save_settings(aviso_iconos_windows=True)
         return True
+
+    def integration(self, kind=None, enable=None):
+        """Lee o cambia la integración con otros programas: kind = pdf_service | send_to | word."""
+        import integracion
+        ok = None
+        if kind and enable is not None:
+            fn = {"pdf_service": integracion.mac_pdf_service, "send_to": integracion.windows_send_to,
+                  "word": integracion.word_addin}[kind]
+            ok = bool(fn(bool(enable)))
+            if kind == "word" and enable and ok:
+                integracion.ensure_listener()
+        return dict(integracion.status(), ok=ok)
 
     def icons_machine(self, enable=True):
         """Windows: activa las miniaturas para todo el equipo (pide permiso de administrador una vez)."""
@@ -588,6 +606,16 @@ def _open_in_window(win, path):
     import json
     import secrets
     try:
+        import core
+        if core.ext_of(path) in core.OFFICE_EXTS | {".doc", ".rtf", ".odt", ".txt", ".html", ".htm"}:
+            # «Enviar a → DocGuard» con un documento de Word: se convierte a PDF y se abre ese
+            import tempfile
+
+            import convert
+            pdf = os.path.join(tempfile.mkdtemp(prefix="docguard_word_"), os.path.splitext(os.path.basename(path))[0] + ".pdf")
+            win.evaluate_js("toast('Convirtiendo a PDF…', '', [], 4000);")
+            convert.document_to_pdf(path, pdf)
+            path = pdf
         with open(path, "rb") as f:
             data = f.read()
         with server.LOCK:
@@ -627,6 +655,10 @@ def _mac_open_files(win, loaded):
 
 
 def main():
+    if "--escucha" in sys.argv:  # proceso pequeño que atiende el botón «Exportar a DocGuard» de Word
+        import integracion
+        integracion.run_listener()
+        return
     if "--selftest" in sys.argv:
         if sys.platform == "win32":
             # En Windows la salida suele ser cp1252 (fallaba al imprimir «↔») y el ejecutable se quedaba
@@ -661,9 +693,16 @@ def main():
             from webview.menu import Menu, MenuAction, MenuSeparator
             global APP_URL
             APP_URL = url
-            win = make_window(maximized=True)  # la principal se abre maximizada; las de «+ Ventana», en cascada
+            win = make_window(maximized=True)
+            import integracion
+            server.EXTERNAL_OPEN = lambda p: _open_in_window(win, p)
+            try:
+                integracion.announce_open(url)
+            except Exception:
+                pass  # la principal se abre maximizada; las de «+ Ventana», en cascada
             import threading
             threading.Thread(target=_windows_icons, daemon=True).start()
+            threading.Thread(target=_integration_startup, daemon=True).start()
             if sys.platform == "darwin":
                 loaded = {"ok": False}
                 pending = _mac_open_files(win, loaded)
@@ -685,6 +724,7 @@ def main():
                 MenuAction("Nueva ventana", new_window), MenuSeparator(),
                 MenuAction("Organizar en mosaico", lambda: arrange("mosaico")),
                 MenuAction("Organizar en cascada", lambda: arrange("cascada"))])])
+            integracion.announce_closed()
             import updater  # si se descargó una versión nueva y se cerró sin reiniciar, se instala ahora
             if updater.STATE.get("new") and not updater.STATE.get("applied"):
                 updater.apply_on_exit()

@@ -70,12 +70,18 @@ def download(info):
     h = hashlib.sha256()
     req = urllib.request.Request(info["url"], headers={"User-Agent": "DocGuard"})
     with urllib.request.urlopen(req, timeout=60) as r, open(zpath, "wb") as f:
+        total = int(r.headers.get("Content-Length") or 0)
+        done = 0
+        STATE["progress"] = {"done": 0, "total": total}
         while chunk := r.read(1 << 20):
             h.update(chunk)
             f.write(chunk)
+            done += len(chunk)
+            STATE["progress"] = {"done": done, "total": total}
     if h.hexdigest() != expected:
         shutil.rmtree(tmp, ignore_errors=True)
         raise ValueError("La descarga no coincide con la huella publicada: no se instala.")
+    STATE["progress"] = {"done": done, "total": total, "unpacking": True}
     dest = os.path.join(tmp, "nuevo")
     if sys.platform == "darwin":  # ditto conserva la firma y los permisos de la app
         subprocess.run(["ditto", "-x", "-k", zpath, dest], check=True)
@@ -93,7 +99,13 @@ def apply_on_exit():
     new, old = STATE.get("new"), installed()
     if not new or not old:
         return False
-    backup_dir = os.path.join(core.config_dir(), "versiones_anteriores")
+    # «.noindex»: en Mac, Spotlight no muestra las copias guardadas al buscar DocGuard con ⌘Espacio
+    try:  # la escucha del botón de Word usa el programa: se para (la versión nueva la vuelve a lanzar)
+        import integracion
+        integracion._stop_listener()
+    except Exception:
+        pass
+    backup_dir = os.path.join(core.config_dir(), "versiones_anteriores.noindex" if sys.platform == "darwin" else "versiones_anteriores")
     os.makedirs(backup_dir, exist_ok=True)
     backup = os.path.join(backup_dir, f"DocGuard-{core.VERSION}" + (".app" if sys.platform == "darwin" else ""))
     pid = os.getpid()
@@ -102,6 +114,7 @@ def apply_on_exit():
         with open(script, "w") as f:
             f.write(f'''#!/bin/sh
 while kill -0 {pid} 2>/dev/null; do sleep 0.5; done
+mkdir -p "{backup_dir}"
 rm -rf "{backup}"
 mv "{old}" "{backup}" && mv "{new}" "{old}" || mv "{backup}" "{old}"
 xattr -dr com.apple.quarantine "{old}" 2>/dev/null
@@ -126,6 +139,7 @@ echo Actualizando DocGuard > "{log}"
 :espera
 tasklist /FI "PID eq {pid}" 2>nul | find "{pid}" >nul && (ping -n 2 127.0.0.1 >nul & goto espera)
 ping -n 3 127.0.0.1 >nul
+if not exist "{backup_dir}" mkdir "{backup_dir}"
 if exist "{backup}" rmdir /s /q "{backup}"
 set n=0
 :mover

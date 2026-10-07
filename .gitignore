@@ -10,3 +10,7 @@ tools/bench_out/
 iconos_estado/
 winthumbs/*.dll
 pruebas/
+
+# zips descargados con descargas/descargar.sh
+descargas/*.zip
+descargas/*.sha256

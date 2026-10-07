@@ -459,6 +459,9 @@ svg .f { fill: var(--c, currentColor); fill-opacity: var(--tint, .15); }
 .tb-doc-add { width: 32px; height: 32px; padding: 0; margin: 0 0 3px 3px; flex: none; }
 .tb-btn { width: 34px; height: 34px; padding: 0; align-self: center; }
 .tb-doc .x:hover, .tb-doc-add:hover, .tb-btn:hover { opacity: 1; background: rgba(127, 127, 140, .2) !important; }
+.tb-chip.switch { cursor: pointer; }
+.tb-chip.switch:hover { background: color-mix(in srgb, var(--c) 24%, transparent); }
+.tb-chip.switch::after { content: '⇄'; margin-left: 2px; opacity: .7; }
 .tb-chip { display: flex; align-items: center; gap: 7px; align-self: center; height: 28px; padding: 0 12px 0 9px; margin-right: 8px; border-radius: 999px; color: var(--c); font-size: 12.5px; font-weight: 600; background: color-mix(in srgb, var(--c) 14%, transparent); white-space: nowrap; }
 .tb-menu-wrap { position: relative; display: flex; align-items: center; }
 .tb-menu { position: absolute; right: 0; top: 42px; min-width: 270px; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 11px; box-shadow: 0 8px 28px rgba(0, 0, 0, .25); padding: 6px; z-index: 80; }

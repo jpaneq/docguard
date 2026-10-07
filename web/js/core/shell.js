@@ -234,7 +234,33 @@ const Shell = {
       chip.style.cssText = tcolor(name);
       chip.replaceChildren(h('span', { innerHTML: toolIcon(name, 18, 1.3) }), m.label);
     }
+    // En Editar y en el Visor la etiqueta salta a la otra vista con el mismo documento
+    const other = { edit: 'library', library: 'edit' }[name];
+    chip.classList.toggle('switch', !!other);
+    chip.title = other ? `Pasar a ${TOOL_META[other]?.label || ''} con este documento` : '';
+    chip.onclick = other ? () => this.switchViewEdit() : null;
     this.renderDocs();
+  },
+
+  /** Editar ⇄ Visor con el mismo documento y en la misma página (los cambios sin guardar se conservan). */
+  switchViewEdit() {
+    const later = f => setTimeout(f, 150);  // tras «Ajustar», que showTool hace en el siguiente fotograma
+    if (this.view === 'edit') {
+      const d = Edit.info;
+      if (!d) return showTool('library');
+      const n = Edit.viewer.n;
+      showTool('library');
+      Library.loadInfo(d);
+      setCurrent(d);
+      Library.openReader(Library.docs.find(x => x.id === d.id) || d, n);
+    } else if (this.view === 'library') {
+      const d = Library.reading || CURRENT;
+      const n = Library.reading ? Library.viewer.n : 0;
+      if (Library.reading) Library.closeReader();
+      if (d) setCurrent(d);
+      showTool('edit');  // abre CURRENT en Editar (o lo refresca si ya estaba)
+      if (d) later(() => Edit.viewer.go(n));
+    }
   },
 
   /** Pestañas de los documentos abiertos (arriba) y lista en Inicio. */

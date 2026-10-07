@@ -189,6 +189,8 @@ Cada módulo se puede trabajar por separado. El servidor expone cada función co
 
 - `v1.25`: guías de alineación al mover o redimensionar textos e imágenes (imán a bordes y centros de los demás objetos y de la página; Alt las desactiva).
 
+- `v1.26`: la etiqueta de la herramienta (arriba a la derecha) salta entre Editar PDF y Visor PDF con el mismo documento y en la misma página.
+
 ## Publicar una versión nueva
 1. Cambia `VERSION` en `core.py` (por ejemplo `1.18`).
 2. Crea la etiqueta igual y súbela: `git tag v1.18 && git push origin main --tags`.

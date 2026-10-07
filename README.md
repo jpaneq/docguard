@@ -195,6 +195,8 @@ Cada módulo se puede trabajar por separado. El servidor expone cada función co
 
 - `v1.28`: interfaz más limpia en el Visor: selector [Visor | Editar] arriba a la derecha; girar, imprimir y cerrar en la barra flotante junto a las páginas y el zoom (la barra del lector solo aparece al buscar); en Windows se quita la fila del menú «Ventana» (está en «⋯»).
 
+- `v1.29`: «Quitar marca de agua…» en Editar (con nada seleccionado): quita «BORRADOR», «COPIA»… en diagonal, contenido marcado como marca de agua y anotaciones de marca de agua, borrando solo esas órdenes del PDF (sin tapar el resto) y con ⌘Z para deshacer (`marcas_agua.py`).
+
 ## Publicar una versión nueva
 1. Cambia `VERSION` en `core.py` (por ejemplo `1.18`).
 2. Crea la etiqueta igual y súbela: `git tag v1.18 && git push origin main --tags`.

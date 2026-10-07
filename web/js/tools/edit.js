@@ -635,7 +635,30 @@ const Edit = {
         h('span', { class: 'muted' }, this.pendingImage ? 'Arrastra en la página dónde colocarla.' : ''));
       return;
     }
-    add(h('span', { class: 'muted' }, this.info ? 'Selecciona algo en la página para ver sus opciones.' : ''));
+    add(h('span', { class: 'muted' }, this.info ? 'Selecciona algo en la página para ver sus opciones.' : ''),
+      this.info ? h('span', { class: 'grow' }) : null,
+      this.info ? h('button', { title: 'Quita marcas de agua como «BORRADOR» o «COPIA» en diagonal, sin tocar el resto (⌘Z para deshacer)', onclick: () => this.removeWatermarks() }, 'Quitar marca de agua…') : null);
+  },
+
+  /** Busca las marcas de agua del documento, las enseña y, si se acepta, las quita (con deshacer). */
+  async removeWatermarks() {
+    const r = await run('Buscando marcas de agua…', () => api('watermarks', { id: this.info.id }));
+    if (!r) return;
+    if (!r.found.length) {
+      return toast('No se ha encontrado ninguna marca de agua que se pueda quitar (texto en diagonal, contenido marcado como marca de agua o anotación de marca de agua).', '', [], 7000);
+    }
+    const items = r.found.slice(0, 12).map(f => h('li', {}, `Página ${f.n + 1}: ${f.kind}${f.text ? ` «${f.text}»` : ''}`));
+    if (r.found.length > 12) items.push(h('li', {}, `… y ${r.found.length - 12} más`));
+    const ok = await new Promise(res => modal({
+      title: 'Quitar marca de agua',
+      body: h('div', {}, h('p', {}, 'Se quitará solo esto; el resto del documento no cambia:'), h('ul', {}, items),
+        h('p', { class: 'muted' }, 'Puedes deshacerlo con ⌘Z. Si es el borrador de un documento oficial, la copia sin marca sigue sin ser la versión definitiva.')),
+      actions: [{ label: 'Cancelar', fn: () => res(false) }, { label: 'Quitar', primary: true, fn: () => res(true) }],
+      onclose: () => res(false),
+    }));
+    if (ok && await this.op('remove_watermarks', {}, 'Quitando marca de agua…')) {
+      toast(r.found.length === 1 ? 'Marca de agua quitada. ⌘Z para deshacer.' : `${r.found.length} marcas de agua quitadas. ⌘Z para deshacer.`, 'ok', [], 5000);
+    }
   },
 
   /* ---- teclado ---- */

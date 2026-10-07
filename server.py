@@ -29,6 +29,7 @@ import compare
 import convert
 import editor
 import idfields
+import marcas_agua
 import pdfa
 import protect
 import records
@@ -1078,6 +1079,7 @@ def rotate_pages(doc, deg, pages=None):
 
 EDIT_OPS = {
     "rotate": lambda doc, r: rotate_pages(doc, r["deg"], r.get("pages")),
+    "remove_watermarks": lambda doc, r: str(marcas_agua.remove(doc)),
     "replace_text": lambda doc, r: editor.replace_span(doc, r["n"], r["i"], r.get("text", ""), r.get("font", "auto"),
                                                       r.get("size"), r.get("color"), r.get("bold"), r.get("italic")),
     "add_text": lambda doc, r: editor.add_text(doc, r["n"], r["x"], r["y"], r["text"], r.get("font", "base:helv"),
@@ -1441,6 +1443,11 @@ def op_presets_save(req):
     return {}
 
 
+def op_watermarks(req):
+    """Marcas de agua que se pueden quitar (sin cambiar nada): [{n, kind, text}]."""
+    return {"found": marcas_agua.find(need_pdf(get_doc(req)))}
+
+
 def op_ui(req):
     """Preferencias de la interfaz (p. ej. barra lateral oculta). Se guardan en la configuración,
     porque la ventana nativa no conserva el almacenamiento del navegador entre sesiones."""
@@ -1603,7 +1610,7 @@ def op_recent(req):
 
 OPS = {
     "fs/list": op_fs_list, "fs/open": op_fs_open, "fs/pin": op_fs_pin, "recent": op_recent,
-    "presets": op_presets, "presets/save": op_presets_save, "ui": op_ui,
+    "presets": op_presets, "presets/save": op_presets_save, "ui": op_ui, "watermarks": op_watermarks,
     "open_result": op_open_result, "close": op_close, "info": op_info,
     "update/check": op_update_check, "update/download": op_update_download, "version": lambda req: {"version": core.VERSION},
     "tabs/add": op_tabs_add, "tabs/list": op_tabs_list, "tabs/close": op_tabs_close,

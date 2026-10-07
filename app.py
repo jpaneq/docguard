@@ -591,6 +591,18 @@ def selftest():
         checks["DNIe / PKCS#11"] = True
     except Exception:
         checks["DNIe / PKCS#11"] = False
+    # Quitar marca de agua: el «BORRADOR» en diagonal se va; el texto normal y el vertical se quedan
+    wdoc = fitz.open()
+    wp = wdoc.new_page()
+    wp.insert_text((72, 100), "Texto normal", fontsize=12)
+    wp.insert_text((40, 700), "Texto vertical", fontsize=10, rotate=90)
+    wp.insert_text((150, 500), "BORRADOR", fontsize=80, color=(.85, .85, .85), morph=(fitz.Point(150, 500), fitz.Matrix(45)))
+    winfo = call("open", raw=wdoc.tobytes(), name="marca.pdf")
+    wfound = call("watermarks", {"id": winfo["id"]})["found"]
+    call("edit/remove_watermarks", {"id": winfo["id"], "n": 0})
+    wtext = fitz.open("pdf", server.DOCS[winfo["id"]].pdf_bytes())[0].get_text()
+    checks["quitar marca de agua"] = (len(wfound) == 1 and "BORRADOR" not in wtext
+                                      and "Texto normal" in wtext and "Texto vertical" in wtext)
     httpd.shutdown()
     for k, v in checks.items():
         print(f"{'OK ' if v else 'FALLO'} {k}")

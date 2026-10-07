@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "DocGuard: abrir PDF",
+  "version": "1.0",
+  "description": "Abre en DocGuard los PDF que el navegador iba a mostrar. Necesita DocGuard 1.22 o superior en este equipo.",
+  "permissions": ["webRequest", "tabs", "storage"],
+  "host_permissions": ["<all_urls>", "https://localhost:47821/*"],
+  "background": {"service_worker": "background.js"},
+  "action": {"default_title": "DocGuard: abrir PDF (activado)"},
+  "icons": {"128": "icon.png"}
+}

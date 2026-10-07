@@ -201,8 +201,9 @@ def word_addin(enable=True):
     """Instala (o quita) el botón «Exportar a DocGuard» en Word para este usuario."""
     pem, key, cer = _ensure_cert() if enable else _cert_paths()
     if not enable:
-        _stop_listener()
-        _autostart(False)
+        if not browser_ext_status():
+            _stop_listener()
+            _autostart(False)
         if sys.platform == "darwin":
             p = os.path.join(_mac_wef_dir(), "DocGuard-Word.xml")
             if os.path.exists(p):
@@ -215,7 +216,8 @@ def word_addin(enable=True):
                     winreg.DeleteValue(k, ADDIN_ID)
             except OSError:
                 pass
-        _untrust_cert(pem, cer)
+        if not browser_ext_status():
+            _untrust_cert(pem, cer)
         return True
     if not _trust_cert(cer, pem):
         return False
@@ -247,6 +249,45 @@ def word_addin_status():
         except OSError:
             return False
     return None
+
+
+# Navegador (Chrome/Edge): extensión que abre en DocGuard los PDF que el navegador iba a mostrar.
+# Usa la misma escucha y el mismo certificado que el botón de Word.
+
+def browser_ext_dir():
+    return os.path.join(core.config_dir(), "extension-navegador")
+
+
+def _browser_flag():
+    return os.path.join(_office_dir(), "navegador.activo")
+
+
+def browser_ext_status():
+    return os.path.exists(_browser_flag())
+
+
+def browser_ext(enable=True):
+    """Activa (o quita) la recepción de PDF desde la extensión del navegador y deja la carpeta lista para cargarla."""
+    import shutil
+    pem, key, cer = _ensure_cert() if enable else _cert_paths()
+    if not enable:
+        try:
+            os.remove(_browser_flag())
+        except OSError:
+            pass
+        if not word_addin_status():
+            _stop_listener()
+            _autostart(False)
+            _untrust_cert(pem, cer)
+        return True
+    if not _trust_cert(cer, pem):
+        return False
+    src = core.resource_path("extension")
+    if os.path.isdir(src):
+        shutil.rmtree(browser_ext_dir(), ignore_errors=True)
+        shutil.copytree(src, browser_ext_dir())
+    open(_browser_flag(), "w").close()
+    return True
 
 
 # ---- escucha del botón de Word ----
@@ -359,7 +400,7 @@ def _autostart(enable):
 
 def ensure_listener():
     """Deja la escucha en marcha con la versión actual de DocGuard (y su arranque al iniciar sesión)."""
-    if not word_addin_status():
+    if not (word_addin_status() or browser_ext_status()):
         return False
     v = _listener_version()
     if v == core.VERSION:
@@ -418,10 +459,24 @@ def start_addin_server(on_pdf):
             with open(path, "rb") as f:
                 self._send(200, f.read(), ctype)
 
+        def do_OPTIONS(self):  # permiso previo (CORS) de la extensión del navegador
+            origin = self.headers.get("Origin") or ""
+            self.send_response(204 if origin.startswith("chrome-extension://") else 403)
+            if origin.startswith("chrome-extension://"):
+                self.send_header("Access-Control-Allow-Origin", origin)
+                self.send_header("Access-Control-Allow-Headers", "X-Nombre, Content-Type")
+                self.send_header("Access-Control-Allow-Methods", "POST")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
         def do_POST(self):
             route = urllib.parse.urlparse(self.path).path
             origin = self.headers.get("Origin")
-            if origin and origin != ORIGIN:  # solo las páginas del propio complemento
+            if route == "/recibir-navegador":  # extensión de Chrome/Edge: solo si el usuario la activó
+                if not (origin or "").startswith("chrome-extension://") or not browser_ext_status():
+                    return self._send(403, b"origen no permitido")
+                route = "/recibir"
+            elif origin and origin != ORIGIN:  # solo las páginas del propio complemento
                 return self._send(403, b"origen no permitido")
             if route == "/salir":
                 self._send(200, b"adios")
@@ -444,6 +499,13 @@ def start_addin_server(on_pdf):
             with open(path, "wb") as f:
                 f.write(data)
             threading.Thread(target=on_pdf, args=(path,), daemon=True).start()
+            if (origin or "").startswith("chrome-extension://"):
+                self.send_response(200)
+                self.send_header("Access-Control-Allow-Origin", origin)
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"ok")
+                return
             self._send(200, b"ok")
 
     try:
@@ -462,7 +524,8 @@ def start_addin_server(on_pdf):
 
 def status():
     return {"platform": sys.platform, "pdf_service": mac_pdf_service_status(),
-            "send_to": windows_send_to_status(), "word": word_addin_status(), "frozen": bool(_exe())}
+            "send_to": windows_send_to_status(), "word": word_addin_status(), "browser": browser_ext_status(),
+            "browser_dir": browser_ext_dir(), "frozen": bool(_exe())}
 
 
 def refresh_at_startup():

@@ -199,14 +199,14 @@ class Api:
         return True
 
     def integration(self, kind=None, enable=None):
-        """Lee o cambia la integración con otros programas: kind = pdf_service | send_to | word."""
+        """Lee o cambia la integración con otros programas: kind = pdf_service | send_to | word | browser."""
         import integracion
         ok = None
         if kind and enable is not None:
             fn = {"pdf_service": integracion.mac_pdf_service, "send_to": integracion.windows_send_to,
-                  "word": integracion.word_addin}[kind]
+                  "word": integracion.word_addin, "browser": integracion.browser_ext}[kind]
             ok = bool(fn(bool(enable)))
-            if kind == "word" and enable and ok:
+            if kind in ("word", "browser") and enable and ok:
                 integracion.ensure_listener()
         return dict(integracion.status(), ok=ok)
 

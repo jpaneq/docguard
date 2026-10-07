@@ -181,6 +181,8 @@ Cada módulo se puede trabajar por separado. El servidor expone cada función co
 - `v1.17`: icono rojo con «PDF», versión visible en el título de la ventana y en la barra lateral, barra lateral ocultable, imprimir (⌘P/Ctrl+P), se abre en el Visor PDF, flechas ← → para pasar de página; actualizaciones automáticas (al abrirse, DocGuard consulta las versiones publicadas en GitHub, ofrece instalarlas, comprueba su huella SHA-256 y guarda la anterior), «Buscar actualizaciones», zoom con ⌘ + rueda, y compilación en GitHub solo al publicar una versión.
 - `v1.20`: interfaz renovada al estilo de Acrobat: barra superior con Inicio, Herramientas y pestañas de los documentos abiertos; vista de Herramientas en cuadrícula por categorías con buscador; panel de herramientas a la derecha (ocultable); tema claro, oscuro o automático; iconos propios de trazo fino; menú «⋯» con ventanas, actualizaciones e iconos de estado. Nuevo **explorador de archivos** en el lateral izquierdo (Ctrl+Mayús+E): carpetas, unidades, carpetas fijadas, filtro y apertura de PDFs e imágenes en la herramienta en la que estés; Inicio muestra los archivos recientes.
 
+- `v1.22`: extensión de Chrome/Edge (`extension/`) que abre en DocGuard los PDF del navegador (se activa en «Integración»; la comparte con el botón de Word la escucha local y el certificado); los textos largos de las columnas laterales (p. ej. «¿Es una foto? Pasarla antes a modo escáner») ya no se salen.
+
 ## Publicar una versión nueva
 1. Cambia `VERSION` en `core.py` (por ejemplo `1.18`).
 2. Crea la etiqueta igual y súbela: `git tag v1.18 && git push origin main --tags`.

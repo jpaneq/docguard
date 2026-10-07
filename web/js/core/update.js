@@ -128,7 +128,10 @@ const Integration = {
         row('word', st.word, 'Botón «Exportar a DocGuard» en Word',
           'Aparece en la pestaña Inicio de Word (cierra y vuelve a abrir Word). Funciona aunque DocGuard esté cerrado: un proceso pequeño de DocGuard arranca al iniciar sesión y lo abre cuando hace falta. Al activarlo, ' +
           (mac ? 'el Mac pedirá tu contraseña' : 'Windows mostrará un aviso de seguridad') +
-          ' para confiar en un certificado propio de DocGuard, que solo sirve en este equipo. Si no aparece, en Word: Insertar → Complementos → Mis complementos.')),
+          ' para confiar en un certificado propio de DocGuard, que solo sirve en este equipo. Si no aparece, en Word: Insertar → Complementos → Mis complementos.'),
+        row('browser', st.browser, 'Abrir en DocGuard los PDF de Chrome / Edge',
+          'Los PDF que el navegador iba a mostrar se abren en DocGuard (si DocGuard no responde, se quedan en el navegador). Tras activarlo, instala la extensión una vez: en Chrome o Edge abre chrome://extensions (edge://extensions), activa «Modo de desarrollador», pulsa «Cargar descomprimida» y elige la carpeta: ' + st.browser_dir +
+          '. Para PDF guardados en el equipo, en la ficha de la extensión activa «Permitir acceso a URL de archivos». En el icono de la extensión se puede desactivar. Comparte la escucha y el certificado del botón de Word.')),
       actions: [{ label: 'Cerrar', primary: true }],
     });
   },

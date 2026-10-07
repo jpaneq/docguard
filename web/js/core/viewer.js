@@ -129,6 +129,45 @@ class Viewer {
     return d;
   }
   clear() { this.ov.innerHTML = ''; }
+  /* ---- Guías de alineación: al mover o redimensionar, el objeto se imanta a los bordes y centros
+     de los demás textos e imágenes (y al centro y bordes de la página). Alt desactiva el imán. ---- */
+  setSnap(targets, size) { this.snapT = targets || []; this.snapSize = size || null; }
+  clearGuides() { $$('.guide', this.ov).forEach(g => g.remove()); }
+  /** Ajuste de r=[x0,y0,x1,y1] a los objetivos. xs/ys: qué anclas cuentan (l,c,r / t,m,b). skip(t): objetivos a ignorar.
+   *  Dibuja las guías y devuelve {dx, dy} (0 si no hay nada cerca). */
+  snap(r, { xs = ['l', 'c', 'r'], ys = ['t', 'm', 'b'], skip = null } = {}) {
+    this.clearGuides();
+    const thr = 6 / this.zoom, T = (this.snapT || []).filter(t => !skip || !skip(t));
+    if (this.snapSize) T.push({ r: [0, 0, this.snapSize[0], this.snapSize[1]], page: true });
+    const ax = { l: r[0], c: (r[0] + r[2]) / 2, r: r[2] }, ay = { t: r[1], m: (r[1] + r[3]) / 2, b: r[3] };
+    const tx = t => t.page ? [t.r[0], (t.r[0] + t.r[2]) / 2, t.r[2]] : [t.r[0], (t.r[0] + t.r[2]) / 2, t.r[2]];
+    const ty = t => t.page ? [t.r[1], (t.r[1] + t.r[3]) / 2, t.r[3]] : [t.r[1], (t.r[1] + t.r[3]) / 2, t.r[3]];
+    const best = (anchors, keys, get) => {
+      let d = null;
+      for (const k of keys) for (const t of T) for (const v of get(t)) {
+        const diff = v - anchors[k];
+        if (Math.abs(diff) <= thr && (d === null || Math.abs(diff) < Math.abs(d))) d = diff;
+      }
+      return d;
+    };
+    const dx = xs.length ? best(ax, xs, tx) : null, dy = ys.length ? best(ay, ys, ty) : null;
+    const out = { dx: dx || 0, dy: dy || 0 };
+    const q = [r[0] + out.dx, r[1] + out.dy, r[2] + out.dx, r[3] + out.dy];
+    const line = (x0, y0, x1, y1) => {
+      const g = h('div', { class: 'guide' });
+      Object.assign(g.style, { left: Math.min(x0, x1) * this.zoom + 'px', top: Math.min(y0, y1) * this.zoom + 'px',
+        width: Math.max(1, Math.abs(x1 - x0) * this.zoom) + 'px', height: Math.max(1, Math.abs(y1 - y0) * this.zoom) + 'px' });
+      this.ov.append(g);
+    };
+    const cx = { l: q[0], c: (q[0] + q[2]) / 2, r: q[2] }, cy = { t: q[1], m: (q[1] + q[3]) / 2, b: q[3] };
+    if (dx !== null) for (const k of xs) for (const t of T) for (const v of tx(t)) if (Math.abs(v - cx[k]) < 0.5) {
+      line(v, t.page ? 0 : Math.min(q[1], t.r[1]), v, t.page ? this.snapSize[1] : Math.max(q[3], t.r[3]));
+    }
+    if (dy !== null) for (const k of ys) for (const t of T) for (const v of ty(t)) if (Math.abs(v - cy[k]) < 0.5) {
+      line(t.page ? 0 : Math.min(q[0], t.r[0]), v, t.page ? this.snapSize[0] : Math.max(q[2], t.r[2]), v);
+    }
+    return out;
+  }
   /** Arrastre del ratón desde el evento e. Devuelve {rect, points, moved}.
    *  shape: 'line'/'arrow' (vista previa de línea; con Mayús, ángulos de 15°) o
    *  'rect'/'ellipse' (con Mayús, cuadrado o círculo). */
@@ -204,6 +243,10 @@ class Viewer {
         if (mode === 'move') {
           if (ev.shiftKey) [dx, dy] = snapAngle(dx, dy);
           r = [rect[0] + dx, rect[1] + dy, rect[2] + dx, rect[3] + dy];
+          if (!ev.altKey && !ev.shiftKey) {
+            const sn = this.snap(r, { skip: t => t.r.every((v, i) => Math.abs(v - rect[i]) < 0.01) });
+            r = [r[0] + sn.dx, r[1] + sn.dy, r[2] + sn.dx, r[3] + sn.dy];
+          } else this.clearGuides();
         } else {
           let [x0, y0, x1, y1] = rect;
           if (mode.includes('w')) x0 = Math.min(rect[0] + dx, rect[2] - 6);
@@ -217,12 +260,22 @@ class Viewer {
             if (mode.includes('n')) y0 = rect[3] - h0 * f; else y1 = rect[1] + h0 * f;
           }
           r = [x0, y0, x1, y1];
+          if (!ev.altKey && !ev.shiftKey && !keepRatio) {
+            const xs = [mode.includes('w') ? 'l' : null, mode.includes('e') ? 'r' : null].filter(Boolean);
+            const ys = [mode.includes('n') ? 't' : null, mode.includes('s') ? 'b' : null].filter(Boolean);
+            const sn = this.snap(r, { xs, ys, skip: t => t.r.every((v, i) => Math.abs(v - rect[i]) < 0.01) });
+            if (mode.includes('w')) r[0] = Math.min(r[0] + sn.dx, rect[2] - 6);
+            if (mode.includes('e')) r[2] = Math.max(r[2] + sn.dx, rect[0] + 6);
+            if (mode.includes('n')) r[1] = Math.min(r[1] + sn.dy, rect[3] - 6);
+            if (mode.includes('s')) r[3] = Math.max(r[3] + sn.dy, rect[1] + 6);
+          } else this.clearGuides();
         }
         this.place(el, r);
       };
       window.addEventListener('mousemove', mv);
       window.addEventListener('mouseup', () => {
         window.removeEventListener('mousemove', mv);
+        this.clearGuides();
         if (r.some((v, i) => Math.abs(v - rect[i]) > 0.5)) onDone(r.map(v => Math.round(v * 100) / 100));
       }, { once: true });
     };

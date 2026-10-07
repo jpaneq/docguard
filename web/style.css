@@ -614,3 +614,5 @@ button .mi-ic { vertical-align: -3px; margin-right: 2px; color: inherit; }
 
 .tbl-grid { display: grid; gap: 4px; margin-top: 8px; max-height: 55vh; overflow: auto; }
 .tbl-grid input { min-width: 0; }
+
+.guide { position: absolute; background: #ff2d95; pointer-events: none; z-index: 20; }

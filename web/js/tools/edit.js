@@ -256,6 +256,8 @@ const Edit = {
     const st = this.st;
     if (!st || st.n !== v.n) return;
     const t = this.tool;
+    v.setSnap([...st.spans.map(x => ({ r: x.bbox, k: 's' + x.i })), ...st.images.map(x => ({ r: x.bbox, k: 'i' + x.xref })),
+      ...st.annots.map(x => ({ r: x.bbox, k: 'a' + x.xref }))], st.size);
     // imágenes (movibles en la herramienta de selección)
     if (t === 'select') {
       for (const im of st.images) {
@@ -304,7 +306,7 @@ const Edit = {
     if (this.region && this.region.n === v.n) v.box(this.region.r, 'region');
     (this.hits || []).forEach((hit, i) => { if (hit.n === v.n) v.box(hit.r, 'hit' + (i === this.hitIdx ? ' cur' : '')); });
     this.hint({
-      select: 'Clic: seleccionar (con ⌘/Ctrl o Mayús: añadir varios) · Doble clic en un texto: escribir (Intro = nueva línea) · Arrastrar: mover · Esquina del marco: cambiar el tamaño · Arrastrar en vacío: seleccionar zona · ⌘C/⌘X/⌘V · Supr · Clic derecho: más opciones',
+      select: 'Clic: seleccionar (con ⌘/Ctrl o Mayús: añadir varios) · Doble clic en un texto: escribir (Intro = nueva línea) · Arrastrar: mover (guías de alineación; Alt las desactiva) · Esquina del marco: cambiar el tamaño · Arrastrar en vacío: seleccionar zona · ⌘C/⌘X/⌘V · Supr · Clic derecho: más opciones',
       text: 'Clic en la página para escribir texto nuevo, o en un texto existente para modificarlo. ⌘+Intro o clic fuera para fijarlo.',
       image: 'Arrastra en la página el recuadro donde colocar la imagen.',
       table: 'Arrastra el recuadro donde irá la tabla; después rellena las celdas (puedes pegar desde Excel o Word).',
@@ -795,16 +797,23 @@ const Edit = {
     if (!this.selSpans.has(s.i)) return;
     const v = this.viewer, p0 = v.pt(e);
     const boxes = $$('.bx.span.sel', v.ov);
+    const mine = this.st.spans.filter(x => this.selSpans.has(x.i)).map(x => x.bbox);
+    const box0 = mine.reduce((a, b) => [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])]);
     let dx = 0, dy = 0, moved = false;
     const mv = ev => {
       const p = v.pt(ev);
       dx = p[0] - p0[0]; dy = p[1] - p0[1];
       if (Math.abs(dx) + Math.abs(dy) > 4 / v.zoom) moved = true;
+      if (moved && !ev.altKey) {  // guías de alineación con el resto de textos e imágenes
+        const sn = v.snap([box0[0] + dx, box0[1] + dy, box0[2] + dx, box0[3] + dy], { skip: t => t.k[0] === 's' && this.selSpans.has(+t.k.slice(1)) });
+        dx += sn.dx; dy += sn.dy;
+      } else v.clearGuides();
       if (moved) boxes.forEach(b => { b.style.transform = `translate(${dx * v.zoom}px, ${dy * v.zoom}px)`; });
     };
     window.addEventListener('mousemove', mv);
     window.addEventListener('mouseup', ev => {
       window.removeEventListener('mousemove', mv);
+      v.clearGuides();
       if (moved) this.moveSel(dx, dy);
       else if (wasOnly && !multi(e)) this.startInline(s, ev);
     }, { once: true });

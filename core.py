@@ -16,7 +16,7 @@ import pymupdf as fitz
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
 APP_NAME = "DocGuard"
-VERSION = "1.24"  # al publicar, la etiqueta de git debe coincidir (v1.17)
+VERSION = "1.25"  # al publicar, la etiqueta de git debe coincidir (v1.17)
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp", ".gif"}
 OFFICE_EXTS = {".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp"}
 RENDER_DPI = 200

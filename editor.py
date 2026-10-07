@@ -137,6 +137,15 @@ def _covers(font, text):
     return all(font.has_glyph(ord(c)) for c in text if not c.isspace())
 
 
+def _kw(page, kw):
+    """Page.insert_text no admite fontbuffer: se registra la fuente en la página y se pasa solo su nombre."""
+    if "fontbuffer" not in kw:
+        return kw
+    kw = dict(kw)
+    page.insert_font(fontname=kw["fontname"], fontbuffer=kw.pop("fontbuffer"))
+    return kw
+
+
 def resolve_font(doc, page, name, flags, text, choice="auto"):
     """Elige la fuente para `text`. Devuelve (kwargs para insert_text, etiqueta).
 
@@ -277,10 +286,10 @@ def replace_span(doc, pno, index, new_text, font="auto", size=None, color=None, 
     for i, line in enumerate(lines):
         if line.strip():
             page.insert_text(fitz.Point(s["origin"]) + down * (lh * i), line, fontsize=size or s["size"],
-                             color=rgb(color or s["color"]), rotate=page.rotation, **kw)
+                             color=rgb(color or s["color"]), rotate=page.rotation, **_kw(page, kw))
     for o, okw in zip(below, below_fonts):
         page.insert_text(fitz.Point(o["origin"]) + down * (lh * extra), o["text"], fontsize=o["size"],
-                         color=rgb(o["color"]), rotate=page.rotation, **okw)
+                         color=rgb(o["color"]), rotate=page.rotation, **_kw(page, okw))
     if not new_text:
         return "texto eliminado"
     return label
@@ -296,7 +305,7 @@ def move_spans(doc, pno, indices, dx, dy):
     _erase_spans(page, sel)
     for s, kw in zip(sel, fonts):
         page.insert_text(fitz.Point(s["origin"]) + shift, s["text"], fontsize=s["size"],
-                         color=rgb(s["color"]), rotate=page.rotation, **kw)
+                         color=rgb(s["color"]), rotate=page.rotation, **_kw(page, kw))
 
 
 def scale_spans(doc, pno, indices, factor, anchor):
@@ -312,7 +321,7 @@ def scale_spans(doc, pno, indices, factor, anchor):
     for s, kw in zip(sel, fonts):
         o = fitz.Point(s["origin"])
         page.insert_text(a + (o - a) * factor, s["text"], fontsize=max(1.0, s["size"] * factor),
-                         color=rgb(s["color"]), rotate=page.rotation, **kw)
+                         color=rgb(s["color"]), rotate=page.rotation, **_kw(page, kw))
 
 
 def format_spans(doc, pno, indices, font="auto", size=None, color=None, bold=None, italic=None):
@@ -328,7 +337,7 @@ def format_spans(doc, pno, indices, font="auto", size=None, color=None, bold=Non
     labels = set()
     for s, (kw, label) in plan:
         page.insert_text(fitz.Point(s["origin"]), s["text"], fontsize=size or s["size"],
-                         color=rgb(color or s["color"]), rotate=page.rotation, **kw)
+                         color=rgb(color or s["color"]), rotate=page.rotation, **_kw(page, kw))
         labels.add(label)
     return ", ".join(sorted(labels))
 
@@ -368,7 +377,7 @@ def add_text(doc, pno, x, y, text, font="base:helv", size=12, color="#000000", b
     flags = (16 if bold else 0) | (2 if italic else 0)
     kw, label = resolve_font(doc, page, "", flags, text, font)
     p = point_from_view(page, x, y + size * 0.8)
-    page.insert_text(p, text, fontsize=size, color=rgb(color), rotate=page.rotation, **kw)
+    page.insert_text(p, text, fontsize=size, color=rgb(color), rotate=page.rotation, **_kw(page, kw))
     return label
 
 
@@ -978,7 +987,7 @@ def paste_spans(doc, pno, clip, x, y):
         fonts = [resolve_font(src, spage, it["rawfont"], it["flags"], it["text"])[0] for it in clip["items"]]
     for it, kw in zip(clip["items"], fonts):
         page.insert_text(point_from_view(page, x + it["dx"], y + it["dy"]), it["text"], fontsize=it["size"],
-                         color=rgb(it["color"]), rotate=page.rotation, **kw)
+                         color=rgb(it["color"]), rotate=page.rotation, **_kw(page, kw))
 
 
 # --------------------------------------------------------------------------
@@ -1094,6 +1103,6 @@ def header_footer(doc, number="Página {n} de {total}", number_pos="abajo-centro
             tw = font.text_length(text, fontsize=size)
             x = {"izquierda": m, "centro": (W - tw) / 2, "derecha": W - m - tw}[hpos]
             y = m + size if v == "arriba" else H - m
-            page.insert_text(point_from_view(page, x, y), text, fontsize=size, color=col, rotate=page.rotation, **kw)
+            page.insert_text(point_from_view(page, x, y), text, fontsize=size, color=col, rotate=page.rotation, **_kw(page, kw))
         count += 1
     return f"{count} páginas"

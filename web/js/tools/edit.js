@@ -5,6 +5,9 @@
    EDITAR PDF (herramienta unificada, estilo Acrobat / Word)
    ====================================================================== */
 
+/** Mayús, Ctrl o ⌘ pulsados: añadir a la selección en vez de sustituirla. */
+const multi = e => e.shiftKey || e.ctrlKey || e.metaKey;
+
 const ICON = {
   select: '<path d="M5 3l11 6.2-4.8 1.3-2.4 4.5z"/><path d="M11.2 10.5l3.8 5.5"/>',
   text: '<path d="M4 6V3.5h12V6M10 3.5v13M7.5 16.5h5"/>',
@@ -301,7 +304,7 @@ const Edit = {
     if (this.region && this.region.n === v.n) v.box(this.region.r, 'region');
     (this.hits || []).forEach((hit, i) => { if (hit.n === v.n) v.box(hit.r, 'hit' + (i === this.hitIdx ? ' cur' : '')); });
     this.hint({
-      select: 'Clic: seleccionar · Doble clic en un texto: escribir (Intro = nueva línea) · Arrastrar: mover · Esquina del marco: cambiar el tamaño · Arrastrar en vacío: seleccionar zona · ⌘C/⌘X/⌘V · Supr · Clic derecho: más opciones',
+      select: 'Clic: seleccionar (con ⌘/Ctrl o Mayús: añadir varios) · Doble clic en un texto: escribir (Intro = nueva línea) · Arrastrar: mover · Esquina del marco: cambiar el tamaño · Arrastrar en vacío: seleccionar zona · ⌘C/⌘X/⌘V · Supr · Clic derecho: más opciones',
       text: 'Clic en la página para escribir texto nuevo, o en un texto existente para modificarlo. ⌘+Intro o clic fuera para fijarlo.',
       image: 'Arrastra en la página el recuadro donde colocar la imagen.',
       table: 'Arrastra el recuadro donde irá la tabla; después rellena las celdas (puedes pegar desde Excel o Word).',
@@ -715,7 +718,7 @@ const Edit = {
     if (t === 'select') {
       if (!d.moved) { this.clearSel(); return; }
       const hit = (this.st?.spans || []).filter(s => inter(s.bbox, d.rect)).map(s => s.i);
-      this.selSpans = new Set(e.shiftKey ? [...this.selSpans, ...hit] : hit);
+      this.selSpans = new Set(multi(e) ? [...this.selSpans, ...hit] : hit);
       this.sel = hit.length ? { type: 'spans' } : null;
       this.region = { n: v.n, r: d.rect };  // la zona se puede copiar como captura aunque tenga texto
       if (hit.length) this.region.withSpans = true;
@@ -784,7 +787,7 @@ const Edit = {
     this.closeMenu();
     if (this.inline) { this.commitInline(); return; }
     const wasOnly = this.selSpans.has(s.i) && this.selSpans.size === 1;
-    if (e.shiftKey) { this.selSpans.has(s.i) ? this.selSpans.delete(s.i) : this.selSpans.add(s.i); }
+    if (multi(e)) { this.selSpans.has(s.i) ? this.selSpans.delete(s.i) : this.selSpans.add(s.i); }
     else if (!this.selSpans.has(s.i)) this.selSpans = new Set([s.i]);
     this.sel = this.selSpans.size ? { type: 'spans' } : null;
     this.region = null;
@@ -803,7 +806,7 @@ const Edit = {
     window.addEventListener('mouseup', ev => {
       window.removeEventListener('mousemove', mv);
       if (moved) this.moveSel(dx, dy);
-      else if (wasOnly && !e.shiftKey) this.startInline(s, ev);
+      else if (wasOnly && !multi(e)) this.startInline(s, ev);
     }, { once: true });
   },
   /** Marco alrededor de los textos seleccionados; su esquina cambia el tamaño (letra e interlineado). */

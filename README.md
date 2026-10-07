@@ -185,6 +185,8 @@ Cada módulo se puede trabajar por separado. El servidor expone cada función co
 
 - `v1.23`: herramienta «Tabla» en Editar PDF (arrastra el recuadro, rellena las celdas o pega desde Excel/Word; cabecera, colores y borde); la negrita de las fuentes estándar ahora usa la negrita del sistema.
 
+- `v1.24`: en Editar, ⌘/Ctrl (o Mayús) + clic o arrastre añade textos a la selección.
+
 ## Publicar una versión nueva
 1. Cambia `VERSION` en `core.py` (por ejemplo `1.18`).
 2. Crea la etiqueta igual y súbela: `git tag v1.18 && git push origin main --tags`.

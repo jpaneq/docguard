@@ -739,10 +739,13 @@ def main():
                     win.events.loaded -= open_file  # solo la primera vez que carga la interfaz
                     _open_in_window(win, path)
                 win.events.loaded += open_file
-            webview.start(menu=[Menu("Ventana", [
+            # En Mac el menú «Ventana» va en la barra de menús del sistema; en Windows ocuparía una fila
+            # entera de la ventana y repite lo que ya está en el menú «⋯» de DocGuard, así que no se pone.
+            menu = [Menu("Ventana", [
                 MenuAction("Nueva ventana", new_window), MenuSeparator(),
                 MenuAction("Organizar en mosaico", lambda: arrange("mosaico")),
-                MenuAction("Organizar en cascada", lambda: arrange("cascada"))])])
+                MenuAction("Organizar en cascada", lambda: arrange("cascada"))])] if sys.platform == "darwin" else []
+            webview.start(menu=menu)
             integracion.announce_closed()
             import updater  # si se descargó una versión nueva y se cerró sin reiniciar, se instala ahora
             if updater.STATE.get("new") and not updater.STATE.get("applied"):

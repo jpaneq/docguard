@@ -39,6 +39,15 @@ const Library = {
     act('rrotr', () => this.rotate(90));
     this.viewer = new ContViewer($('.reader-host', this.root), { keepOverlays: true, firstClickActivates: false });
     this.viewer.fitPage = true;  // «Ajustar» muestra la hoja entera
+    // Girar, imprimir y cerrar van en la barra flotante del visor (junto a páginas y zoom); la barra de
+    // arriba del lector solo aparece al buscar (coincidencias y ▲ ▼)
+    const ib = (ic, title, fn) => h('button', { class: 'vb-ic', title, innerHTML: uiIcon(ic, 16), onclick: fn });
+    this.viewer.bar.append(h('span', { class: 'vsep' }),
+      ib('rotl', 'Girar a la izquierda (todas las páginas; ⌘Z para deshacer)', () => this.rotate(-90)),
+      ib('rotr', 'Girar a la derecha (todas las páginas; ⌘Z para deshacer)', () => this.rotate(90)),
+      ib('print', 'Imprimir (⌘P)', () => printDoc(this.reading)),
+      h('span', { class: 'vsep' }),
+      ib('close', 'Cerrar y volver a la lista (Esc)', () => this.closeReader()));
     this.viewer.onrender = () => { this.drawHits(); this.textLayers(); };
     this.viewer.el.addEventListener('scroll', () => { clearTimeout(this._tl); this._tl = setTimeout(() => this.textLayers(), 120); });
     makeResizable($('.lib-results', this.root), 'left', 'lib', 220, 620);
@@ -185,6 +194,7 @@ const Library = {
     this.hits = (hd?.pages || []).flatMap(p => p.rects.map(r => ({ n: p.n, r })));
     this.hitIdx = -1;
     $('.reader-count', this.root).textContent = this.hits.length ? `${this.hits.length} coincidencia(s)` : '';
+    $('.reader', this.root).classList.toggle('has-hits', this.hits.length > 0);
   },
   showHit(k) {
     this.hitIdx = k;

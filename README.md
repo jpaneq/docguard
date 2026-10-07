@@ -193,6 +193,8 @@ Cada módulo se puede trabajar por separado. El servidor expone cada función co
 
 - `v1.27`: abrir un PDF directamente es más rápido: la interfaz arranca ya en el Visor con él (sin pasar por Inicio), la comprobación de firmas no retrasa el dibujo de las páginas, la lista de fuentes se pide después y numpy se carga solo cuando hace falta (primera página nítida a ~1,5 s en vez de ~2,5–3,4 s).
 
+- `v1.28`: interfaz más limpia en el Visor: selector [Visor | Editar] arriba a la derecha; girar, imprimir y cerrar en la barra flotante junto a las páginas y el zoom (la barra del lector solo aparece al buscar); en Windows se quita la fila del menú «Ventana» (está en «⋯»).
+
 ## Publicar una versión nueva
 1. Cambia `VERSION` en `core.py` (por ejemplo `1.18`).
 2. Crea la etiqueta igual y súbela: `git tag v1.18 && git push origin main --tags`.

@@ -229,16 +229,21 @@ const Shell = {
     $$('.tb-tab').forEach(b => b.classList.toggle('on', b.dataset.view === name));
     if (name === 'home') this.refreshRecents();
     const chip = $('.tb-chip'), m = TOOL_META[name];
+    const pair = name === 'edit' || name === 'library';  // en estas dos, selector [Visor | Editar]
     chip.hidden = !m;
-    if (m) {
+    chip.classList.toggle('seg', pair);
+    if (m && pair) {
+      chip.style.cssText = '';
+      const seg = (k, label) => h('button', {
+        class: 'seg-b' + (k === name ? ' on' : ''), style: tcolor(k),
+        title: k === name ? `Estás en ${TOOL_META[k].label}` : `Pasar a ${TOOL_META[k].label} con este documento`,
+        onclick: () => { if (k !== name) this.switchViewEdit(); },
+      }, h('span', { innerHTML: toolIcon(k, 16, 1.3) }), label);
+      chip.replaceChildren(seg('library', 'Visor'), seg('edit', 'Editar'));
+    } else if (m) {
       chip.style.cssText = tcolor(name);
       chip.replaceChildren(h('span', { innerHTML: toolIcon(name, 18, 1.3) }), m.label);
     }
-    // En Editar y en el Visor la etiqueta salta a la otra vista con el mismo documento
-    const other = { edit: 'library', library: 'edit' }[name];
-    chip.classList.toggle('switch', !!other);
-    chip.title = other ? `Pasar a ${TOOL_META[other]?.label || ''} con este documento` : '';
-    chip.onclick = other ? () => this.switchViewEdit() : null;
     this.renderDocs();
   },
 

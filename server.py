@@ -38,7 +38,7 @@ import status_icons
 import tracking
 
 TOKEN = secrets.token_urlsafe(18)
-NO_LOCK = {"update/check", "update/download", "update/progress", "version"}
+NO_LOCK = {"update/check", "update/download", "update/progress", "version", "verify"}
 LOCK = threading.RLock()  # PyMuPDF no es seguro entre hilos: una operación a la vez
 DOCS = {}
 RESULTS = {}
@@ -1408,12 +1408,15 @@ def op_p11_list(req):
 
 
 def op_verify(req):
-    d = get_doc(req)
-    if d.kind != "pdf":
-        raise ValueError("Solo se pueden verificar PDFs.")
-    data = d.orig if not d.edited else d.pdf_bytes()
-    return {"signatures": signing.verify_pdf(data, password=d.password if not d.edited else None,
-                                             online=bool(req.get("online")))}
+    # Va en NO_LOCK: se copia el PDF con el bloqueo y se comprueba fuera, para que la comprobación
+    # de firmas (que puede tardar más de medio segundo) no retrase el dibujo de las páginas.
+    with LOCK:
+        d = get_doc(req)
+        if d.kind != "pdf":
+            raise ValueError("Solo se pueden verificar PDFs.")
+        data = d.orig if not d.edited else d.pdf_bytes()
+        password = d.password if not d.edited else None
+    return {"signatures": signing.verify_pdf(data, password=password, online=bool(req.get("online")))}
 
 
 def op_unlock(req):

@@ -24,11 +24,21 @@ import secrets
 import zlib
 from functools import lru_cache
 
-import numpy as np
 from PIL import Image, ImageDraw
 
 import core
 import records
+
+
+class _LazyNumpy:
+    """numpy tarda ~0,6 s en cargarse: se importa la primera vez que se usa, no al arrancar DocGuard."""
+    def __getattr__(self, name):
+        import numpy
+        globals()["np"] = numpy
+        return getattr(numpy, name)
+
+
+np = _LazyNumpy()
 
 LEVELS = ("basica", "reforzada", "maxima")
 
@@ -333,6 +343,7 @@ _KEY = 0xD0C6A2D
 _C1, _C2 = (2, 3), (3, 2)  # coeficientes DCT de frecuencia media
 
 
+@lru_cache(maxsize=1)
 def _dct_matrix(n=8):
     m = np.zeros((n, n))
     for k in range(n):
@@ -340,8 +351,6 @@ def _dct_matrix(n=8):
             m[k, i] = (math.sqrt(1 / n) if k == 0 else math.sqrt(2 / n)) * math.cos(math.pi * (2 * i + 1) * k / (2 * n))
     return m
 
-
-_D = _dct_matrix()
 
 
 def _blocks(y):
@@ -372,7 +381,7 @@ def embed_mark(img, ref_hex, strength=14.0):
     small = _canon(img)
     y = np.asarray(small.convert("YCbCr"), dtype=np.float64)[..., 0]
     b = _blocks(y.copy())
-    coef = np.einsum("ij,abjk,lk->abil", _D, b, _D)
+    coef = np.einsum("ij,abjk,lk->abil", _dct_matrix(), b, _dct_matrix())
     nb = coef.shape[0] * coef.shape[1]
     want = bits[_bit_map(nb)].reshape(coef.shape[:2]) * 2 - 1   # +1 / -1
     c1 = coef[:, :, _C1[0], _C1[1]]
@@ -382,7 +391,7 @@ def embed_mark(img, ref_hex, strength=14.0):
     adj = (target - diff) / 2
     coef[:, :, _C1[0], _C1[1]] += adj
     coef[:, :, _C2[0], _C2[1]] -= adj
-    new = np.einsum("ji,abjk,kl->abil", _D, coef, _D)
+    new = np.einsum("ji,abjk,kl->abil", _dct_matrix(), coef, _dct_matrix())
     delta = np.zeros_like(y)
     hh, ww = new.shape[0] * 8, new.shape[1] * 8
     delta[:hh, :ww] = new.transpose(0, 2, 1, 3).reshape(hh, ww) - y[:hh, :ww]
@@ -395,7 +404,7 @@ def detect_mark(img):
     """Busca una marca invisible. Devuelve (referencia_hex o None, confianza 0..1)."""
     y = np.asarray(_canon(img).convert("YCbCr"), dtype=np.float64)[..., 0]
     b = _blocks(y)
-    coef = np.einsum("ij,abjk,lk->abil", _D, b, _D)
+    coef = np.einsum("ij,abjk,lk->abil", _dct_matrix(), b, _dct_matrix())
     diff = (coef[:, :, _C1[0], _C1[1]] - coef[:, :, _C2[0], _C2[1]]).ravel()
     idx = _bit_map(diff.size)
     votes = np.zeros(BITS)

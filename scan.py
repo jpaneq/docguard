@@ -9,8 +9,18 @@ limpios y los digitaliza (PDF a tamaño real, con texto reconocido por OCR).
 
 import io
 
-import numpy as np
 from PIL import Image
+
+
+class _LazyNumpy:
+    """numpy tarda ~0,6 s en cargarse: se importa la primera vez que se usa, no al arrancar DocGuard."""
+    def __getattr__(self, name):
+        import numpy
+        globals()["np"] = numpy
+        return getattr(numpy, name)
+
+
+np = _LazyNumpy()
 
 KINDS = {  # proporción (lado largo / lado corto) y tamaño físico en mm (ancho, alto en horizontal)
     "tarjeta": (85.60 / 53.98, (85.60, 53.98)),   # DNI, carné, tarjetas (ISO/IEC 7810 ID-1)

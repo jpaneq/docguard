@@ -49,11 +49,12 @@ def _windows_icons():
 APP_URL = None  # dirección de la interfaz (con su clave): la comparten todas las ventanas
 
 
-def make_window(x=None, y=None, width=1320, height=880, maximized=False):
-    """Abre una ventana de DocGuard. Todas usan el mismo servidor: comparten documentos y pestañas."""
+def make_window(x=None, y=None, width=1320, height=880, maximized=False, url=None):
+    """Abre una ventana de DocGuard. Todas usan el mismo servidor: comparten documentos y pestañas.
+    `url`: dirección distinta para esta ventana (p. ej. con «&open=…» para arrancar con un documento)."""
     import webview
     api = Api()
-    win = webview.create_window(f"DocGuard {server.core.VERSION}", APP_URL, js_api=api, width=width, height=height, x=x, y=y,
+    win = webview.create_window(f"DocGuard {server.core.VERSION}", url or APP_URL, js_api=api, width=width, height=height, x=x, y=y,
                                 min_size=(700, 450), maximized=maximized)
     api._win = win  # para que set_title cambie el título de su propia ventana
     if sys.platform == "win32":
@@ -601,6 +602,19 @@ def _file_arg():
     return next((os.path.abspath(a) for a in sys.argv[1:] if not a.startswith("-") and os.path.isfile(a)), None)
 
 
+def _load_doc(path):
+    """Carga el archivo en el servidor (como «Abrir…») y devuelve su información."""
+    import secrets
+    with open(path, "rb") as f:
+        data = f.read()
+    with server.LOCK:
+        did = secrets.token_urlsafe(8)
+        server.DOCS[did] = server.Doc(os.path.basename(path), data)
+        info = server.DOCS[did].info(did)
+    server._remember(os.path.abspath(path))
+    return info
+
+
 def _open_in_window(win, path):
     """Carga el archivo como «Abrir…» y lo muestra en el Visor PDF, con la hoja entera (cuando la interfaz ya está lista)."""
     import json
@@ -616,13 +630,7 @@ def _open_in_window(win, path):
             win.evaluate_js("toast('Convirtiendo a PDF…', '', [], 4000);")
             convert.document_to_pdf(path, pdf)
             path = pdf
-        with open(path, "rb") as f:
-            data = f.read()
-        with server.LOCK:
-            did = secrets.token_urlsafe(8)
-            server.DOCS[did] = server.Doc(os.path.basename(path), data)
-            info = server.DOCS[did].info(did)
-        server._remember(os.path.abspath(path))
+        info = _load_doc(path)
         win.evaluate_js(f"showTool('library'); Library.openDoc({json.dumps(info)});")
     except Exception as ex:
         win.evaluate_js(f"toast({json.dumps('No se pudo abrir ' + os.path.basename(path) + ': ' + str(ex))}, 'err');")
@@ -693,7 +701,18 @@ def main():
             from webview.menu import Menu, MenuAction, MenuSeparator
             global APP_URL
             APP_URL = url
-            win = make_window(maximized=True)
+            first_url = None
+            if path and sys.platform != "darwin":
+                # Abierto con un PDF o una imagen: se carga ya y la interfaz arranca directamente en el
+                # Visor con él (sin pasar por Inicio ni esperar a que termine de cargar la página).
+                import core
+                if core.ext_of(path) not in core.OFFICE_EXTS | {".doc", ".rtf", ".odt", ".txt", ".html", ".htm"}:
+                    try:
+                        first_url = f"{url}&open={_load_doc(path)['id']}"
+                        path = None
+                    except Exception:
+                        first_url = None  # si falla, se intenta como siempre al cargar (y se avisa)
+            win = make_window(maximized=True, url=first_url)
             import integracion
             server.EXTERNAL_OPEN = lambda p: _open_in_window(win, p)
             try:

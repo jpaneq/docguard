@@ -191,6 +191,8 @@ Cada módulo se puede trabajar por separado. El servidor expone cada función co
 
 - `v1.26`: la etiqueta de la herramienta (arriba a la derecha) salta entre Editar PDF y Visor PDF con el mismo documento y en la misma página.
 
+- `v1.27`: abrir un PDF directamente es más rápido: la interfaz arranca ya en el Visor con él (sin pasar por Inicio), la comprobación de firmas no retrasa el dibujo de las páginas, la lista de fuentes se pide después y numpy se carga solo cuando hace falta (primera página nítida a ~1,5 s en vez de ~2,5–3,4 s).
+
 ## Publicar una versión nueva
 1. Cambia `VERSION` en `core.py` (por ejemplo `1.18`).
 2. Crea la etiqueta igual y súbela: `git tag v1.18 && git push origin main --tags`.

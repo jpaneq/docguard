@@ -100,7 +100,9 @@ const Edit = {
     document.addEventListener('keydown', e => this.key(e));
     document.addEventListener('mousedown', e => { if (this.menu && !this.menu.contains(e.target)) this.closeMenu(); });
     document.addEventListener('sigs-changed', () => { if (this.tool === 'sign') this.renderBar(); });
-    api('fonts').then(r => { this.fonts = r.fonts; this.renderBar(); }).catch(() => {});
+    // la lista de fuentes tarda ~0,3 s y bloquea el servidor: se pide un poco después para no retrasar
+    // la primera página de un documento abierto al arrancar (solo hace falta para escribir texto)
+    setTimeout(() => api('fonts').then(r => { this.fonts = r.fonts; this.renderBar(); }).catch(() => {}), 2500);
     this.draw();
   },
 

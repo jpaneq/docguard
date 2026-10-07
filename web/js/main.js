@@ -61,7 +61,12 @@ function init() {
   Scanner.init();
   TOOLS.scanner = Scanner;
   $$('.nav button[data-tool]').forEach(b => b.onclick = () => showTool(b.dataset.tool));
-  showTool('home');  // se abre en Inicio (al abrir un archivo desde fuera pasa al Visor PDF)
+  // Se abre en Inicio; si DocGuard se abrió con un documento (…&open=id), directamente en el Visor con él
+  const openId = new URLSearchParams(location.search).get('open');
+  if (openId) {
+    showTool('library');
+    api('info', { id: openId }).then(info => Library.openDoc(info)).catch(e => toast('No se pudo abrir el documento: ' + e.message, 'err'));
+  } else showTool('home');
   Sigs.load();
   Tabs.init();
   Update.init();

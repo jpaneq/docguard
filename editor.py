@@ -123,10 +123,14 @@ def _base14_for(flags, name, bold, italic):
 def _system_match(name, bold, italic):
     idx = system_fonts()
     n = norm_font(name)
-    if n in idx:
-        return idx[n]
     fam = re.sub(r"(bold|italic|oblique|regular|semibold|black|light)+$", "", n)
     style = ("bold" if bold else "") + ("italic" if italic else "")
+    if style and n == fam:  # familia sin estilo en el nombre («Arial»): buscar antes su negrita/cursiva
+        for cand in (fam + style, fam + ("bd" if bold else "") + ("i" if italic else "")):
+            if cand in idx:
+                return idx[cand]
+    if n in idx:
+        return idx[n]
     for cand in (fam + style, fam + ("bd" if bold else "") + ("i" if italic else ""), fam):
         if cand in idx:
             return idx[cand]
@@ -379,6 +383,62 @@ def add_text(doc, pno, x, y, text, font="base:helv", size=12, color="#000000", b
     p = point_from_view(page, x, y + size * 0.8)
     page.insert_text(p, text, fontsize=size, color=rgb(color), rotate=page.rotation, **_kw(page, kw))
     return label
+
+
+def _wrap(text, width, size):
+    lines = []
+    for para in str(text).split("\n"):
+        cur = ""
+        for word in para.split(" "):
+            t = f"{cur} {word}".strip()
+            if cur and fitz.get_text_length(t, "helv", size) * 1.1 > width:
+                lines.append(cur)
+                cur = word
+            else:
+                cur = t
+        lines.append(cur)
+    return lines
+
+
+def add_table(doc, pno, rect, cells, size=11, color="#000000", stroke="#000000", width=1.0, header=True,
+              fill="#e8e8e8", font="base:helv"):
+    """Dibuja una tabla (líneas y texto) dentro de `rect` (vista). cells = lista de filas de textos."""
+    page = doc[pno]
+    rows, cols = len(cells), max(len(r) for r in cells)
+    x0, y0, x1, y1 = rect
+    cw, ch = (x1 - x0) / cols, (y1 - y0) / rows
+    pt = lambda x, y: point_from_view(page, x, y)
+    sh = page.new_shape()
+    if header and rows > 1 and fill:
+        sh.draw_quad(fitz.Quad(pt(x0, y0), pt(x1, y0), pt(x0, y0 + ch), pt(x1, y0 + ch)))
+        sh.finish(color=None, fill=rgb(fill))
+    for i in range(rows + 1):
+        sh.draw_line(pt(x0, y0 + i * ch), pt(x1, y0 + i * ch))
+    for j in range(cols + 1):
+        sh.draw_line(pt(x0 + j * cw, y0), pt(x0 + j * cw, y1))
+    sh.finish(color=rgb(stroke), width=float(width))
+    sh.commit()
+    pad = 3
+    for i, row in enumerate(cells):
+        bold = header and i == 0 and rows > 1
+        for j, text in enumerate(row):
+            text = str(text or "").strip()
+            if not text:
+                continue
+            s = float(size)
+            while True:
+                lines = _wrap(text, cw - 2 * pad, s)
+                fits = len(lines) * s * 1.2 <= ch - 2 * pad and all(fitz.get_text_length(l, "helv", s) * 1.1 <= cw - 2 * pad for l in lines)
+                if fits or s <= 5:
+                    break
+                s -= 0.5
+            kw, _ = resolve_font(doc, page, "", 16 if bold else 0, "".join(lines), font)
+            kw = _kw(page, kw)
+            top = y0 + i * ch + (ch - len(lines) * s * 1.2) / 2  # centrado en vertical
+            for k, line in enumerate(lines):
+                page.insert_text(pt(x0 + j * cw + pad, top + k * s * 1.2 + s * 0.95), line, fontsize=s,
+                                 color=rgb(color), rotate=page.rotation, **kw)
+    return f"Tabla de {rows}×{cols}"
 
 
 # --------------------------------------------------------------------------

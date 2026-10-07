@@ -183,6 +183,8 @@ Cada módulo se puede trabajar por separado. El servidor expone cada función co
 
 - `v1.22`: extensión de Chrome/Edge (`extension/`) que abre en DocGuard los PDF del navegador (se activa en «Integración»; la comparte con el botón de Word la escucha local y el certificado); los textos largos de las columnas laterales (p. ej. «¿Es una foto? Pasarla antes a modo escáner») ya no se salen.
 
+- `v1.23`: herramienta «Tabla» en Editar PDF (arrastra el recuadro, rellena las celdas o pega desde Excel/Word; cabecera, colores y borde); la negrita de las fuentes estándar ahora usa la negrita del sistema.
+
 ## Publicar una versión nueva
 1. Cambia `VERSION` en `core.py` (por ejemplo `1.18`).
 2. Crea la etiqueta igual y súbela: `git tag v1.18 && git push origin main --tags`.

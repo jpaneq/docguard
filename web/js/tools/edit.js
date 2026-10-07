@@ -9,6 +9,7 @@ const ICON = {
   select: '<path d="M5 3l11 6.2-4.8 1.3-2.4 4.5z"/><path d="M11.2 10.5l3.8 5.5"/>',
   text: '<path d="M4 6V3.5h12V6M10 3.5v13M7.5 16.5h5"/>',
   image: '<rect x="2.5" y="4" width="15" height="12" rx="1.5"/><circle cx="7" cy="8.2" r="1.4"/><path d="M3.5 15l4.2-4.2 3 3 2-2 3.8 3.7"/>',
+  table: '<rect x="2.5" y="4" width="15" height="12" rx="1"/><path d="M2.5 8.5h15M2.5 12.5h15M8 4v12M13 4v12"/>',
   shape: '<rect x="2.5" y="8" width="8" height="8" rx=".5"/><circle cx="13" cy="7" r="4.5"/>',
   annot: '<path d="M3 17h6M5.5 13.5l7.8-7.8 3 3-7.8 7.8H5.5z"/><path d="M11.8 7.2l3 3"/>',
   form: '<rect x="2.5" y="5" width="15" height="10" rx="1.2"/><path d="M5.5 10h6M14 8v4"/>',
@@ -67,6 +68,7 @@ const Edit = {
     $('[data-act=pages]', this.root).onclick = () => this.toggleSide();
     this.tool = 'select'; this.sel = null; this.selSpans = new Set(); this.st = null;
     this.textOpts = { font: 'base:helv', size: 12, color: '#000000', bold: false, italic: false, list: 'none' };
+    this.table = { rows: 3, cols: 3, header: true, stroke: '#000000', width: 1, size: 11, fill: '#e8e8e8' };
     this.shape = { kind: 'rect', stroke: '#d62828', fill: '#ffe066', filled: false, width: 2, dash: 'continua' };
     this.wordsCache = {};  // palabras por página, para seleccionar texto al resaltar
     this.ann = { kind: 'highlight', color: '#fff200', text: '' };
@@ -302,6 +304,7 @@ const Edit = {
       select: 'Clic: seleccionar · Doble clic en un texto: escribir (Intro = nueva línea) · Arrastrar: mover · Esquina del marco: cambiar el tamaño · Arrastrar en vacío: seleccionar zona · ⌘C/⌘X/⌘V · Supr · Clic derecho: más opciones',
       text: 'Clic en la página para escribir texto nuevo, o en un texto existente para modificarlo. ⌘+Intro o clic fuera para fijarlo.',
       image: 'Arrastra en la página el recuadro donde colocar la imagen.',
+      table: 'Arrastra el recuadro donde irá la tabla; después rellena las celdas (puedes pegar desde Excel o Word).',
       shape: 'Arrastra para dibujar la forma (con Mayús: líneas en ángulos de 15°, 45°, 90°…, y cuadrados o círculos). Clic en una forma para moverla o cambiar su tamaño con sus tiradores.',
       annot: ['highlight', 'underline', 'strikeout'].includes(this.ann.kind) ? 'Pulsa al principio del texto y arrastra hasta el final, como al seleccionar texto (también varias líneas). En páginas escaneadas sin texto, arrastra un recuadro (o pasa antes el OCR).' : this.ann.kind === 'note' ? 'Clic donde quieras la nota.' : this.ann.kind === 'ink' ? 'Dibuja sobre la página.' : 'Arrastra para dibujar el recuadro.',
       form: 'Arrastra para crear un campo del tipo elegido. Clic en la etiqueta de un campo para editarlo.',
@@ -566,6 +569,16 @@ const Edit = {
         h('button', { onclick: () => this.copyAny(false, true) }, 'Copiar como captura'));
       return;
     }
+    if (t === 'table') {
+      const tb = this.table, num = (k, min, max, title) => h('input', { type: 'number', value: tb[k], min, max, class: 'num', title, onchange: e => { tb[k] = Math.min(max, Math.max(min, +e.target.value || min)); } });
+      add(label('Tabla'), h('span', { class: 'muted' }, 'Filas'), num('rows', 1, 40, 'Filas'), h('span', { class: 'muted' }, 'Columnas'), num('cols', 1, 12, 'Columnas'),
+        h('label', { class: 'inline' }, h('input', { type: 'checkbox', checked: tb.header, onchange: e => { tb.header = e.target.checked; } }), 'Cabecera'),
+        h('input', { type: 'color', value: tb.fill, title: 'Color de la cabecera', onchange: e => { tb.fill = e.target.value; } }),
+        h('span', { class: 'sep' }), label('Borde'), h('input', { type: 'color', value: tb.stroke, onchange: e => { tb.stroke = e.target.value; } }),
+        h('input', { type: 'number', value: tb.width, min: 0.25, max: 6, step: 0.25, class: 'num', title: 'Grosor del borde', onchange: e => { tb.width = +e.target.value; } }),
+        h('span', { class: 'muted' }, 'Texto'), num('size', 6, 36, 'Tamaño del texto'));
+      return;
+    }
     if (t === 'shape') {
       const sh = this.shape;
       add(label('Forma'), ...['rect', 'ellipse', 'line', 'arrow'].map(k =>
@@ -715,6 +728,13 @@ const Edit = {
       const data = this.pendingImage;
       this.pendingImage = null;
       await this.op('insert_image', { rect: d.rect, data });
+      return this.setTool('select');
+    }
+    if (t === 'table') {
+      const cells = await this.tableDialog(this.table.rows, this.table.cols);
+      if (!cells) return this.draw();
+      const tb = this.table;
+      await this.op('add_table', { rect: d.rect, cells, size: tb.size, stroke: tb.stroke, width: tb.width, header: tb.header, fill: tb.fill, color: this.textOpts.color });
       return this.setTool('select');
     }
     if (t === 'shape') {
@@ -1145,6 +1165,41 @@ const Edit = {
     } catch (e) {
       toast('No hay nada copiado todavía. Selecciona texto, una imagen o una zona y pulsa ⌘C.', '', [], 4000);
     }
+  },
+
+  /* ---- Tabla: rellenar las celdas (se puede pegar desde Excel o Word) ---- */
+  tableDialog(rows, cols) {
+    return new Promise(resolve => {
+      const inputs = [];
+      const grid = h('div', { class: 'tbl-grid', style: `grid-template-columns: repeat(${cols}, minmax(90px, 1fr))` });
+      for (let i = 0; i < rows; i++) {
+        inputs.push([]);
+        for (let j = 0; j < cols; j++) {
+          const inp = h('input', { placeholder: i === 0 ? `Columna ${j + 1}` : '' });
+          inp.addEventListener('paste', e => {  // varias celdas separadas por tabuladores y saltos de línea
+            const txt = e.clipboardData.getData('text');
+            if (!/[\t\n]/.test(txt)) return;
+            e.preventDefault();
+            txt.replace(/\r/g, '').replace(/\n$/, '').split('\n').forEach((line, di) => line.split('\t').forEach((v, dj) => { if (inputs[i + di]?.[j + dj]) inputs[i + di][j + dj].value = v; }));
+          });
+          inp.addEventListener('keydown', e => {
+            const mv = { ArrowDown: [1, 0], ArrowUp: [-1, 0], Enter: [1, 0] }[e.key];
+            if (mv && !e.shiftKey) { e.preventDefault(); inputs[i + mv[0]]?.[j + mv[1]]?.focus(); }
+          });
+          inputs[i].push(inp);
+          grid.append(inp);
+        }
+      }
+      let done = false;
+      const finish = v => { if (!done) { done = true; resolve(v); } };
+      modal({
+        title: `Tabla de ${rows} × ${cols}`,
+        body: h('div', {}, h('p', { class: 'muted' }, 'Escribe el contenido de cada celda. Tab pasa a la siguiente; Intro baja; se puede pegar un bloque copiado de Excel o Word. La primera fila es la cabecera.'), grid),
+        onclose: () => finish(null),
+        actions: [{ label: 'Cancelar', fn: () => finish(null) }, { label: 'Insertar tabla', primary: true, fn: () => finish(inputs.map(r => r.map(i => i.value))) }],
+      });
+      setTimeout(() => inputs[0][0].focus(), 50);
+    });
   },
 
   /* ---- OCR y firma al margen ---- */

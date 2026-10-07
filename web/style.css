@@ -611,3 +611,6 @@ button .mi-ic { vertical-align: -3px; margin-right: 2px; color: inherit; }
 .props label, .props small, .props h3, .side-panel label, .side-panel small, .side-panel h3 { min-width: 0; max-width: 100%; }
 .props label.inline, .side-panel label.inline { align-items: flex-start; }
 .props label.inline input[type=checkbox], .side-panel label.inline input[type=checkbox] { margin-top: 3px; flex: none; }
+
+.tbl-grid { display: grid; gap: 4px; margin-top: 8px; max-height: 55vh; overflow: auto; }
+.tbl-grid input { min-width: 0; }

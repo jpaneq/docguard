@@ -493,12 +493,16 @@ def add_watermark(doc, pages, text, size=60, angle=45, opacity=0.3, color="#8888
     return f"Marca de agua en {len(pages)} página(s)"
 
 
-def watermark_preview(doc, pno, **opts):
-    """PNG de una página con la marca de agua aplicada a una copia (vista previa)."""
+def watermark_layer(doc, pno, zoom=1.0, **opts):
+    """PNG transparente con SOLO la marca de agua, del tamaño visible de la página (con su rotación), para
+    mostrarla en vivo sobre el PDF antes de aplicarla."""
+    src = doc[pno]
     tmp = fitz.open()
-    tmp.insert_pdf(doc, from_page=pno, to_page=pno)
+    mb = src.mediabox
+    tmp.new_page(width=mb.width, height=mb.height).set_rotation(src.rotation)
+    opts["overlay"] = True
     add_watermark(tmp, [0], **opts)
-    pix = tmp[0].get_pixmap(dpi=96, alpha=False)
+    pix = tmp[0].get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=True)
     tmp.close()
     return pix.tobytes("png")
 

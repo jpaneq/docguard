@@ -1145,9 +1145,10 @@ def _wm_opts(r):
                 stagger=bool(r.get("stagger", False)), overlay=r.get("layer", "over") == "over")
 
 
-def op_wmark_preview(req):
+def op_wmark_layer(req):
     d = get_doc(req)
-    return ("image/png", editor.watermark_preview(need_pdf(d), int(req["n"]), **_wm_opts(req)))
+    return ("image/png", editor.watermark_layer(need_pdf(d), int(req["n"]), min(4.0, max(0.2, float(req.get("zoom", 1)))),
+                                                 **_wm_opts(req)))
 
 
 def op_comments(req):
@@ -1740,7 +1741,7 @@ OPS = {
     "todocx": op_todocx, "doctopdf": op_doctopdf, "redact/preview": op_redact_preview,
     "pages/save": op_pages_save, "encrypt": op_encrypt, "decrypt": op_decrypt,
     "compress": op_compress, "toimages": op_toimages, "topdf": op_topdf, "sanitize": op_sanitize, "merge": op_merge, "merge_pages": op_merge_pages,
-    "edit/state": op_edit_state, "recovery/list": op_recovery_list, "wmark/preview": op_wmark_preview, "recovery/open": op_recovery_open, "recovery/discard": op_recovery_discard, "recovery/clear": op_recovery_clear, "autosave/settings": op_autosave_settings, "comments": op_comments, "edit/words": op_edit_words, "edit/copy_object": op_copy_object, "fonts": op_fonts, "outline": op_outline, "edit/undo": op_undo, "edit/redo": op_redo, "edit/export": op_edit_export,
+    "edit/state": op_edit_state, "recovery/list": op_recovery_list, "wmark/layer": op_wmark_layer, "recovery/open": op_recovery_open, "recovery/discard": op_recovery_discard, "recovery/clear": op_recovery_clear, "autosave/settings": op_autosave_settings, "comments": op_comments, "edit/words": op_edit_words, "edit/copy_object": op_copy_object, "fonts": op_fonts, "outline": op_outline, "edit/undo": op_undo, "edit/redo": op_redo, "edit/export": op_edit_export,
     "sigimgs": op_sigimgs, "sigimg/save": op_sigimg_save, "sigimg/delete": op_sigimg_delete,
     "sigimg/place": op_place_sigimg, "sigimg/margin": op_sign_margin, "edit/copy": op_copy, "edit/copy_spans": op_copy_spans, "certinfo": op_certinfo, "sign": op_sign, "sign/test": op_sign_test, "sign/batch": op_sign_batch,
     "track/add": op_track_add, "track/check": op_track_check, "track/list": op_track_list, "track/delete": op_track_delete,

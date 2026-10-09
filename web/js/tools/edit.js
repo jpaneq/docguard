@@ -62,8 +62,8 @@ const Edit = {
     this.statusEl = $('.status', this.root);
     $$('[data-i]', this.root).forEach(b => b.prepend(icon(b.dataset.i)));
     this.viewer = new ContViewer($('.viewer-host', this.root));
-    this.viewer.onrender = () => this.draw();
-    this.viewer.onpage = n => { if (this.inline) this.commitInline(); this.clearSel(false); this.st = null; this.refresh(); this.markThumb(n); };
+    this.viewer.onrender = () => { this.draw(); if (this.wmOn) this.wmRefresh(); };
+    this.viewer.onpage = n => { if (this.wmOn) this.wmRefresh(); if (this.inline) this.commitInline(); this.clearSel(false); this.st = null; this.refresh(); this.markThumb(n); };
     this.viewer.on('mousedown', e => this.down(e));
     this.viewer.on('mousemove', e => { this.mouse = { n: this.viewer.n, p: this.viewer.pt(e) }; });
     this.viewer.on('contextmenu', e => { if (e.target === this.viewer.ov) this.contextMenu(e); });
@@ -95,8 +95,8 @@ const Edit = {
     });
     act('findnext', () => this.findStep(1));
     act('findprev', () => this.findStep(-1));
-    act('unwm', () => this.removeWatermarks());
-    act('addwm', () => this.watermarkDialog());
+    $('.nav [data-act=unwm]').onclick = () => this.removeWatermarks();
+    $('.nav [data-act=addwm]').onclick = () => this.watermarkPanel();
     act('toword', async () => saveResult(await run('Convirtiendo a Word…', () => api('todocx', { ids: [this.info.id], mode: 'fiel' }))));
     act('export', async () => {
       const saved = await saveResult(await run('Preparando…', () => api('edit/export', { id: this.info.id })));
@@ -126,8 +126,7 @@ const Edit = {
     $('.doc-name', this.root).textContent = info.name;
     $('[data-act=export]', this.root).disabled = false;
     $('[data-act=toword]', this.root).disabled = false;
-    $('[data-act=unwm]', this.root).disabled = false;
-    $('[data-act=addwm]', this.root).disabled = false;
+    $$('.nav [data-act=unwm], .nav [data-act=addwm]').forEach(b => { b.disabled = false; });
     this.viewer.load(info);
     this.outline = null;
     if (!this.side.hidden) this.renderSide();
@@ -197,6 +196,7 @@ const Edit = {
 
   /* ---- panel de miniaturas e índice ---- */
   toggleSide() {
+    if (this.wmOn) { this.wmClose(); return; }
     this.side.hidden = !this.side.hidden;
     $('[data-act=pages]', this.root).classList.toggle('on', !this.side.hidden);
     if (!this.side.hidden) this.renderSide();
@@ -1224,25 +1224,14 @@ const Edit = {
     }
   },
 
-  /* ---- Poner marca de agua (texto, posición, inclinación, transparencia, repeticiones, páginas) ---- */
-  watermarkDialog() {
+  /* ---- Poner marca de agua: panel a la izquierda y vista previa directamente sobre el PDF ---- */
+  watermarkPanel() {
     if (!this.info) return toast('Abre primero un documento.', 'err');
+    if (this.wmOn) return;
+    this.wmWasHidden = this.side.hidden;
     const o = this.wm = Object.assign({ text: 'CONFIDENCIAL', size: 60, angle: 45, transparency: 70, color: '#888888', bold: true, mode: 'single',
       px: 0.5, py: 0.5, cols: 3, rows: 4, stagger: false, layer: 'over', scope: 'all', range: '' }, this.wm || {});
-    const img = h('img', { class: 'wm-prev', alt: 'Vista previa' });
-    let seq = 0, timer = 0;
-    const preview = () => {
-      clearTimeout(timer);
-      timer = setTimeout(async () => {
-        const mine = ++seq;
-        try {
-          const blob = await api('wmark/preview', { id: this.info.id, n: this.viewer.n, ...o });
-          if (mine !== seq) return;
-          const old = img.src; img.src = URL.createObjectURL(blob); if (old.startsWith('blob:')) URL.revokeObjectURL(old);
-        } catch (e) { /* mientras se escribe puede faltar el texto */ }
-      }, 220);
-    };
-    const bind = (el, k, conv = v => v) => { el.addEventListener('input', () => { o[k] = conv(el.type === 'checkbox' ? el.checked : el.value); sync(); preview(); }); return el; };
+    const bind = (el, k, conv = v => v) => { el.addEventListener('input', () => { o[k] = conv(el.type === 'checkbox' ? el.checked : el.value); sync(); this.wmRefresh(); }); return el; };
     const outs = [];
     const slider = (label, k, min, max, step = 1, unit = '') => {
       const out = h('output', {}, o[k] + unit), r = h('input', { type: 'range', min, max, step, value: o[k] });
@@ -1251,18 +1240,18 @@ const Edit = {
       outs.push([k, r, out, unit]);
       return h('label', {}, label, out, r);
     };
-    const text = bind(h('textarea', { rows: 2, placeholder: 'Texto de la marca de agua (admite {fecha} y {hora}; Intro = otra línea)' }, o.text), 'text');
+    const text = bind(h('textarea', { rows: 2, placeholder: 'Texto (admite {fecha} y {hora}; Intro = otra línea)' }, o.text), 'text');
     const grid = h('div', { class: 'wm-grid' }, [0, 0.5, 1].flatMap(py => [0, 0.5, 1].map(px =>
-      h('button', { class: 'wm-pos', title: 'Colocar aquí', onclick: () => { o.px = px; o.py = py; sync(); preview(); } }))));
-    const mode = h('div', { class: 'seg' }, [['single', 'Una vez'], ['tile', 'Mosaico (repetir)']].map(([v, t]) =>
-      h('button', { 'data-v': v, onclick: () => { o.mode = v; sync(); preview(); } }, t)));
+      h('button', { class: 'wm-pos', title: 'Colocar aquí', onclick: () => { o.px = px; o.py = py; sync(); this.wmRefresh(); } }))));
+    const mode = h('div', { class: 'seg' }, [['single', 'Una vez'], ['tile', 'Mosaico']].map(([v, t]) =>
+      h('button', { 'data-v': v, onclick: () => { o.mode = v; sync(); this.wmRefresh(); } }, t)));
     const posBox = h('div', {}, h('div', { class: 'row' }, grid, h('small', { class: 'muted' }, 'Elige una posición o ajústala con los deslizadores.')),
       slider('Horizontal', 'px', 0, 1, 0.01), slider('Vertical', 'py', 0, 1, 0.01));
-    const tileBox = h('div', {}, slider('Veces en horizontal (columnas)', 'cols', 1, 12), slider('Veces en vertical (filas)', 'rows', 1, 20),
+    const tileBox = h('div', {}, slider('Veces en horizontal', 'cols', 1, 12), slider('Veces en vertical', 'rows', 1, 20),
       h('label', { class: 'inline' }, bind(h('input', { type: 'checkbox', checked: o.stagger }), 'stagger'), 'Alternar filas (al tresbolillo)'));
     const range = bind(h('input', { placeholder: 'p. ej. 1-3, 5', value: o.range }), 'range');
     const scope = bind(h('select', {}, [['all', 'Todas las páginas'], ['current', 'Solo la página actual'], ['range', 'Un rango de páginas']].map(([v, t]) => h('option', { value: v, selected: o.scope === v }, t))), 'scope');
-    const layer = bind(h('select', {}, [['over', 'Encima del contenido'], ['under', 'Detrás del contenido (solo si la página no tiene fondo)']].map(([v, t]) => h('option', { value: v, selected: o.layer === v }, t))), 'layer');
+    const layer = bind(h('select', {}, [['over', 'Encima del contenido'], ['under', 'Detrás (solo si la página no tiene fondo)']].map(([v, t]) => h('option', { value: v, selected: o.layer === v }, t))), 'layer');
     const sync = () => {
       $$('button', mode).forEach(b => b.classList.toggle('on', b.dataset.v === o.mode));
       posBox.hidden = o.mode !== 'single'; tileBox.hidden = o.mode !== 'tile'; range.hidden = o.scope !== 'range';
@@ -1271,21 +1260,72 @@ const Edit = {
     };
     const color = bind(h('input', { type: 'color', value: o.color }), 'color');
     const bold = bind(h('input', { type: 'checkbox', checked: o.bold }), 'bold');
-    const form = h('div', { class: 'wm-form' },
-      h('label', {}, 'Texto', text),
-      slider('Tamaño de letra', 'size', 8, 220), slider('Inclinación', 'angle', -90, 90, 1, '°'),
-      slider('Transparencia', 'transparency', 0, 95, 1, ' %'),
-      h('div', { class: 'row' }, h('label', { class: 'inline' }, 'Color ', color), h('label', { class: 'inline' }, bold, 'Negrita')),
-      h('h3', {}, 'Dónde y cuántas veces'), mode, posBox, tileBox,
-      h('h3', {}, 'Dónde aplicarla'), h('label', {}, 'Páginas', scope, range), h('label', {}, 'Capa', layer));
-    sync(); preview();
-    modal({
-      wide: true, title: 'Poner marca de agua',
-      body: h('div', { class: 'wm-dlg' }, form, h('div', { class: 'wm-side' }, h('div', { class: 'muted' }, `Vista previa · página ${this.viewer.n + 1}`), img)),
-      actions: [{ label: 'Cancelar' }, { label: 'Aplicar marca de agua', primary: true, fn: async () => {
-        if (!o.text.trim()) { toast('Escribe el texto de la marca de agua.', 'err'); return false; }
-        await this.op('add_watermark', { ...o }, 'Aplicando la marca de agua…');
-      } }],
+    this.side.hidden = false;
+    this.side.classList.add('wm-open');
+    this.side.replaceChildren(h('div', { class: 'wm-panel' },
+      h('div', { class: 'wm-head' }, h('b', {}, 'Poner marca de agua'), h('button', { class: 'cd-close', title: 'Cerrar sin aplicar', onclick: () => this.wmClose() }, '✕')),
+      h('p', { class: 'muted' }, 'La ves puesta sobre el PDF mientras ajustas. No se aplica hasta que pulses el botón.'),
+      h('div', { class: 'wm-form' },
+        h('label', {}, 'Texto', text),
+        slider('Tamaño de letra', 'size', 8, 220), slider('Inclinación', 'angle', -90, 90, 1, '°'),
+        slider('Transparencia', 'transparency', 0, 95, 1, ' %'),
+        h('div', { class: 'row' }, h('label', { class: 'inline' }, 'Color ', color), h('label', { class: 'inline' }, bold, 'Negrita')),
+        h('h3', {}, 'Dónde y cuántas veces'), mode, posBox, tileBox,
+        h('h3', {}, 'Dónde aplicarla'), h('label', {}, 'Páginas', scope, range), h('label', {}, 'Capa', layer)),
+      h('div', { class: 'wm-foot' },
+        h('button', { onclick: () => this.wmClose() }, 'Cancelar'),
+        h('button', { class: 'primary', onclick: async () => {
+          if (!o.text.trim()) return toast('Escribe el texto de la marca de agua.', 'err');
+          const payload = { ...o };
+          this.wmClose();
+          await this.op('add_watermark', payload, 'Aplicando la marca de agua…');
+        } }, 'Aplicar marca de agua'))));
+    this.wmOn = true;
+    sync();
+    this.wmPaint();
+    requestAnimationFrame(() => this.viewer.fitMode && this.viewer.fit());
+  },
+  wmClose() {
+    this.wmOn = false;
+    clearTimeout(this._wmT);
+    this.wmClear();
+    this.side.classList.remove('wm-open');
+    if (this.wmWasHidden) this.side.hidden = true; else this.renderSide();
+    requestAnimationFrame(() => this.viewer.fitMode && this.viewer.fit());
+  },
+  wmClear() { $$('.wm-layer', this.viewer.el).forEach(i => i.remove()); },
+  wmRefresh() { clearTimeout(this._wmT); this._wmT = setTimeout(() => this.wmPaint(), 180); },
+  /** Dibuja la marca de agua (capa transparente) sobre las páginas afectadas, a la resolución del zoom actual. */
+  async wmPaint() {
+    if (!this.wmOn || !this.info) return;
+    const v = this.viewer, o = this.wm, N = this.info.pages.length, mine = this._wmSeq = (this._wmSeq || 0) + 1;
+    let pages = [];
+    if (o.scope === 'current') pages = [v.n];
+    else if (o.scope === 'range') {
+      for (const part of (o.range || '').split(/[,;]/)) {
+        const m = part.trim().match(/^(\d*)\s*-?\s*(\d*)$/);
+        if (!m || (!m[1] && !m[2])) continue;
+        const a = m[1] ? +m[1] : 1, b = part.includes('-') ? (m[2] ? +m[2] : N) : a;
+        for (let i = a; i <= Math.min(b, N); i++) pages.push(i - 1);
+      }
+    } else pages = this.info.pages.map((_, i) => i);
+    const near = pages.filter(i => Math.abs(i - v.n) <= 3);  // las páginas lejanas se pintan al acercarse
+    const dpr = window.devicePixelRatio || 1, zoom = Math.min(3, v.zoom * dpr), cache = {}, urls = {};
+    for (const i of near) {
+      const key = this.info.pages[i].join('x');
+      if (!(key in cache)) {
+        cache[key] = api('wmark/layer', { id: this.info.id, n: i, zoom, ...o }).then(b => URL.createObjectURL(b)).catch(() => null);
+      }
+      urls[i] = cache[key];
+    }
+    const resolved = {};
+    for (const i of near) resolved[i] = await urls[i];
+    if (mine !== this._wmSeq || !this.wmOn) { Object.values(resolved).forEach(u => u && URL.revokeObjectURL(u)); return; }
+    v.pages.forEach((p, i) => {
+      let im = p.wrap.querySelector('.wm-layer');
+      if (!(i in resolved) || !resolved[i]) { im?.remove(); return; }
+      if (!im) { im = h('img', { class: 'wm-layer', alt: '', draggable: false }); p.wrap.append(im); }
+      const old = im.src; im.src = resolved[i]; if (old.startsWith('blob:') && !Object.values(resolved).includes(old)) URL.revokeObjectURL(old);
     });
   },
 

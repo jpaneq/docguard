@@ -213,6 +213,8 @@ Cada módulo se puede trabajar por separado. El servidor expone cada función co
 
 - `v1.37`: «Poner marca de agua» en Editar (texto, posición, inclinación, transparencia, mosaico con filas y columnas, páginas, capa) con vista previa en directo.
 
+- `v1.38`: marca de agua con panel a la izquierda y vista previa en vivo sobre el PDF; «Poner/Quitar marca de agua» pasan al panel derecho (la barra de Editar queda despejada).
+
 ## Publicar una versión nueva
 1. Cambia `VERSION` en `core.py` (por ejemplo `1.18`).
 2. Crea la etiqueta igual y súbela: `git tag v1.18 && git push origin main --tags`.

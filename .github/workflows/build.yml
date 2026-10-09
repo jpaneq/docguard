@@ -30,6 +30,10 @@ jobs:
         run: |
           v=$(python -c "import re;print(re.search(r'VERSION = \"([^\"]+)\"', open('core.py', encoding='utf-8').read()).group(1))")
           test "v$v" = "${GITHUB_REF_NAME}" || { echo "core.VERSION=$v no coincide con ${GITHUB_REF_NAME}"; exit 1; }
+      - name: Notas de la versión (novedades/vX.Y.md)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: python tools/check_novedades.py "${GITHUB_REF_NAME}"
       - name: Compilar (macOS)
         if: runner.os == 'macOS'
         run: ./build_mac.sh

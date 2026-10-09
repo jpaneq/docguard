@@ -5,16 +5,20 @@
 function notesView(md) {
   const lines = (md || '').split('\n').map(l => l.trim()).filter(l => l && !/^\*\*Full Changelog/i.test(l));
   const head = lines.find(l => l.startsWith('# '));
-  const items = lines.filter(l => /^[-*] /.test(l)).map(l => {
-    const m = l.replace(/^[-*]\s+/, '').match(/^(\S+)\s+\*\*(.+?)\*\*\s*[—:-]?\s*(.*)$/);
-    return m ? { ic: m[1], title: m[2], text: m[3].charAt(0).toUpperCase() + m[3].slice(1) } : { ic: '•', title: '', text: l.replace(/^[-*]\s+/, '') };
-  });
   const sub = lines.filter(l => !l.startsWith('#') && !/^[-*] /.test(l)).join(' ');
-  if (!head && !items.length) return h('pre', { class: 'update-notes' }, md);
+  const body = lines.filter(l => /^[-*] /.test(l) || l.startsWith('## '));
+  if (!head && !body.length) return h('pre', { class: 'update-notes' }, md);
+  let k = 0;
+  const list = body.map(l => {
+    if (l.startsWith('## ')) return h('div', { class: 'wn-sec' }, l.slice(3));  // «## Nuevo», «## Arreglado»…
+    const m = l.replace(/^[-*]\s+/, '').match(/^(\S+)\s+\*\*(.+?)\*\*\s*[—:-]?\s*(.*)$/);
+    const it = m ? { ic: m[1], title: m[2], text: m[3].charAt(0).toUpperCase() + m[3].slice(1) } : { ic: '•', title: '', text: l.replace(/^[-*]\s+/, '') };
+    return h('div', { class: 'wn-item', style: `--h:${(k++ * 47 + 215) % 360}` },
+      h('span', { class: 'wn-ic' }, it.ic), h('div', {}, it.title ? h('b', {}, it.title) : null, h('p', {}, it.text)));
+  });
   return h('div', { class: 'whatsnew' },
     h('div', { class: 'wn-hero' }, h('b', {}, head ? head.slice(2) : 'Novedades'), sub ? h('span', {}, sub) : null),
-    h('div', { class: 'wn-list' }, items.map((it, i) => h('div', { class: 'wn-item', style: `--h:${(i * 47 + 215) % 360}` },
-      h('span', { class: 'wn-ic' }, it.ic), h('div', {}, it.title ? h('b', {}, it.title) : null, h('p', {}, it.text))))));
+    h('div', { class: 'wn-list' }, list));
 }
 
 const Update = {

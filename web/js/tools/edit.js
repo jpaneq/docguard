@@ -96,6 +96,7 @@ const Edit = {
     act('findnext', () => this.findStep(1));
     act('findprev', () => this.findStep(-1));
     act('unwm', () => this.removeWatermarks());
+    act('toword', async () => saveResult(await run('Convirtiendo a Word…', () => api('todocx', { ids: [this.info.id], mode: 'fiel' }))));
     act('export', async () => saveResult(await run('Preparando…', () => api('edit/export', { id: this.info.id }))));
     dropTarget(this.viewer.el, async fs => { for (const f of fs) await this.openFile(f); });
     document.addEventListener('keydown', e => this.key(e));
@@ -120,6 +121,7 @@ const Edit = {
     setCurrent(info);
     $('.doc-name', this.root).textContent = info.name;
     $('[data-act=export]', this.root).disabled = false;
+    $('[data-act=toword]', this.root).disabled = false;
     $('[data-act=unwm]', this.root).disabled = false;
     this.viewer.load(info);
     this.outline = null;

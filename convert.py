@@ -13,8 +13,22 @@ import core
 DOC_EXTS = {".docx", ".doc", ".odt", ".rtf", ".txt", ".html", ".htm", ".md"}
 
 
-def pdf_to_docx(src, dst):
-    """Convierte un PDF en un .docx editable (texto, tablas e imágenes)."""
+def pdf_to_docx(src, dst, mode="fiel"):
+    """PDF → .docx. mode="fiel": cada página con su tamaño exacto, fondo y texto editable en su sitio
+    (towords.py); mode="reflujo": texto que fluye y se reorganiza como en un Word normal (pdf2docx)."""
+    if mode == "fiel":
+        import towords
+        towords.pdf_to_docx_fiel(src, dst)
+        return "fiel a la página"
+    pdf2docx_reflow(src, dst)
+    return "texto que fluye"
+
+
+def pdf2docx_reflow(src, dst):
+    # pdf2docx usa Rect.get_area(), que las versiones recientes de PyMuPDF han quitado
+    for cls in (fitz.Rect, fitz.IRect):
+        if not hasattr(cls, "get_area"):
+            cls.get_area = lambda self: abs(self.width * self.height)
     from pdf2docx import Converter
     import logging
     logging.getLogger("pdf2docx").setLevel(logging.ERROR)

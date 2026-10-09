@@ -10,6 +10,6 @@ copy /y icon.png web\icon.png
 REM Miniaturas del Explorador: necesita g++ de MinGW-w64 (si no está, se compila sin ellas)
 set THUMBS=
 where g++ >nul 2>nul && g++ -shared -O2 -s -static -static-libgcc -static-libstdc++ -o winthumbs\dg_thumbs.dll winthumbs\dg_thumbs.cpp winthumbs\dg_thumbs.def -lole32 -lwindowscodecs -lshlwapi -luuid -lgdi32 && set THUMBS=--add-binary "winthumbs\dg_thumbs.dll;."
-.venv\Scripts\pyinstaller --noconfirm --windowed --name DocGuard --icon icon.ico --add-data "web;web" --add-data "extension;extension" --add-data "iconos_estado;iconos_estado" %THUMBS% --collect-all rapidocr --collect-all onnxruntime --collect-all webview --collect-all pyhanko --collect-all pyhanko_certvalidator --hidden-import pkcs11 app.py
+.venv\Scripts\pyinstaller --noconfirm --windowed --name DocGuard --icon icon.ico --add-data "web;web" --add-data "extension;extension" --add-data "iconos_estado;iconos_estado" %THUMBS% --collect-all rapidocr --collect-all onnxruntime --collect-all webview --collect-data docx --collect-all pyhanko --collect-all pyhanko_certvalidator --hidden-import pkcs11 app.py
 echo Listo: dist\DocGuard\DocGuard.exe
 pause

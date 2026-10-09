@@ -76,6 +76,7 @@
       <span class="sep"></span>
       <button data-act="unwm" data-i="unwm" class="unwm" disabled title="Quita marcas de agua como «BORRADOR» o «COPIA» en diagonal, sin tocar el resto (⌘Z para deshacer)"> Quitar marca de agua</button>
       <span class="grow"></span>
+      <button data-act="toword" disabled title="Exportar a Word (.docx) con el mismo tamaño y diseño de página">Exportar a Word…</button>
       <button class="primary" data-act="export" disabled>Guardar PDF…</button>
     </div>
     <div class="formatbar"></div>
@@ -391,9 +392,13 @@
         <button class="primary" data-act="toimages">Convertir…</button>
       </fieldset>
       <fieldset><legend>Word ↔ PDF</legend>
+        <select data-k="wmode">
+          <option value="fiel">Fiel a la página (mismo tamaño y diseño)</option>
+          <option value="reflujo">Texto que fluye (para reescribir el documento)</option>
+        </select>
         <button class="primary" data-act="todocx">PDF → Word (.docx)…</button>
         <button class="primary" data-act="doctopdf">Word, RTF, ODT, TXT, HTML → PDF…</button>
-        <small>PDF → Word mantiene texto, tablas e imágenes para poder editarlo. Para máxima fidelidad Word → PDF, instala LibreOffice (gratuito); si no, se usa la conversión integrada.</small>
+        <small>«Fiel a la página» conserva el tamaño exacto de cada página y coloca el texto editable en su sitio (el resto del diseño va como fondo). «Texto que fluye» reorganiza el contenido como un Word normal: más cómodo para reescribir, pero el diseño puede cambiar. Para máxima fidelidad Word → PDF, instala LibreOffice (gratuito); si no, se usa la conversión integrada.</small>
       </fieldset>
       <fieldset><legend>Imágenes → PDF</legend>
         <button class="primary" data-act="topdf">Un PDF por imagen…</button>

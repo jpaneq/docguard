@@ -16,7 +16,7 @@ SIGN=""
 [ -n "$CODESIGN_IDENTITY" ] && SIGN="--codesign-identity $CODESIGN_IDENTITY"
 .venv/bin/pyinstaller --noconfirm --windowed --name DocGuard --icon icon.icns \
   --add-data "web:web" --add-data "extension:extension" --add-data "iconos_estado:iconos_estado" \
-  --collect-all rapidocr --collect-all onnxruntime --collect-all webview --collect-data certifi \
+  --collect-all rapidocr --collect-all onnxruntime --collect-all webview --collect-data certifi --collect-data docx \
   --collect-all pyhanko --collect-all pyhanko_certvalidator --hidden-import pkcs11 \
   $SIGN app.py
 # «Abrir con…» y doble clic: DocGuard se ofrece para PDF e imágenes (sin quitar el programa predeterminado)

@@ -45,7 +45,7 @@ function init() {
   Object.assign(TOOLS, { edit: Edit, watermark: Wm, redact: Redact, sign: Sign, pages: Pages, protect: Protect });
   $('.cd-close').onclick = clearCurrent;
   TOOLS.convert = batchTool('tool-convert', '', {
-    todocx: f => api('todocx', { ids: f.ids }),
+    todocx: (f, r) => api('todocx', { ids: f.ids, mode: $('[data-k=wmode]', r).value }),
     doctopdf: f => api('doctopdf', { ids: f.ids }),
     compress: (f, r) => api('compress', { ids: f.ids, level: $('[data-k=level]', r).value }),
     toimages: (f, r) => api('toimages', { ids: f.ids, fmt: $('[data-k=fmt]', r).value, dpi: +$('[data-k=dpi]', r).value }),

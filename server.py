@@ -975,7 +975,8 @@ def op_todocx(req):
     def f(d, path, out):
         if core.ext_of(path) != ".pdf":
             raise ValueError("no es un PDF")
-        convert.pdf_to_docx(path, os.path.join(out, d.base + ".docx"))
+        how = convert.pdf_to_docx(path, os.path.join(out, d.base + ".docx"), req.get("mode", "fiel"))
+        return f"{d.name}: Word ({how})"
     return batch(req, f)
 
 

@@ -934,10 +934,37 @@ def update_widget(doc, pno, xref, name=None, value=None, options=None, rect=None
         w.text_fontsize = fontsize
     if value is not None:
         if w.field_type in (fitz.PDF_WIDGET_TYPE_CHECKBOX, fitz.PDF_WIDGET_TYPE_RADIOBUTTON):
-            w.field_value = w.on_state() if value else "Off"
+            w.field_value = _on_value(page, w) if value else "Off"
         else:
             w.field_value = value
     w.update()
+
+
+def _on_value(page, w):
+    """Nombre del estado «marcado» de una casilla o botón de opción, siempre como texto.
+    PyMuPDF falla con formularios cuyos botones no tienen estados de apariencia: `on_state()` devuelve
+    True o lanza una excepción, y luego `field_value = True` da «pdf_set_field_value, argument 3 of
+    type 'char const *'». Se busca el estado en el propio botón y, si no hay, se usa uno propio."""
+    try:
+        v = w.on_state()
+    except Exception:
+        v = None
+    if isinstance(v, str) and v and v != "Off":
+        return v
+    doc = page.parent
+    for key in ("AP/N", "AP/D"):  # nombres de los estados del propio botón: /AP << /N << /Si … /Off … >> >>
+        try:
+            kind, val = doc.xref_get_key(w.xref, key)
+        except Exception:
+            continue
+        if kind == "dict":
+            names = [n for n in re.findall(r"/([^\s/<>\[\]()]+)", val) if n != "Off"]
+            if names:
+                return names[0]
+    if w.field_type == fitz.PDF_WIDGET_TYPE_CHECKBOX:
+        return "Yes"
+    # botón de opción sin estados: un nombre distinto por botón, para que el grupo sepa cuál está marcado
+    return f"Opcion{w.xref}"
 
 
 def delete_widget(doc, pno, xref):

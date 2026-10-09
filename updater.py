@@ -185,3 +185,124 @@ start "" "{exe}"
         subprocess.Popen(["cmd", "/c", script], cwd=tmp, creationflags=0x08000000)  # sin ventana
     STATE["applied"] = True
     return True
+
+
+# ---- Varias copias de DocGuard abiertas (procesos distintos) ----
+# Cada copia se apunta en «instancias/<pid>». Al actualizar, la que actualiza deja un aviso y las demás
+# guardan sus copias de recuperación y se cierran solas; si alguna no lo hace, se termina. Así no queda
+# ninguna con la versión vieja ni bloqueando la carpeta del programa.
+
+def _inst_dir():
+    d = os.path.join(core.config_dir(), "instancias")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _flag():
+    return os.path.join(core.config_dir(), "cerrar_para_actualizar")
+
+
+def _alive(pid):
+    if pid == os.getpid():
+        return True
+    if sys.platform == "win32":
+        import ctypes
+        k = ctypes.windll.kernel32
+        h = k.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        code = ctypes.c_ulong()
+        k.GetExitCodeProcess(h, ctypes.byref(code))
+        k.CloseHandle(h)
+        return code.value == 259  # STILL_ACTIVE
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def register_instance():
+    """Esta copia se apunta como abierta (y borra el aviso de actualización de una vez anterior)."""
+    try:
+        os.remove(_flag())
+    except OSError:
+        pass
+    open(os.path.join(_inst_dir(), str(os.getpid())), "w").close()
+
+
+def unregister_instance():
+    try:
+        os.remove(os.path.join(_inst_dir(), str(os.getpid())))
+    except OSError:
+        pass
+
+
+def other_instances():
+    """PIDs de las otras copias de DocGuard abiertas (se limpian las entradas de copias que ya no existen)."""
+    out = []
+    for fn in os.listdir(_inst_dir()):
+        if not fn.isdigit():
+            continue
+        pid = int(fn)
+        if pid == os.getpid():
+            continue
+        if _alive(pid):
+            out.append(pid)
+        else:
+            try:
+                os.remove(os.path.join(_inst_dir(), fn))
+            except OSError:
+                pass
+    return out
+
+
+def start_watcher():
+    """Si otra copia está actualizando, esta guarda lo que tenga sin guardar (recuperación) y se cierra."""
+    import threading
+    import time
+
+    def run():
+        while True:
+            time.sleep(1)
+            try:
+                if os.path.exists(_flag()) and time.time() - os.path.getmtime(_flag()) < 120:
+                    with open(_flag()) as f:
+                        owner = f.read().strip()
+                    if owner != str(os.getpid()):
+                        import server
+                        for did in list(server.DOCS):
+                            server.autosave_now(did)  # nada de lo editado se pierde: se ofrece al volver a abrir
+                        unregister_instance()
+                        os._exit(0)
+            except Exception:
+                pass
+
+    threading.Thread(target=run, daemon=True).start()
+
+
+def close_others(wait=8.0):
+    """Pide a las demás copias que se cierren y espera; las que no lo hagan se terminan."""
+    import signal
+    import time
+    others = other_instances()
+    if not others:
+        return
+    with open(_flag(), "w") as f:
+        f.write(str(os.getpid()))
+    end = time.time() + wait
+    while time.time() < end and any(_alive(p) for p in others):
+        time.sleep(0.25)
+    for pid in [p for p in others if _alive(p)]:
+        try:
+            if sys.platform == "win32":
+                subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, creationflags=0x08000000)
+            else:
+                os.kill(pid, signal.SIGKILL)
+        except Exception:
+            pass
+    for pid in others:
+        try:
+            os.remove(os.path.join(_inst_dir(), str(pid)))
+        except OSError:
+            pass

@@ -217,6 +217,8 @@ Cada módulo se puede trabajar por separado. El servidor expone cada función co
 
 - `v1.39`: «Poner/Quitar marca de agua» como sección propia del panel derecho (siempre visible), separación entre repeticiones del mosaico y valores escribibles a mano.
 
+- `v1.40`: al actualizar se cierran también las demás copias de DocGuard abiertas (registro en `instancias/`, aviso en `cerrar_para_actualizar`, recuperación antes de cerrar).
+
 ## Publicar una versión nueva
 1. Cambia `VERSION` en `core.py` (por ejemplo `1.18`).
 2. Crea la etiqueta igual y súbela: `git tag v1.18 && git push origin main --tags`.

@@ -131,6 +131,10 @@ class Api:
         import updater
 
         import webview
+        try:
+            updater.close_others()  # otras copias de DocGuard abiertas: se cierran antes (guardando su recuperación)
+        except Exception:
+            pass
         if updater.apply_on_exit():
             # El script espera a que este proceso termine; cerrar las ventanas no siempre lo cierra
             # (se quedaba la rueda girando), así que se sale del todo al momento.
@@ -740,6 +744,12 @@ def main():
                 integracion.announce_open(url)
             except Exception:
                 pass  # la principal se abre maximizada; las de «+ Ventana», en cascada
+            try:
+                import updater
+                updater.register_instance()
+                updater.start_watcher()
+            except Exception:
+                pass
             import threading
             threading.Thread(target=_windows_icons, daemon=True).start()
             threading.Thread(target=_integration_startup, daemon=True).start()
@@ -769,7 +779,12 @@ def main():
             webview.start(menu=menu)
             integracion.announce_closed()
             import updater  # si se descargó una versión nueva y se cerró sin reiniciar, se instala ahora
+            updater.unregister_instance()
             if updater.STATE.get("new") and not updater.STATE.get("applied"):
+                try:
+                    updater.close_others()
+                except Exception:
+                    pass
                 updater.apply_on_exit()
             return
         except Exception as ex:  # sin ventana nativa: se usa el navegador

@@ -70,6 +70,7 @@ function init() {
   Sigs.load();
   Tabs.init();
   Update.init();
+  setTimeout(() => Recovery.check(), 1500);
   StatusIcons.notice();
 }
 

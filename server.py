@@ -33,6 +33,7 @@ import marcas_agua
 import pdfa
 import protect
 import records
+import recovery
 import scan
 import signing
 import status_icons
@@ -164,7 +165,86 @@ def op_open_result(req):
 
 def op_close(req):
     DOCS.pop(req.get("id"), None)
+    recovery.remove(req.get("id") or "")
     return {}
+
+
+# ---- Autoguardado: copia de recuperación (no es un guardado; ver recovery.py) ----
+AUTOSAVE_TIMERS = {}
+RECOVERY_PROMPTED = []
+
+
+def autosave_now(did):
+    AUTOSAVE_TIMERS.pop(did, None)
+    try:
+        with LOCK:
+            d = DOCS.get(did)
+            if not d or not d.doc or not d.edited or not recovery.settings()["enabled"]:
+                return
+            data = d.doc.tobytes(deflate=True, encryption=fitz.PDF_ENCRYPT_NONE) if d.password else d.doc.tobytes(deflate=True)
+            name, pages = d.name, len(d.doc)
+        recovery.write(did, name, data, pages)
+    except Exception:
+        pass  # el autoguardado nunca debe estorbar a la edición
+
+
+def autosave_touch(did):
+    """Hay cambios nuevos: se programa una copia como mucho a los N segundos del primer cambio."""
+    s = recovery.settings()
+    if not s["enabled"] or did in AUTOSAVE_TIMERS:
+        return
+    t = threading.Timer(s["seconds"], autosave_now, args=(did,))
+    t.daemon = True
+    AUTOSAVE_TIMERS[did] = t
+    t.start()
+
+
+def op_recovery_list(req):
+    """Copias de una sesión anterior. Solo se avisa una vez por arranque (varias ventanas); force: siempre."""
+    if not req.get("force") and RECOVERY_PROMPTED:
+        return {"items": []}
+    items = recovery.entries(skip=set(DOCS))
+    if items and not req.get("force"):
+        RECOVERY_PROMPTED.append(1)
+    return {"items": items}
+
+
+def op_recovery_open(req):
+    did = req["id"]
+    data = recovery.read(did)
+    name = next((m["name"] for m in recovery.entries() if m["id"] == did), "Documento.pdf")
+    new = secrets.token_urlsafe(8)
+    with LOCK:
+        DOCS[new] = Doc(name, data)
+        DOCS[new].edited = True  # sigue sin guardar: el PDF recuperado hay que guardarlo
+        autosave_now(new)
+        info = DOCS[new].info(new)
+    recovery.remove(did)
+    return info
+
+
+def op_recovery_discard(req):
+    if req.get("all"):
+        recovery.clear_all(skip=set(DOCS))
+    else:
+        recovery.remove(req.get("id", ""))
+    return {}
+
+
+def op_recovery_clear(req):
+    """El usuario ha guardado el PDF: la copia de recuperación ya no hace falta (hasta el próximo cambio)."""
+    did = req.get("id", "")
+    t = AUTOSAVE_TIMERS.pop(did, None)
+    if t:
+        t.cancel()
+    recovery.remove(did)
+    return {}
+
+
+def op_autosave_settings(req):
+    if "enabled" in req:
+        return recovery.set_settings(req["enabled"], req.get("seconds", 30))
+    return recovery.settings()
 
 
 TABS = []  # documentos abiertos como pestañas (los comparten todas las ventanas)
@@ -1146,6 +1226,7 @@ def op_edit(req, name):
     del d.undo[:-MAX_UNDO]
     d.redo = []
     d.edited = True
+    autosave_touch(req.get("id"))
     d.lines, d.ocr, d.idf = {}, {}, {}  # el texto puede haber cambiado
     # Recargar tras cada cambio mantiene coherentes las listas de texto/imágenes/campos.
     d.doc = fitz.open("pdf", doc.tobytes())
@@ -1194,6 +1275,7 @@ def op_redo(req):
         d.undo.append(d.doc.tobytes())
         d.doc = fitz.open("pdf", d.redo.pop())
         d.edited = True
+        autosave_touch(req.get("id"))
         d.lines, d.ocr, d.idf = {}, {}, {}
     return {"can_undo": bool(d.undo), "can_redo": bool(d.redo)}
 
@@ -1205,6 +1287,7 @@ def op_undo(req):
         d.doc = fitz.open("pdf", d.undo.pop())
         d.lines, d.ocr, d.idf = {}, {}, {}
         d.edited = bool(d.undo) or d.kind != "pdf"
+        autosave_touch(req.get("id")) if d.edited else recovery.remove(req.get("id", ""))
     return {"can_undo": bool(d.undo), "can_redo": bool(d.redo)}
 
 
@@ -1631,7 +1714,7 @@ OPS = {
     "todocx": op_todocx, "doctopdf": op_doctopdf, "redact/preview": op_redact_preview,
     "pages/save": op_pages_save, "encrypt": op_encrypt, "decrypt": op_decrypt,
     "compress": op_compress, "toimages": op_toimages, "topdf": op_topdf, "sanitize": op_sanitize, "merge": op_merge, "merge_pages": op_merge_pages,
-    "edit/state": op_edit_state, "comments": op_comments, "edit/words": op_edit_words, "edit/copy_object": op_copy_object, "fonts": op_fonts, "outline": op_outline, "edit/undo": op_undo, "edit/redo": op_redo, "edit/export": op_edit_export,
+    "edit/state": op_edit_state, "recovery/list": op_recovery_list, "recovery/open": op_recovery_open, "recovery/discard": op_recovery_discard, "recovery/clear": op_recovery_clear, "autosave/settings": op_autosave_settings, "comments": op_comments, "edit/words": op_edit_words, "edit/copy_object": op_copy_object, "fonts": op_fonts, "outline": op_outline, "edit/undo": op_undo, "edit/redo": op_redo, "edit/export": op_edit_export,
     "sigimgs": op_sigimgs, "sigimg/save": op_sigimg_save, "sigimg/delete": op_sigimg_delete,
     "sigimg/place": op_place_sigimg, "sigimg/margin": op_sign_margin, "edit/copy": op_copy, "edit/copy_spans": op_copy_spans, "certinfo": op_certinfo, "sign": op_sign, "sign/test": op_sign_test, "sign/batch": op_sign_batch,
     "track/add": op_track_add, "track/check": op_track_check, "track/list": op_track_list, "track/delete": op_track_delete,

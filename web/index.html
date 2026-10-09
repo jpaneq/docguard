@@ -25,6 +25,7 @@
       <button data-win="cascada" title="Organizar las ventanas en cascada"><span class="mi-ic" data-ic="cascade"></span>Organizar en cascada</button>
       <div class="mi-sep"></div>
       <button onclick="Update.check()" title="Buscar una versión nueva"><span class="mi-ic" data-ic="refresh"></span>Buscar actualizaciones</button>
+      <button onclick="Recovery.settings()" title="Copias de recuperación mientras editas (no son un guardado)"><span class="mi-ic" data-ic="refresh"></span>Autoguardado y recuperación…</button>
       <button onclick="StatusIcons.open()" title="Iconos de estado de los PDF en el Finder o el Explorador"><span class="mi-ic" data-ic="badge"></span>Iconos de estado…</button>
       <button onclick="Integration.open()" title="Abrir en DocGuard desde Word, Imprimir o «Enviar a»"><span class="mi-ic" data-ic="window"></span>Integración con Word…</button>
       <div class="mi-foot"><span data-role="version"></span><br>Todo se procesa en tu equipo. Ningún archivo sale de él.</div>
@@ -539,6 +540,7 @@
 <script src="js/core/shell.js"></script>
 <script src="js/core/files.js"></script>
 <script src="js/core/update.js"></script>
+<script src="js/core/recovery.js"></script>
 <script src="js/core/filelist.js"></script>
 <script src="js/core/sigs.js"></script>
 <script src="js/tools/edit.js"></script>

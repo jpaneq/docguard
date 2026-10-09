@@ -207,6 +207,8 @@ Cada módulo se puede trabajar por separado. El servidor expone cada función co
 
 - `v1.34`: exportar a Word fiel a la página (`towords.py`: sección por página con su tamaño exacto, fondo sin texto y cuadros de texto editables; botón en Editar y modo en Comprimir y convertir).
 
+- `v1.35`: autoguardado = copias de recuperación (`recovery.py`): no sustituyen al guardado, se ofrecen tras una caída y se borran al guardar o cerrar.
+
 ## Publicar una versión nueva
 1. Cambia `VERSION` en `core.py` (por ejemplo `1.18`).
 2. Crea la etiqueta igual y súbela: `git tag v1.18 && git push origin main --tags`.

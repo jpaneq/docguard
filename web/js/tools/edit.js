@@ -97,7 +97,10 @@ const Edit = {
     act('findprev', () => this.findStep(-1));
     act('unwm', () => this.removeWatermarks());
     act('toword', async () => saveResult(await run('Convirtiendo a Word…', () => api('todocx', { ids: [this.info.id], mode: 'fiel' }))));
-    act('export', async () => saveResult(await run('Preparando…', () => api('edit/export', { id: this.info.id }))));
+    act('export', async () => {
+      const saved = await saveResult(await run('Preparando…', () => api('edit/export', { id: this.info.id })));
+      if (saved) api('recovery/clear', { id: this.info.id }).catch(() => {});  // guardado de verdad: la copia de recuperación sobra
+    });
     dropTarget(this.viewer.el, async fs => { for (const f of fs) await this.openFile(f); });
     document.addEventListener('keydown', e => this.key(e));
     document.addEventListener('mousedown', e => { if (this.menu && !this.menu.contains(e.target)) this.closeMenu(); });

@@ -66,4 +66,5 @@ jobs:
           files: |
             dist/${{ matrix.asset }}
             dist/${{ matrix.asset }}.sha256
-          generate_release_notes: true
+          body_path: ${{ hashFiles(format('novedades/{0}.md', github.ref_name)) != '' && format('novedades/{0}.md', github.ref_name) || '' }}
+          generate_release_notes: ${{ hashFiles(format('novedades/{0}.md', github.ref_name)) == '' }}

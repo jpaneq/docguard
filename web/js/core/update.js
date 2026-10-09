@@ -1,6 +1,22 @@
 'use strict';
 // Al abrirse, DocGuard mira si hay una versión nueva publicada y ofrece instalarla (nunca solo).
 
+/** Notas de la versión (novedades/X.Y.md, publicadas en la release) como tarjetas: «# Titular», texto y «- 🔎 **Título** — detalle». */
+function notesView(md) {
+  const lines = (md || '').split('\n').map(l => l.trim()).filter(l => l && !/^\*\*Full Changelog/i.test(l));
+  const head = lines.find(l => l.startsWith('# '));
+  const items = lines.filter(l => /^[-*] /.test(l)).map(l => {
+    const m = l.replace(/^[-*]\s+/, '').match(/^(\S+)\s+\*\*(.+?)\*\*\s*[—:-]?\s*(.*)$/);
+    return m ? { ic: m[1], title: m[2], text: m[3].charAt(0).toUpperCase() + m[3].slice(1) } : { ic: '•', title: '', text: l.replace(/^[-*]\s+/, '') };
+  });
+  const sub = lines.filter(l => !l.startsWith('#') && !/^[-*] /.test(l)).join(' ');
+  if (!head && !items.length) return h('pre', { class: 'update-notes' }, md);
+  return h('div', { class: 'whatsnew' },
+    h('div', { class: 'wn-hero' }, h('b', {}, head ? head.slice(2) : 'Novedades'), sub ? h('span', {}, sub) : null),
+    h('div', { class: 'wn-list' }, items.map((it, i) => h('div', { class: 'wn-item', style: `--h:${(i * 47 + 215) % 360}` },
+      h('span', { class: 'wn-ic' }, it.ic), h('div', {}, it.title ? h('b', {}, it.title) : null, h('p', {}, it.text))))));
+}
+
 const Update = {
   async init() {
     const v = await api('version').catch(() => null);
@@ -23,9 +39,10 @@ const Update = {
   },
   offer(r) {
     modal({
-      title: `DocGuard ${r.version}`,
+      wide: true,
+      title: `DocGuard ${r.version} · novedades`,
       body: h('div', {}, h('p', {}, `Tienes la versión ${r.current}.`),
-        r.notes ? h('pre', { class: 'update-notes' }, r.notes) : null,
+        r.notes ? notesView(r.notes) : null,
         h('p', { class: 'muted' }, 'Se descarga de GitHub, se comprueba su huella SHA-256 y, al reiniciar, sustituye al programa actual (la versión anterior se guarda). Guarda antes tus documentos abiertos.'),
         r.can_install ? null : h('p', { class: 'bad' }, 'Estás ejecutando DocGuard desde el código: actualízalo con git pull.')),
       actions: [{ label: 'Más tarde' }, ...(r.can_install ? [{ label: 'Descargar y reiniciar', primary: true, fn: () => this.install(r) }] : [])],

@@ -11,11 +11,18 @@ class Viewer {
     this._wrap = h('div', { class: 'page-wrap', style: 'display:none' }, this._img = h('img', { alt: '' }), this._ov = h('div', { class: 'ov' }));
     this.el.append(this._wrap);
     const b = (t, f, title) => h('button', { onclick: f, title }, t);
+    const ib = (ic, title, f) => h('button', { class: 'vb-ic', title, innerHTML: uiIcon(ic, 16), onclick: f });
+    const sep = () => h('span', { class: 'vsep' });
+    this.zlbl = h('button', { class: 'vz', title: 'Zoom actual (clic: 100 %)', onclick: () => this.setZoom(1) }, '100 %');
+    this.btnWin = ib('fitwin', 'Ajustar a la ventana (al ancho)', () => this.fitTo(false));
+    this.btnPage = ib('fitpage', 'Ajustar a la página (la hoja entera)', () => this.fitTo(true));
+    // La barra va arriba, fuera de la zona de desplazamiento: ninguna página puede taparla
     this.bar = h('div', { class: 'vbar', style: 'display:none' },
       b('◀', () => this.go(this.n - 1), 'Página anterior'), this.lbl = h('span'), b('▶', () => this.go(this.n + 1), 'Página siguiente'),
-      b('−', () => this.setZoom(this.zoom / 1.2), 'Alejar'), b('+', () => this.setZoom(this.zoom * 1.2), 'Acercar'),
-      b('Ajustar', () => this.fit(), 'Ajustar al ancho'));
-    host.append(this.el, this.bar);
+      sep(), b('−', () => this.setZoom(this.zoom / 1.2), 'Alejar'), this.zlbl, b('+', () => this.setZoom(this.zoom * 1.2), 'Acercar'),
+      sep(), this.btnWin, this.btnPage,
+      sep(), ib('print', 'Imprimir (⌘P / Ctrl+P)', () => this.print()));
+    host.append(this.bar, this.el);
     this.info = null; this.n = 0; this.zoom = 1; this.v = 0; this.fitMode = true;
     this.onpage = null; this.onrender = null;
     new ResizeObserver(() => { if (this.info && this.fitMode) this.fit(); }).observe(this.el);
@@ -55,12 +62,26 @@ class Viewer {
       }, 90);
     }, { passive: false });
   }
+  /** Imprime el documento mostrado (en Censurar las marcas aún no están aplicadas). */
+  print() {
+    if (this.el.closest('#tool-redact')) return toast('En Censurar las marcas aún no se han aplicado: guarda el PDF censurado y imprime ese.', 'err', [], 6000);
+    printDoc(this.info);
+  }
+  /** «Ajustar a la página» (hoja entera) o «a la ventana» (al ancho). */
+  fitTo(page) { this.fitPage = page; this.fit(); }
+  /** Porcentaje de zoom y modo de ajuste activo en la barra. */
+  syncBar() {
+    this.zlbl.textContent = Math.round(this.zoom * 100) + ' %';
+    this.btnWin.classList.toggle('on', this.fitMode && !this.fitPage);
+    this.btnPage.classList.toggle('on', this.fitMode && !!this.fitPage);
+  }
   /** Vista previa del zoom: solo cambia el tamaño de las páginas, sin pedir imágenes nuevas. */
   previewZoom(z) {
     this.fitMode = false;
     this.zoom = clamp(z, 0.2, 5);
     const wraps = this.pages ? this.pages.map((p, i) => [p.wrap, this.info.pages[i]]) : [[this._wrap, this.size]];
     for (const [w, sz] of wraps) this.sizeWrap(w, sz);
+    this.syncBar();
   }
   /** Tamaño de una página en píxeles reales de pantalla (enteros): la imagen se pide justo a ese
    *  tamaño para que el navegador no la reescale y el texto se vea nítido. */
@@ -94,7 +115,7 @@ class Viewer {
   /** Zoom de «Ajustar»: al ancho o, con fitPage, la página entera (también de alto; deja sitio a la barra ◀ ▶). */
   fitZoom(w, pw, ph) {
     const zw = w / pw;
-    return this.fitPage ? Math.min(zw, (this.el.clientHeight - 80) / ph) : zw;
+    return this.fitPage ? Math.min(zw, (this.el.clientHeight - 44) / ph) : zw;
   }
   setZoom(z) { this.fitMode = false; this.zoom = clamp(z, 0.2, 5); this.render(); }
   go(n) {
@@ -112,6 +133,7 @@ class Viewer {
     const g = this.sizeWrap(this.wrap, this.size);
     this.img.src = pageUrl(this.info.id, this.n, g.z, this.v) + this.fmt();
     this.lbl.textContent = `${this.n + 1} / ${this.info.pages.length}`;
+    this.syncBar();
     this.onrender?.();
   }
   pt(e) {
@@ -455,6 +477,7 @@ class ContViewer extends Viewer {
     if (!this.info) return;
     this.pages.forEach((p, i) => { this.sizeWrap(p.wrap, this.info.pages[i]); p.v = -1; });
     this.lbl.textContent = `${this.n + 1} / ${this.pages.length}`;
+    this.syncBar();
     this.loadVisible();
     this.onrender?.();
   }

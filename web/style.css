@@ -66,11 +66,14 @@ main { flex: 1; min-width: 0; position: relative; }
 .page-wrap img { display: block; width: 100%; height: auto; pointer-events: none; }  /* alto proporcional: sin reescalar en vertical */
 .ov { position: absolute; inset: 0; }
 .ov.draw { cursor: crosshair; }
-.vbar { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 4px 8px; display: flex; gap: 4px; align-items: center; box-shadow: var(--shadow); }
-.vbar button { border: 0; padding: 4px 9px; border-radius: 999px; }
-.vbar span { min-width: 64px; text-align: center; font-variant-numeric: tabular-nums; }
-.vbar .vsep { min-width: 0; width: 1px; height: 18px; margin: 0 4px; background: var(--line); }
-.vbar .vb-ic { display: flex; align-items: center; justify-content: center; padding: 5px 7px; }
+.vbar { flex: none; display: flex; gap: 2px; align-items: center; justify-content: center; flex-wrap: wrap; background: var(--panel); border-bottom: 1px solid var(--line); padding: 3px 8px; position: relative; z-index: 3; }
+.vbar button { border: 0; background: none; padding: 4px 9px; border-radius: 7px; }
+.vbar button:hover:not(:disabled) { background: var(--panel2); }
+.vbar button.on { background: var(--panel2); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.vbar span { min-width: 56px; text-align: center; font-variant-numeric: tabular-nums; }
+.vbar .vz { min-width: 58px; padding: 4px 6px; font-variant-numeric: tabular-nums; }
+.vbar .vsep { min-width: 0; width: 1px; height: 18px; margin: 0 6px; background: var(--line); }
+.vbar .vb-ic { display: flex; align-items: center; justify-content: center; padding: 5px 8px; }
 /* Lector del Visor: la barra de arriba solo con una búsqueda (recuento y ▲ ▼); lo demás está en la barra flotante */
 #tool-library .reader-bar { display: none; }
 #tool-library .reader.has-hits .reader-bar { display: flex; }
@@ -629,3 +632,12 @@ button .mi-ic { vertical-align: -3px; margin-right: 2px; color: inherit; }
 .tbl-grid input { min-width: 0; }
 
 .guide { position: absolute; background: #ff2d95; pointer-events: none; z-index: 20; }
+
+/* Novedades de la versión (ventana de actualización) */
+.whatsnew { margin: 4px 0 10px; }
+.wn-hero { background: linear-gradient(135deg, #2563d8, #7c3aed); color: #fff; border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 3px; }
+.wn-hero b { font-size: 18px; } .wn-hero span { opacity: .9; font-size: 13px; }
+.wn-list { display: grid; gap: 8px; margin-top: 10px; max-height: 46vh; overflow: auto; padding-right: 2px; }
+.wn-item { display: flex; gap: 12px; align-items: flex-start; background: var(--panel2); border-radius: 10px; padding: 10px 12px; }
+.wn-ic { flex: none; width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 19px; background: hsl(var(--h) 80% 90%); }
+.wn-item b { display: block; margin-bottom: 1px; } .wn-item p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.4; }

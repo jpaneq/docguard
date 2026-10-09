@@ -39,13 +39,12 @@ const Library = {
     act('rrotr', () => this.rotate(90));
     this.viewer = new ContViewer($('.reader-host', this.root), { keepOverlays: true, firstClickActivates: false });
     this.viewer.fitPage = true;  // «Ajustar» muestra la hoja entera
-    // Girar, imprimir y cerrar van en la barra flotante del visor (junto a páginas y zoom); la barra de
+    // Girar y cerrar van en la barra del visor (junto a páginas, zoom e imprimir); la barra de
     // arriba del lector solo aparece al buscar (coincidencias y ▲ ▼)
     const ib = (ic, title, fn) => h('button', { class: 'vb-ic', title, innerHTML: uiIcon(ic, 16), onclick: fn });
     this.viewer.bar.append(h('span', { class: 'vsep' }),
       ib('rotl', 'Girar a la izquierda (todas las páginas; ⌘Z para deshacer)', () => this.rotate(-90)),
       ib('rotr', 'Girar a la derecha (todas las páginas; ⌘Z para deshacer)', () => this.rotate(90)),
-      ib('print', 'Imprimir (⌘P)', () => printDoc(this.reading)),
       h('span', { class: 'vsep' }),
       ib('close', 'Cerrar y volver a la lista (Esc)', () => this.closeReader()));
     this.viewer.onrender = () => { this.drawHits(); this.textLayers(); };

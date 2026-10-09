@@ -453,7 +453,8 @@ def _text_width(kw, text, size):
 
 
 def add_watermark(doc, pages, text, size=60, angle=45, opacity=0.3, color="#888888", bold=True, mode="single",
-                  px=0.5, py=0.5, cols=3, rows=4, stagger=False, overlay=True, font="base:helv"):
+                  px=0.5, py=0.5, cols=3, rows=4, stagger=False, overlay=True, font="base:helv",
+                  custom_gap=False, gap_x=40, gap_y=40):
     """Marca de agua de texto en las páginas `pages` (índices). mode="single": una vez, centrada en
     (px, py) (fracciones de la página); mode="tile": mosaico de `cols`×`rows` repeticiones.
     `angle` en grados (antihorario, como se ve); `opacity` 0-1. Admite varias líneas y {fecha}, {hora}."""
@@ -476,10 +477,24 @@ def add_watermark(doc, pages, text, size=60, angle=45, opacity=0.3, color="#8888
         if mode == "tile":
             cols_, rows_ = max(1, int(cols)), max(1, int(rows))
             centers = []
-            for r in range(rows_):
-                odd = stagger and r % 2  # al tresbolillo: las filas impares van desplazadas media celda
-                for c in range(cols_ + 1 if odd else cols_):
-                    centers.append(((c if odd else c + 0.5) / cols_ * W, (r + 0.5) / rows_ * H))
+            if custom_gap:
+                # separación fija entre repeticiones (de borde a borde del texto ya inclinado), cuadrícula centrada
+                import math
+                tw, th = max(widths), len(lines) * lh
+                a = math.radians(float(angle))
+                bw = abs(tw * math.cos(a)) + abs(th * math.sin(a))
+                bh = abs(tw * math.sin(a)) + abs(th * math.cos(a))
+                dx, dy = bw + max(0.0, float(gap_x)), bh + max(0.0, float(gap_y))
+                x0, y0 = W / 2 - (cols_ - 1) * dx / 2, H / 2 - (rows_ - 1) * dy / 2
+                for r in range(rows_):
+                    shift = dx / 2 if stagger and r % 2 else 0.0
+                    for c in range(cols_):
+                        centers.append((x0 + c * dx + shift, y0 + r * dy))
+            else:
+                for r in range(rows_):
+                    odd = stagger and r % 2  # al tresbolillo: las filas impares van desplazadas media celda
+                    for c in range(cols_ + 1 if odd else cols_):
+                        centers.append(((c if odd else c + 0.5) / cols_ * W, (r + 0.5) / rows_ * H))
         else:
             centers = [(float(px) * W, float(py) * H)]
         for cx, cy in centers:

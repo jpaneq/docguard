@@ -29,7 +29,17 @@ function syncTool(name) {
   else if (t.files && !t.files.items.length) { t.files.items = [CURRENT]; t.files.render(); }
 }
 
+/** «Poner / Quitar marca de agua»: acciones del panel derecho que trabajan sobre el documento actual en Editar. */
+function runToolAction(name) {
+  const d = (Shell.view === 'library' && Library.reading) || Edit.info || CURRENT;
+  if (!d) return toast(`Abre primero un documento para usar «${TOOL_META[name].label}».`, 'err');
+  showTool('edit');
+  if (!Edit.info || Edit.info.id !== d.id) Edit.loadInfo(d);
+  setTimeout(() => (name === 'wm_add' ? Edit.watermarkPanel() : Edit.removeWatermarks()), 200);
+}
+
 function showTool(name) {
+  if (TOOL_META[name]?.action) return runToolAction(name);
   syncTool(name);
   $$('.nav button').forEach(b => b.classList.toggle('active', b.dataset.tool === name));
   $$('.tool').forEach(s => s.classList.toggle('active', s.id === 'tool-' + name));

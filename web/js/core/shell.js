@@ -4,6 +4,8 @@
 
 /* ---- iconos: trazo fino (24×24); la clase «f» pinta el relleno suave del color de la herramienta ---- */
 const TOOL_ICONS = {
+  wm_add: '<path class="f" d="M12 3.500c3.200 3.600 5.500 6.500 5.500 9.500a5.500 5.500 0 01-11 0c0-3 2.300-5.900 5.500-9.500z"/><path d="M9.500 13.500a2.500 2.500 0 002.500 2.500"/>',
+  wm_remove: '<path class="f" d="M12 3.500c3.200 3.600 5.500 6.500 5.500 9.500a5.500 5.500 0 01-11 0c0-3 2.300-5.900 5.500-9.500z"/><path d="M4.500 4.500l15 15"/>',
   edit: '<path class="f" d="M6 3.5h8.5L19 8v6.2"/><path d="M6 3.5v17h6.5"/><path d="M14.5 3.5V8H19"/><path d="M9 11.5h6M9 14.5h3"/><path class="f" d="M13.6 20.4l.6-2.6 5.2-5.2 2 2-5.2 5.2z"/>',
   library: '<path class="f" d="M6 3.5h8.5L19 8v12.5H6z"/><path d="M14.5 3.5V8H19"/><path d="M8.4 14.6c1.1-2 2.4-3 3.8-3s2.7 1 3.8 3c-1.1 2-2.4 3-3.8 3s-2.7-1-3.8-3z"/><circle cx="12.2" cy="14.6" r="1.2"/>',
   scanner: '<path d="M3.5 8.5V5.5a2 2 0 012-2h3M15.5 3.5h3a2 2 0 012 2v3M20.5 15.5v3a2 2 0 01-2 2h-3M8.5 20.5h-3a2 2 0 01-2-2v-3"/><rect class="f" x="7.5" y="7" width="9" height="10" rx="1"/><path d="M2.5 12h19"/>',
@@ -70,12 +72,15 @@ const TOOL_META = {
   watermark: { label: 'Proteger documentación sensible', c: '#3f8ef0', d: 'Marca de agua, ocultar datos de DNI y rastreo de cada copia.' },
   redact: { label: 'Censurar', c: '#ee5a5a', d: 'Tapa datos sensibles de forma irreversible.' },
   protect: { label: 'Contraseña', c: '#6f7ff0', d: 'Cifra un PDF con contraseña y permisos.' },
+  wm_add: { label: 'Poner marca de agua', c: '#2f9fd8', action: true, d: 'Pon un texto de marca de agua en el PDF: posición, inclinación, transparencia y repeticiones, viéndolo sobre el documento.' },
+  wm_remove: { label: 'Quitar marca de agua', c: '#d9822b', action: true, d: 'Quita marcas de agua como «BORRADOR» o «COPIA» en diagonal, sin tocar el resto del documento.' },
   sanitize: { label: 'Limpiar metadatos', c: '#f0a030', d: 'Quita metadatos de PDF, imágenes y documentos Office.' },
 };
 const TOOL_GROUPS = [
   { title: 'Crear y editar', tools: ['edit', 'scanner', 'pages', 'merge', 'convert'] },
   { title: 'Firmar y revisar', tools: ['sign', 'library', 'compare'] },
   { title: 'Proteger y normalizar', tools: ['watermark', 'redact', 'protect', 'sanitize'] },
+  { title: 'Marca de agua', tools: ['wm_add', 'wm_remove'] },
 ];
 const HOME_FAVS = ['edit', 'sign', 'watermark', 'scanner', 'merge', 'redact'];
 

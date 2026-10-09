@@ -95,8 +95,6 @@ const Edit = {
     });
     act('findnext', () => this.findStep(1));
     act('findprev', () => this.findStep(-1));
-    $('.nav [data-act=unwm]').onclick = () => this.removeWatermarks();
-    $('.nav [data-act=addwm]').onclick = () => this.watermarkPanel();
     act('toword', async () => saveResult(await run('Convirtiendo a Word…', () => api('todocx', { ids: [this.info.id], mode: 'fiel' }))));
     act('export', async () => {
       const saved = await saveResult(await run('Preparando…', () => api('edit/export', { id: this.info.id })));
@@ -118,6 +116,7 @@ const Edit = {
     if (info) this.loadInfo(info);
   },
   loadInfo(info) {
+    if (this.wmOn) this.wmClose();
     if (info.encrypted) return toast('El PDF tiene contraseña: quítala primero en «Contraseña».', 'err');
     if (!info.pages.length) return toast('Solo se pueden editar PDFs e imágenes.', 'err');
     this.info = info; this.st = null; this.clearSel(false);
@@ -126,7 +125,6 @@ const Edit = {
     $('.doc-name', this.root).textContent = info.name;
     $('[data-act=export]', this.root).disabled = false;
     $('[data-act=toword]', this.root).disabled = false;
-    $$('.nav [data-act=unwm], .nav [data-act=addwm]').forEach(b => { b.disabled = false; });
     this.viewer.load(info);
     this.outline = null;
     if (!this.side.hidden) this.renderSide();
@@ -1230,15 +1228,27 @@ const Edit = {
     if (this.wmOn) return;
     this.wmWasHidden = this.side.hidden;
     const o = this.wm = Object.assign({ text: 'CONFIDENCIAL', size: 60, angle: 45, transparency: 70, color: '#888888', bold: true, mode: 'single',
-      px: 0.5, py: 0.5, cols: 3, rows: 4, stagger: false, layer: 'over', scope: 'all', range: '' }, this.wm || {});
+      px: 0.5, py: 0.5, cols: 3, rows: 4, stagger: false, customGap: false, gap_x: 40, gap_y: 40, layer: 'over', scope: 'all', range: '' }, this.wm || {});
     const bind = (el, k, conv = v => v) => { el.addEventListener('input', () => { o[k] = conv(el.type === 'checkbox' ? el.checked : el.value); sync(); this.wmRefresh(); }); return el; };
     const outs = [];
-    const slider = (label, k, min, max, step = 1, unit = '') => {
-      const out = h('output', {}, o[k] + unit), r = h('input', { type: 'range', min, max, step, value: o[k] });
-      r.addEventListener('input', () => { out.textContent = r.value + unit; });
-      bind(r, k, Number);
-      outs.push([k, r, out, unit]);
-      return h('label', {}, label, out, r);
+    // Deslizador + número editable a mano (clic en el número y se escribe). scale=100: se guarda 0-1 y se muestra en %.
+    const slider = (label, k, min, max, step = 1, unit = '', scale = 1) => {
+      const show = v => +(+v * scale).toFixed(2);
+      const num = h('input', { type: 'number', class: 'wm-numin', min, max, step, value: show(o[k]), title: 'Escribe el valor a mano' });
+      const r = h('input', { type: 'range', min, max, step, value: show(o[k]) });
+      const set = (v, fromNum) => {
+        v = Math.min(max, Math.max(min, v));
+        o[k] = v / scale;
+        r.value = v;
+        if (!fromNum) num.value = show(o[k]);
+        this.wmRefresh();
+      };
+      r.addEventListener('input', () => set(+r.value, false));
+      num.addEventListener('input', () => { const v = parseFloat(num.value); if (!isNaN(v)) set(v, true); });
+      num.addEventListener('change', () => { const v = parseFloat(num.value); set(isNaN(v) ? min : v, false); });
+      num.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') num.blur(); });
+      outs.push([k, r, num, show]);
+      return h('label', {}, label, h('span', { class: 'wm-val' }, num, unit ? h('span', {}, unit) : null), r);
     };
     const text = bind(h('textarea', { rows: 2, placeholder: 'Texto (admite {fecha} y {hora}; Intro = otra línea)' }, o.text), 'text');
     const grid = h('div', { class: 'wm-grid' }, [0, 0.5, 1].flatMap(py => [0, 0.5, 1].map(px =>
@@ -1246,17 +1256,20 @@ const Edit = {
     const mode = h('div', { class: 'seg' }, [['single', 'Una vez'], ['tile', 'Mosaico']].map(([v, t]) =>
       h('button', { 'data-v': v, onclick: () => { o.mode = v; sync(); this.wmRefresh(); } }, t)));
     const posBox = h('div', {}, h('div', { class: 'row' }, grid, h('small', { class: 'muted' }, 'Elige una posición o ajústala con los deslizadores.')),
-      slider('Horizontal', 'px', 0, 1, 0.01), slider('Vertical', 'py', 0, 1, 0.01));
+      slider('Horizontal', 'px', 0, 100, 1, ' %', 100), slider('Vertical', 'py', 0, 100, 1, ' %', 100));
+    const gapBox = h('div', {}, slider('Separación horizontal', 'gap_x', 0, 300, 1, ' pt'), slider('Separación vertical', 'gap_y', 0, 300, 1, ' pt'),
+      h('small', { class: 'muted' }, 'Espacio entre una repetición y la siguiente. Si se solapan, auméntalo.'));
     const tileBox = h('div', {}, slider('Veces en horizontal', 'cols', 1, 12), slider('Veces en vertical', 'rows', 1, 20),
+      h('label', { class: 'inline' }, bind(h('input', { type: 'checkbox', checked: o.customGap }), 'customGap'), 'Elegir la separación (si no, se reparte por toda la página)'), gapBox,
       h('label', { class: 'inline' }, bind(h('input', { type: 'checkbox', checked: o.stagger }), 'stagger'), 'Alternar filas (al tresbolillo)'));
     const range = bind(h('input', { placeholder: 'p. ej. 1-3, 5', value: o.range }), 'range');
     const scope = bind(h('select', {}, [['all', 'Todas las páginas'], ['current', 'Solo la página actual'], ['range', 'Un rango de páginas']].map(([v, t]) => h('option', { value: v, selected: o.scope === v }, t))), 'scope');
     const layer = bind(h('select', {}, [['over', 'Encima del contenido'], ['under', 'Detrás (solo si la página no tiene fondo)']].map(([v, t]) => h('option', { value: v, selected: o.layer === v }, t))), 'layer');
     const sync = () => {
       $$('button', mode).forEach(b => b.classList.toggle('on', b.dataset.v === o.mode));
-      posBox.hidden = o.mode !== 'single'; tileBox.hidden = o.mode !== 'tile'; range.hidden = o.scope !== 'range';
+      posBox.hidden = o.mode !== 'single'; tileBox.hidden = o.mode !== 'tile'; gapBox.hidden = !o.customGap; range.hidden = o.scope !== 'range';
       $$('.wm-pos', grid).forEach((b, i) => b.classList.toggle('on', Math.abs(o.px - [0, 0.5, 1][i % 3]) < 0.02 && Math.abs(o.py - [0, 0.5, 1][Math.floor(i / 3)]) < 0.02));
-      for (const [k, r, out, unit] of outs) { r.value = o[k]; out.textContent = (+o[k] % 1 ? (+o[k]).toFixed(2) : o[k]) + unit; }
+      for (const [k, r, num, show] of outs) { r.value = show(o[k]); if (document.activeElement !== num) num.value = show(o[k]); }
     };
     const color = bind(h('input', { type: 'color', value: o.color }), 'color');
     const bold = bind(h('input', { type: 'checkbox', checked: o.bold }), 'bold');

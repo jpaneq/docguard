@@ -1142,7 +1142,8 @@ def _wm_opts(r):
                 opacity=1 - float(r.get("transparency", 70)) / 100, color=r.get("color", "#888888"),
                 bold=bool(r.get("bold", True)), mode=r.get("mode", "single"), px=float(r.get("px", 0.5)),
                 py=float(r.get("py", 0.5)), cols=int(r.get("cols", 3)), rows=int(r.get("rows", 4)),
-                stagger=bool(r.get("stagger", False)), overlay=r.get("layer", "over") == "over")
+                stagger=bool(r.get("stagger", False)), overlay=r.get("layer", "over") == "over",
+                custom_gap=bool(r.get("customGap", False)), gap_x=float(r.get("gap_x", 40)), gap_y=float(r.get("gap_y", 40)))
 
 
 def op_wmark_layer(req):

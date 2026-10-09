@@ -209,6 +209,8 @@ Cada módulo se puede trabajar por separado. El servidor expone cada función co
 
 - `v1.35`: autoguardado = copias de recuperación (`recovery.py`): no sustituyen al guardado, se ofrecen tras una caída y se borran al guardar o cerrar.
 
+- `v1.36`: exportar a Word ya no falla con PDF que traen caracteres de control en el texto; notas de versión con grupos.
+
 ## Publicar una versión nueva
 1. Cambia `VERSION` en `core.py` (por ejemplo `1.18`).
 2. Crea la etiqueta igual y súbela: `git tag v1.18 && git push origin main --tags`.

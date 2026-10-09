@@ -44,8 +44,16 @@ def family(raw, flags):
     return base or ("Times New Roman" if flags & 4 else "Arial")
 
 
+# Caracteres que XML no admite (controles, sustitutos sueltos, U+FFFE/U+FFFF): algunos PDF los traen en su texto
+BAD_XML = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]")
+
+
+def clean(t):
+    return BAD_XML.sub("", t or "")
+
+
 def esc(t):
-    return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return clean(t).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _run(span, hidden):
@@ -122,7 +130,7 @@ def _lines(page):
             continue
         for ln in b["lines"]:
             dx, dy = ln["dir"]
-            spans = [s for s in ln["spans"] if s["text"] != ""]
+            spans = [dict(s, text=clean(s["text"])) for s in ln["spans"] if clean(s["text"]) != ""]
             if not spans or not "".join(s["text"] for s in spans).strip() or abs(dy) > 0.02 or dx < 0.98:
                 continue
             out.append((fitz.Rect(ln["bbox"]), spans))
@@ -190,6 +198,6 @@ def pdf_to_docx_fiel(src, dst, dpi=200, password=None, progress=None):
             last_sect.addprevious(p)
         if progress:
             progress(i + 1, n_pages)
-    word.core_properties.title = (doc.metadata or {}).get("title") or ""
+    word.core_properties.title = clean((doc.metadata or {}).get("title"))
     word.save(dst)
     doc.close()

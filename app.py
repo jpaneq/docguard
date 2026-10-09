@@ -580,9 +580,18 @@ def selftest():
     with _tf.TemporaryDirectory() as tmp:
         src = os.path.join(tmp, "a.pdf")
         doc.save(src)
-        convert.pdf_to_docx(src, os.path.join(tmp, "a.docx"))
+        convert.pdf_to_docx(src, os.path.join(tmp, "a.docx"), "reflujo")
         convert.document_to_pdf(os.path.join(tmp, "a.docx"), os.path.join(tmp, "b.pdf"))
         checks["conversión PDF ↔ Word"] = "12345678Z" in fitz.open(os.path.join(tmp, "b.pdf"))[0].get_text()
+        import zipfile
+        import docx as _docx
+        convert.pdf_to_docx(src, os.path.join(tmp, "f.docx"), "fiel")
+        wd = _docx.Document(os.path.join(tmp, "f.docx"))
+        checks["Word fiel a la página (tamaño y texto)"] = (
+            len(wd.sections) == len(doc)
+            and all(abs(s.page_width.pt - p.rect.width) < 1 and abs(s.page_height.pt - p.rect.height) < 1
+                    for s, p in zip(wd.sections, doc))
+            and "12345678Z" in zipfile.ZipFile(os.path.join(tmp, "f.docx")).read("word/document.xml").decode())
     checks["detección DNI/pasaporte"] = {"mrz", "domicilio"} <= kinds
     try:
         import pkcs11  # noqa: F401

@@ -21,9 +21,37 @@ ASSET = {"darwin": "DocGuard-mac.zip", "win32": "DocGuard-windows.zip"}.get(sys.
 STATE = {}  # versión descargada y lista para instalar al cerrar
 
 
+def _contexts():
+    """Certificados para HTTPS: los del sistema y, si fallan, los de certifi. El Python empaquetado en Mac
+    no trae certificados propios y daba «sin conexión» aunque hubiera internet."""
+    import ssl
+    out = [ssl.create_default_context()]
+    try:
+        import certifi
+        out.append(ssl.create_default_context(cafile=certifi.where()))
+    except Exception:
+        pass
+    return out
+
+
+def _open(req, timeout):
+    """urlopen probando cada juego de certificados; devuelve la respuesta abierta."""
+    import ssl
+    err = None
+    for ctx in _contexts():
+        try:
+            return urllib.request.urlopen(req, timeout=timeout, context=ctx)
+        except Exception as ex:
+            err = ex
+            reason = getattr(ex, "reason", ex)
+            if not isinstance(reason, ssl.SSLError):  # sin red, 404…: otro certificado no ayuda
+                break
+    raise err
+
+
 def _get(url, timeout=10):
     req = urllib.request.Request(url, headers={"User-Agent": "DocGuard", "Accept": "application/vnd.github+json"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    with _open(req, timeout) as r:
         return r.read()
 
 
@@ -69,7 +97,7 @@ def download(info):
     zpath = os.path.join(tmp, ASSET)
     h = hashlib.sha256()
     req = urllib.request.Request(info["url"], headers={"User-Agent": "DocGuard"})
-    with urllib.request.urlopen(req, timeout=60) as r, open(zpath, "wb") as f:
+    with _open(req, 60) as r, open(zpath, "wb") as f:
         total = int(r.headers.get("Content-Length") or 0)
         done = 0
         STATE["progress"] = {"done": 0, "total": total}

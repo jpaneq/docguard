@@ -201,6 +201,8 @@ Cada módulo se puede trabajar por separado. El servidor expone cada función co
 
 - `v1.31`: la barra del visor (páginas, zoom, ajustar a la página / a la ventana, imprimir) va arriba en todas las vistas y ya no la tapa la página; las novedades se muestran como tarjetas en la ventana de actualización (`novedades/`).
 
+- `v1.32`: «Buscar actualizaciones» en Mac ya no dice «sin conexión» (certificados HTTPS del sistema y de certifi).
+
 ## Publicar una versión nueva
 1. Cambia `VERSION` en `core.py` (por ejemplo `1.18`).
 2. Crea la etiqueta igual y súbela: `git tag v1.18 && git push origin main --tags`.

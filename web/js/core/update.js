@@ -34,7 +34,7 @@ const Update = {
     const r = await (manual ? run('Buscando actualizaciones…', () => api('update/check')) : api('update/check').catch(() => null));
     if (!r) return;
     try { localStorage.setItem('dg_update_seen', Date.now()); } catch (e) { /* sin almacenamiento */ }
-    if (!r.available) { if (manual) toast(r.error ? 'No se ha podido consultar (¿sin internet?).' : `Tienes la última versión (${r.current}).`, r.error ? 'err' : 'ok'); return; }
+    if (!r.available) { if (manual) toast(r.error ? `No se ha podido consultar (¿sin internet?): ${String(r.error).slice(0, 160)}` : `Tienes la última versión (${r.current}).`, r.error ? 'err' : 'ok'); return; }
     toast(`Hay una versión nueva de DocGuard: ${r.version} (tienes la ${r.current}).`, 'ok', [{ label: 'Ver y actualizar…', fn: () => this.offer(r) }], 15000);
   },
   offer(r) {

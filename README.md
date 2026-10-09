@@ -203,6 +203,8 @@ Cada módulo se puede trabajar por separado. El servidor expone cada función co
 
 - `v1.32`: «Buscar actualizaciones» en Mac ya no dice «sin conexión» (certificados HTTPS del sistema y de certifi).
 
+- `v1.33`: mano para mover la página (todas las vistas, o Espacio), menú de zoom con más ajustes (ancho, página, alto, 100 %, porcentajes) y comentarios con autor y fecha (pestaña «Comentarios» en Editar).
+
 ## Publicar una versión nueva
 1. Cambia `VERSION` en `core.py` (por ejemplo `1.18`).
 2. Crea la etiqueta igual y súbela: `git tag v1.18 && git push origin main --tags`.

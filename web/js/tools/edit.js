@@ -147,6 +147,7 @@ const Edit = {
     this.wordsCache = {};
     await this.refresh(true);
     this.refreshThumb();
+    if (!this.side.hidden && this.sideTab === 'comments') this.renderSide('comments');
     return true;
   },
   refreshThumb() {
@@ -200,7 +201,8 @@ const Edit = {
     s.innerHTML = '';
     const tabs = h('div', { class: 'seg side-tabs' },
       h('button', { class: tab === 'thumbs' ? 'on' : '', onclick: () => this.renderSide('thumbs') }, 'Miniaturas'),
-      h('button', { class: tab === 'toc' ? 'on' : '', onclick: () => this.renderSide('toc') }, 'Índice'));
+      h('button', { class: tab === 'toc' ? 'on' : '', onclick: () => this.renderSide('toc') }, 'Índice'),
+      h('button', { class: tab === 'comments' ? 'on' : '', onclick: () => this.renderSide('comments') }, 'Comentarios'));
     s.append(tabs);
     if (!this.info) return;
     if (tab === 'thumbs') {
@@ -211,6 +213,17 @@ const Edit = {
       });
       s.append(list);
       list.querySelector('.tp.on')?.scrollIntoView({ block: 'nearest' });
+    } else if (tab === 'comments') {
+      let list = [];
+      try { list = (await api('comments', { id: this.info.id })).comments; } catch (e) { /* sin lista */ }
+      s.append(h('div', { style: 'padding:8px' }, h('button', { class: 'wide', onclick: () => { this.setTool('annot'); this.ann.kind = 'note'; this.draw(); } }, '＋ Añadir comentario')));
+      if (!list.length) { s.append(h('p', { class: 'muted', style: 'padding:6px 12px' }, 'Aún no hay comentarios. Pulsa «Añadir comentario» y haz clic en la página donde quieras ponerlo.')); return; }
+      list.forEach(c => s.append(h('div', { class: 'cm', onclick: () => this.gotoComment(c) },
+        h('div', { class: 'cm-h' }, h('b', {}, c.author || 'Sin autor'), h('span', {}, `p. ${c.n + 1}` + (c.date ? ' · ' + c.date : ''))),
+        h('p', {}, c.content || '(vacío)'),
+        h('div', { class: 'cm-b' },
+          h('button', { onclick: e => { e.stopPropagation(); this.editComment(c); } }, 'Editar'),
+          h('button', { class: 'danger', onclick: async e => { e.stopPropagation(); this.viewer.n === c.n || await this.viewer.go(c.n); await this.op('delete_annot', { n: c.n, xref: c.xref }); } }, 'Borrar')))));
     } else {
       if (!this.outline) {
         try { this.outline = (await api('outline', { id: this.info.id })).toc; } catch (e) { this.outline = []; }
@@ -314,7 +327,7 @@ const Edit = {
       image: 'Arrastra en la página el recuadro donde colocar la imagen.',
       table: 'Arrastra el recuadro donde irá la tabla; después rellena las celdas (puedes pegar desde Excel o Word).',
       shape: 'Arrastra para dibujar la forma (con Mayús: líneas en ángulos de 15°, 45°, 90°…, y cuadrados o círculos). Clic en una forma para moverla o cambiar su tamaño con sus tiradores.',
-      annot: ['highlight', 'underline', 'strikeout'].includes(this.ann.kind) ? 'Pulsa al principio del texto y arrastra hasta el final, como al seleccionar texto (también varias líneas). En páginas escaneadas sin texto, arrastra un recuadro (o pasa antes el OCR).' : this.ann.kind === 'note' ? 'Clic donde quieras la nota.' : this.ann.kind === 'ink' ? 'Dibuja sobre la página.' : 'Arrastra para dibujar el recuadro.',
+      annot: ['highlight', 'underline', 'strikeout'].includes(this.ann.kind) ? 'Pulsa al principio del texto y arrastra hasta el final, como al seleccionar texto (también varias líneas). En páginas escaneadas sin texto, arrastra un recuadro (o pasa antes el OCR).' : this.ann.kind === 'note' ? 'Clic donde quieras el comentario; escribe el texto y guárdalo. Todos aparecen en la pestaña «Comentarios» del panel de la izquierda.' : this.ann.kind === 'ink' ? 'Dibuja sobre la página.' : 'Arrastra para dibujar el recuadro.',
       form: 'Arrastra para crear un campo del tipo elegido. Clic en la etiqueta de un campo para editarlo.',
       sign: 'Elige una firma y arrastra el recuadro donde colocarla, o usa «Al margen» para firmar todas las páginas.',
     }[t]);
@@ -553,6 +566,7 @@ const Edit = {
       const a = this.st.annots.find(x => x.xref === this.sel.id);
       if (a?.style) { add(label(a.label), ...this.shapeControls(a)); return; }
       add(label(a?.label || 'Anotación'), a?.content ? h('span', { class: 'muted' }, a.content.slice(0, 60)) : null,
+        a && (a.type === 'Text' || a.content) ? h('button', { onclick: () => this.editComment({ n: this.viewer.n, xref: a.xref, content: a.content, author: '' }) }, 'Editar comentario…') : null,
         h('span', { class: 'sep' }), ibtn('trash', 'Borrar', () => this.deleteSel()));
       return;
     }
@@ -600,13 +614,13 @@ const Edit = {
     }
     if (t === 'annot') {
       const a = this.ann;
-      const kinds = { highlight: 'Resaltar (fosforito)', underline: 'Subrayar', strikeout: 'Tachar', note: 'Nota', freetext: 'Cuadro de texto', ink: 'Dibujo a mano' };
+      const kinds = { highlight: 'Resaltar (fosforito)', underline: 'Subrayar', strikeout: 'Tachar', note: 'Comentario', freetext: 'Cuadro de texto', ink: 'Dibujo a mano' };
       const neon = { '#fff200': 'Amarillo flúor', '#39ff14': 'Verde flúor', '#ff3fa4': 'Rosa flúor', '#ff9a1f': 'Naranja flúor', '#1ee3ff': 'Azul flúor', '#c86bff': 'Lila flúor' };
       add(label('Anotar'), ...Object.entries(kinds).map(([k, l]) => ibtn(k, l, () => { a.kind = k; this.draw(); }, a.kind === k)),
         h('span', { class: 'sep' }),
         ...Object.entries(neon).map(([c, t]) => h('button', { class: 'swatch' + (a.color === c ? ' on' : ''), title: t, style: `--c:${c}`, onmousedown: e => e.preventDefault(), onclick: () => { a.color = c; this.renderBar(); } })),
         h('input', { type: 'color', value: a.color, title: 'Otro color', onchange: e => { a.color = e.target.value; this.renderBar(); } }),
-        ['note', 'freetext'].includes(a.kind) ? h('input', { class: 'mid', placeholder: 'Texto de la nota', value: a.text, oninput: e => { a.text = e.target.value; } }) : null);
+        ['freetext'].includes(a.kind) ? h('input', { class: 'mid', placeholder: 'Texto de la nota', value: a.text, oninput: e => { a.text = e.target.value; } }) : null);
       return;
     }
     if (t === 'form') {
@@ -738,7 +752,7 @@ const Edit = {
     if (t === 'annot' && ['highlight', 'underline', 'strikeout'].includes(this.ann.kind)) return this.markupDown(e);
     if (t === 'annot' && this.ann.kind === 'note') {
       const [x, y] = v.pt(e);
-      return this.op('add_annot', { kind: 'note', rect: [x, y, x + 20, y + 20], text: this.ann.text || 'Nota', color: this.ann.color });
+      return this.addComment(x, y);
     }
     const d = await v.drag(e, { ink: t === 'annot' && this.ann.kind === 'ink', shape: t === 'shape' ? this.shape.kind : null });
     if (t === 'select') {
@@ -1201,6 +1215,41 @@ const Edit = {
     } catch (e) {
       toast('No hay nada copiado todavía. Selecciona texto, una imagen o una zona y pulsa ⌘C.', '', [], 4000);
     }
+  },
+
+  /* ---- Comentarios (notas con autor y fecha, visibles en Acrobat y otros lectores) ---- */
+  commentDialog(title, { text = '', author = '' } = {}) {
+    return new Promise(resolve => {
+      const ta = h('textarea', { rows: 5, placeholder: 'Escribe tu comentario…' }, text);
+      const au = h('input', { value: author, placeholder: 'Tu nombre' });
+      let done = false;
+      const finish = v => { if (!done) { done = true; resolve(v); } };
+      modal({
+        title, onclose: () => finish(null),
+        body: h('div', {}, h('label', {}, 'Comentario', ta), h('label', {}, 'Autor', au)),
+        actions: [{ label: 'Cancelar', fn: () => finish(null) }, { label: 'Guardar', primary: true, fn: () => { if (!ta.value.trim()) return false; finish({ text: ta.value.trim(), author: au.value.trim() }); } }],
+      });
+      setTimeout(() => ta.focus(), 50);
+    });
+  },
+  async addComment(x, y) {
+    let author = '';
+    try { author = localStorage.getItem('dg_author') || ''; } catch (e) { /* sin almacenamiento */ }
+    const r = await this.commentDialog('Nuevo comentario', { author });
+    if (!r) return;
+    try { localStorage.setItem('dg_author', r.author); } catch (e) { /* sin almacenamiento */ }
+    await this.op('add_annot', { kind: 'note', rect: [x, y, x + 20, y + 20], text: r.text, author: r.author, color: this.ann.color });
+  },
+  async editComment(c) {
+    const r = await this.commentDialog('Editar comentario', { text: c.content, author: c.author });
+    if (!r) return;
+    if (this.viewer.n !== c.n) await this.viewer.go(c.n);
+    await this.op('edit_comment', { n: c.n, xref: c.xref, text: r.text });
+  },
+  gotoComment(c) {
+    this.setTool('select');
+    this.viewer.go(c.n);
+    setTimeout(() => this.select('annot', c.xref), 500);
   },
 
   /* ---- Tabla: rellenar las celdas (se puede pegar desde Excel o Word) ---- */

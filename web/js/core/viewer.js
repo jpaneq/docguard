@@ -13,17 +13,20 @@ class Viewer {
     const b = (t, f, title) => h('button', { onclick: f, title }, t);
     const ib = (ic, title, f) => h('button', { class: 'vb-ic', title, innerHTML: uiIcon(ic, 16), onclick: f });
     const sep = () => h('span', { class: 'vsep' });
-    this.zlbl = h('button', { class: 'vz', title: 'Zoom actual (clic: 100 %)', onclick: () => this.setZoom(1) }, '100 %');
-    this.btnWin = ib('fitwin', 'Ajustar a la ventana (al ancho)', () => this.fitTo(false));
-    this.btnPage = ib('fitpage', 'Ajustar a la página (la hoja entera)', () => this.fitTo(true));
+    this.zlbl = h('button', { class: 'vz', title: 'Zoom actual: clic para ver más tamaños y ajustes', onclick: e => { e.stopPropagation(); this.zoomMenu(); } }, '100 %');
+    this.btnWin = ib('fitwin', 'Ajustar a la ventana (al ancho)', () => this.fitTo('width'));
+    this.btnPage = ib('fitpage', 'Ajustar a la página (la hoja entera)', () => this.fitTo('page'));
+    this.btnHand = ib('hand', 'Mano: arrastra para mover la página (mantén Espacio para usarla un momento)', () => this.setHand(!this.hand));
     // La barra va arriba, fuera de la zona de desplazamiento: ninguna página puede taparla
     this.bar = h('div', { class: 'vbar', style: 'display:none' },
       b('◀', () => this.go(this.n - 1), 'Página anterior'), this.lbl = h('span'), b('▶', () => this.go(this.n + 1), 'Página siguiente'),
       sep(), b('−', () => this.setZoom(this.zoom / 1.2), 'Alejar'), this.zlbl, b('+', () => this.setZoom(this.zoom * 1.2), 'Acercar'),
       sep(), this.btnWin, this.btnPage,
+      sep(), this.btnHand,
       sep(), ib('print', 'Imprimir (⌘P / Ctrl+P)', () => this.print()));
     host.append(this.bar, this.el);
-    this.info = null; this.n = 0; this.zoom = 1; this.v = 0; this.fitMode = true;
+    this.info = null; this.n = 0; this.zoom = 1; this.v = 0; this.fitMode = true; this.hand = false;
+    this.initHand();
     this.onpage = null; this.onrender = null;
     new ResizeObserver(() => { if (this.info && this.fitMode) this.fit(); }).observe(this.el);
     // Flechas ← →: página anterior / siguiente. En «window» llega después que en las herramientas,
@@ -67,13 +70,54 @@ class Viewer {
     if (this.el.closest('#tool-redact')) return toast('En Censurar las marcas aún no se han aplicado: guarda el PDF censurado y imprime ese.', 'err', [], 6000);
     printDoc(this.info);
   }
-  /** «Ajustar a la página» (hoja entera) o «a la ventana» (al ancho). */
-  fitTo(page) { this.fitPage = page; this.fit(); }
+  /** Ajuste: 'width' (a la ventana), 'page' (hoja entera) o 'height' (al alto). */
+  fitTo(kind) { this.fitKind = kind; this.fitPage = kind === 'page'; this.fit(); }
+  get fitMode_() { return this.fitKind || (this.fitPage ? 'page' : 'width'); }
+  /** Menú del zoom: tamaños y ajustes. */
+  zoomMenu() {
+    $$('.zoom-menu').forEach(m => m.remove());
+    const r = this.zlbl.getBoundingClientRect();
+    const item = (t, f) => h('button', { onclick: () => { close(); f(); } }, t);
+    const m = h('div', { class: 'zoom-menu', style: `left:${Math.max(4, r.left - 40)}px; top:${r.bottom + 4}px` },
+      item('Ajustar a la ventana (ancho)', () => this.fitTo('width')), item('Ajustar a la página (hoja entera)', () => this.fitTo('page')),
+      item('Ajustar al alto', () => this.fitTo('height')), item('Tamaño real (100 %)', () => this.setZoom(1)),
+      h('div', { class: 'mi-sep' }), ...[0.5, 0.75, 1.25, 1.5, 2, 3, 4].map(z => item(Math.round(z * 100) + ' %', () => this.setZoom(z))));
+    const close = () => { m.remove(); document.removeEventListener('mousedown', away, true); };
+    const away = e => { if (!m.contains(e.target)) close(); };
+    document.body.append(m);
+    setTimeout(() => document.addEventListener('mousedown', away, true), 0);
+  }
+  /** Mano: arrastrar mueve la página en vez de usar la herramienta activa (vale en todas las vistas). */
+  setHand(on) { this.hand = !!on; this.el.classList.toggle('hand', this.hand); this.btnHand.classList.toggle('on', this.hand); }
+  initHand() {
+    let pan = null;
+    this.el.addEventListener('mousedown', e => {
+      if (!this.hand || e.button !== 0) return;
+      e.preventDefault(); e.stopPropagation();  // en captura: la herramienta de debajo no se entera
+      pan = { x: e.clientX, y: e.clientY, sl: this.el.scrollLeft, st: this.el.scrollTop };
+      this.el.classList.add('panning');
+    }, true);
+    window.addEventListener('mousemove', e => {
+      if (!pan) return;
+      this.el.scrollLeft = pan.sl - (e.clientX - pan.x);
+      this.el.scrollTop = pan.st - (e.clientY - pan.y);
+    });
+    window.addEventListener('mouseup', () => { if (pan) { pan = null; this.el.classList.remove('panning'); } });
+    // Espacio mantenido = mano temporal (como en Acrobat o Photoshop)
+    let temp = false;
+    window.addEventListener('keydown', e => {
+      if (e.code !== 'Space' || e.repeat || temp || this.hand || !this.info || !this.el.offsetParent) return;
+      const a = document.activeElement;
+      if ($('.modal-bg') || /INPUT|TEXTAREA|SELECT/.test(a?.tagName) || a?.isContentEditable) return;
+      e.preventDefault(); temp = true; this.setHand(true);
+    });
+    window.addEventListener('keyup', e => { if (e.code === 'Space' && temp) { temp = false; this.setHand(false); } });
+  }
   /** Porcentaje de zoom y modo de ajuste activo en la barra. */
   syncBar() {
     this.zlbl.textContent = Math.round(this.zoom * 100) + ' %';
-    this.btnWin.classList.toggle('on', this.fitMode && !this.fitPage);
-    this.btnPage.classList.toggle('on', this.fitMode && !!this.fitPage);
+    this.btnWin.classList.toggle('on', this.fitMode && this.fitMode_ === 'width');
+    this.btnPage.classList.toggle('on', this.fitMode && this.fitMode_ === 'page');
   }
   /** Vista previa del zoom: solo cambia el tamaño de las páginas, sin pedir imágenes nuevas. */
   previewZoom(z) {
@@ -114,8 +158,8 @@ class Viewer {
   }
   /** Zoom de «Ajustar»: al ancho o, con fitPage, la página entera (también de alto; deja sitio a la barra ◀ ▶). */
   fitZoom(w, pw, ph) {
-    const zw = w / pw;
-    return this.fitPage ? Math.min(zw, (this.el.clientHeight - 44) / ph) : zw;
+    const zw = w / pw, zh = (this.el.clientHeight - 44) / ph, k = this.fitMode_;
+    return k === 'page' ? Math.min(zw, zh) : k === 'height' ? zh : zw;
   }
   setZoom(z) { this.fitMode = false; this.zoom = clamp(z, 0.2, 5); this.render(); }
   go(n) {

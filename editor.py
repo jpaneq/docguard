@@ -563,7 +563,7 @@ def add_markup(doc, pno, kind, rects, color="#fff200", area=False):
     a.update()
 
 
-def add_annotation(doc, pno, kind, rect, text="", color="#ffd400", size=12):
+def add_annotation(doc, pno, kind, rect, text="", color="#ffd400", size=12, author=""):
     page = doc[pno]
     r = from_view(page, rect)
     col = rgb(color)
@@ -577,8 +577,9 @@ def add_annotation(doc, pno, kind, rect, text="", color="#ffd400", size=12):
              "strikeout": page.add_strikeout_annot}[kind](quads)
         a.set_colors(stroke=col)
     elif kind == "note":
-        a = page.add_text_annot(r.tl, text or "Nota")
+        a = page.add_text_annot(r.tl, text or "Comentario")
         a.set_colors(stroke=col)
+        a.set_info(title=(author or "Usuario")[:60], subject="Comentario", creationDate=fitz.get_pdf_now())
     elif kind == "rect":
         a = page.add_rect_annot(r)
         a.set_colors(stroke=col)
@@ -651,6 +652,33 @@ def add_ink(doc, pno, strokes, color="#1a4fd6", width=2):
         a.set_colors(stroke=rgb(color))
         a.set_border(width=width)
         a.update()
+
+
+def edit_comment(doc, pno, xref, text):
+    """Cambia el texto de un comentario (nota) ya puesto."""
+    page = doc[pno]  # la página debe seguir viva mientras se usa la anotación
+    a = _find_annot(page, xref)
+    a.set_info(content=text, modDate=fitz.get_pdf_now())
+    a.update()
+
+
+def _pdf_date(s):
+    m = re.match(r"D:(\d{4})(\d{2})(\d{2})(\d{2})?(\d{2})?", s or "")
+    return f"{m[3]}/{m[2]}/{m[1]}" + (f" {m[4]}:{m[5] or '00'}" if m[4] else "") if m else ""
+
+
+def list_comments(doc):
+    """Todos los comentarios del documento (notas y cualquier anotación con texto), por página."""
+    out = []
+    for n, page in enumerate(doc):
+        for a in page.annots() or ():
+            info = a.info
+            if a.type[1] == "Popup" or not (info.get("content") or a.type[1] == "Text"):
+                continue
+            out.append({"n": n, "xref": a.xref, "type": a.type[1], "label": ANNOT_LABELS.get(a.type[1], a.type[1]),
+                        "author": info.get("title", ""), "date": _pdf_date(info.get("modDate") or info.get("creationDate")),
+                        "content": info.get("content", ""), "bbox": to_view(page, a.rect)})
+    return out
 
 
 def delete_annotation(doc, pno, xref):

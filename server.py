@@ -1044,6 +1044,10 @@ def op_edit_state(req):
             "size": [page.rect.width, page.rect.height]}
 
 
+def op_comments(req):
+    return {"comments": editor.list_comments(need_pdf(get_doc(req)))}
+
+
 def op_copy_object(req):
     d = get_doc(req)
     return editor.copy_object(need_pdf(d), int(req["n"]), req["kind"], int(req["xref"]))
@@ -1093,7 +1097,8 @@ EDIT_OPS = {
     "move_image": lambda doc, r: editor.move_image(doc, r["n"], r["xref"], r["rect"]),
     "delete_image": lambda doc, r: editor.delete_image(doc, r["n"], r["xref"]),
     "add_annot": lambda doc, r: editor.add_annotation(doc, r["n"], r["kind"], r["rect"], r.get("text", ""),
-                                                     r.get("color", "#ffd400"), float(r.get("size", 12))),
+                                                     r.get("color", "#ffd400"), float(r.get("size", 12)), r.get("author", "")),
+    "edit_comment": lambda doc, r: editor.edit_comment(doc, r["n"], r["xref"], r.get("text", "")),
     "add_ink": lambda doc, r: editor.add_ink(doc, r["n"], r["strokes"], r.get("color", "#1a4fd6"),
                                             float(r.get("width", 2))),
     "header_footer": lambda doc, r: editor.header_footer(
@@ -1625,7 +1630,7 @@ OPS = {
     "todocx": op_todocx, "doctopdf": op_doctopdf, "redact/preview": op_redact_preview,
     "pages/save": op_pages_save, "encrypt": op_encrypt, "decrypt": op_decrypt,
     "compress": op_compress, "toimages": op_toimages, "topdf": op_topdf, "sanitize": op_sanitize, "merge": op_merge, "merge_pages": op_merge_pages,
-    "edit/state": op_edit_state, "edit/words": op_edit_words, "edit/copy_object": op_copy_object, "fonts": op_fonts, "outline": op_outline, "edit/undo": op_undo, "edit/redo": op_redo, "edit/export": op_edit_export,
+    "edit/state": op_edit_state, "comments": op_comments, "edit/words": op_edit_words, "edit/copy_object": op_copy_object, "fonts": op_fonts, "outline": op_outline, "edit/undo": op_undo, "edit/redo": op_redo, "edit/export": op_edit_export,
     "sigimgs": op_sigimgs, "sigimg/save": op_sigimg_save, "sigimg/delete": op_sigimg_delete,
     "sigimg/place": op_place_sigimg, "sigimg/margin": op_sign_margin, "edit/copy": op_copy, "edit/copy_spans": op_copy_spans, "certinfo": op_certinfo, "sign": op_sign, "sign/test": op_sign_test, "sign/batch": op_sign_batch,
     "track/add": op_track_add, "track/check": op_track_check, "track/list": op_track_list, "track/delete": op_track_delete,

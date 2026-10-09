@@ -1125,6 +1125,31 @@ def op_edit_state(req):
             "size": [page.rect.width, page.rect.height]}
 
 
+def _wm_pages(doc, r):
+    n = len(doc)
+    if r.get("scope") == "current":
+        return [int(r["n"])]
+    if r.get("scope") == "range":
+        pages = sorted({p for g in core.parse_ranges(r.get("range") or "", n) for p in g})
+        if not pages:
+            raise ValueError("Indica las páginas (por ejemplo 1-3, 5).")
+        return pages
+    return list(range(n))
+
+
+def _wm_opts(r):
+    return dict(text=r.get("text", ""), size=float(r.get("size", 60)), angle=float(r.get("angle", 45)),
+                opacity=1 - float(r.get("transparency", 70)) / 100, color=r.get("color", "#888888"),
+                bold=bool(r.get("bold", True)), mode=r.get("mode", "single"), px=float(r.get("px", 0.5)),
+                py=float(r.get("py", 0.5)), cols=int(r.get("cols", 3)), rows=int(r.get("rows", 4)),
+                stagger=bool(r.get("stagger", False)), overlay=r.get("layer", "over") == "over")
+
+
+def op_wmark_preview(req):
+    d = get_doc(req)
+    return ("image/png", editor.watermark_preview(need_pdf(d), int(req["n"]), **_wm_opts(req)))
+
+
 def op_comments(req):
     return {"comments": editor.list_comments(need_pdf(get_doc(req)))}
 
@@ -1179,6 +1204,7 @@ EDIT_OPS = {
     "delete_image": lambda doc, r: editor.delete_image(doc, r["n"], r["xref"]),
     "add_annot": lambda doc, r: editor.add_annotation(doc, r["n"], r["kind"], r["rect"], r.get("text", ""),
                                                      r.get("color", "#ffd400"), float(r.get("size", 12)), r.get("author", "")),
+    "add_watermark": lambda doc, r: editor.add_watermark(doc, _wm_pages(doc, r), **_wm_opts(r)),
     "edit_comment": lambda doc, r: editor.edit_comment(doc, r["n"], r["xref"], r.get("text", "")),
     "add_ink": lambda doc, r: editor.add_ink(doc, r["n"], r["strokes"], r.get("color", "#1a4fd6"),
                                             float(r.get("width", 2))),
@@ -1714,7 +1740,7 @@ OPS = {
     "todocx": op_todocx, "doctopdf": op_doctopdf, "redact/preview": op_redact_preview,
     "pages/save": op_pages_save, "encrypt": op_encrypt, "decrypt": op_decrypt,
     "compress": op_compress, "toimages": op_toimages, "topdf": op_topdf, "sanitize": op_sanitize, "merge": op_merge, "merge_pages": op_merge_pages,
-    "edit/state": op_edit_state, "recovery/list": op_recovery_list, "recovery/open": op_recovery_open, "recovery/discard": op_recovery_discard, "recovery/clear": op_recovery_clear, "autosave/settings": op_autosave_settings, "comments": op_comments, "edit/words": op_edit_words, "edit/copy_object": op_copy_object, "fonts": op_fonts, "outline": op_outline, "edit/undo": op_undo, "edit/redo": op_redo, "edit/export": op_edit_export,
+    "edit/state": op_edit_state, "recovery/list": op_recovery_list, "wmark/preview": op_wmark_preview, "recovery/open": op_recovery_open, "recovery/discard": op_recovery_discard, "recovery/clear": op_recovery_clear, "autosave/settings": op_autosave_settings, "comments": op_comments, "edit/words": op_edit_words, "edit/copy_object": op_copy_object, "fonts": op_fonts, "outline": op_outline, "edit/undo": op_undo, "edit/redo": op_redo, "edit/export": op_edit_export,
     "sigimgs": op_sigimgs, "sigimg/save": op_sigimg_save, "sigimg/delete": op_sigimg_delete,
     "sigimg/place": op_place_sigimg, "sigimg/margin": op_sign_margin, "edit/copy": op_copy, "edit/copy_spans": op_copy_spans, "certinfo": op_certinfo, "sign": op_sign, "sign/test": op_sign_test, "sign/batch": op_sign_batch,
     "track/add": op_track_add, "track/check": op_track_check, "track/list": op_track_list, "track/delete": op_track_delete,

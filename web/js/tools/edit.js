@@ -96,6 +96,7 @@ const Edit = {
     act('findnext', () => this.findStep(1));
     act('findprev', () => this.findStep(-1));
     act('unwm', () => this.removeWatermarks());
+    act('addwm', () => this.watermarkDialog());
     act('toword', async () => saveResult(await run('Convirtiendo a Word…', () => api('todocx', { ids: [this.info.id], mode: 'fiel' }))));
     act('export', async () => {
       const saved = await saveResult(await run('Preparando…', () => api('edit/export', { id: this.info.id })));
@@ -126,6 +127,7 @@ const Edit = {
     $('[data-act=export]', this.root).disabled = false;
     $('[data-act=toword]', this.root).disabled = false;
     $('[data-act=unwm]', this.root).disabled = false;
+    $('[data-act=addwm]', this.root).disabled = false;
     this.viewer.load(info);
     this.outline = null;
     if (!this.side.hidden) this.renderSide();
@@ -1220,6 +1222,71 @@ const Edit = {
     } catch (e) {
       toast('No hay nada copiado todavía. Selecciona texto, una imagen o una zona y pulsa ⌘C.', '', [], 4000);
     }
+  },
+
+  /* ---- Poner marca de agua (texto, posición, inclinación, transparencia, repeticiones, páginas) ---- */
+  watermarkDialog() {
+    if (!this.info) return toast('Abre primero un documento.', 'err');
+    const o = this.wm = Object.assign({ text: 'CONFIDENCIAL', size: 60, angle: 45, transparency: 70, color: '#888888', bold: true, mode: 'single',
+      px: 0.5, py: 0.5, cols: 3, rows: 4, stagger: false, layer: 'over', scope: 'all', range: '' }, this.wm || {});
+    const img = h('img', { class: 'wm-prev', alt: 'Vista previa' });
+    let seq = 0, timer = 0;
+    const preview = () => {
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        const mine = ++seq;
+        try {
+          const blob = await api('wmark/preview', { id: this.info.id, n: this.viewer.n, ...o });
+          if (mine !== seq) return;
+          const old = img.src; img.src = URL.createObjectURL(blob); if (old.startsWith('blob:')) URL.revokeObjectURL(old);
+        } catch (e) { /* mientras se escribe puede faltar el texto */ }
+      }, 220);
+    };
+    const bind = (el, k, conv = v => v) => { el.addEventListener('input', () => { o[k] = conv(el.type === 'checkbox' ? el.checked : el.value); sync(); preview(); }); return el; };
+    const outs = [];
+    const slider = (label, k, min, max, step = 1, unit = '') => {
+      const out = h('output', {}, o[k] + unit), r = h('input', { type: 'range', min, max, step, value: o[k] });
+      r.addEventListener('input', () => { out.textContent = r.value + unit; });
+      bind(r, k, Number);
+      outs.push([k, r, out, unit]);
+      return h('label', {}, label, out, r);
+    };
+    const text = bind(h('textarea', { rows: 2, placeholder: 'Texto de la marca de agua (admite {fecha} y {hora}; Intro = otra línea)' }, o.text), 'text');
+    const grid = h('div', { class: 'wm-grid' }, [0, 0.5, 1].flatMap(py => [0, 0.5, 1].map(px =>
+      h('button', { class: 'wm-pos', title: 'Colocar aquí', onclick: () => { o.px = px; o.py = py; sync(); preview(); } }))));
+    const mode = h('div', { class: 'seg' }, [['single', 'Una vez'], ['tile', 'Mosaico (repetir)']].map(([v, t]) =>
+      h('button', { 'data-v': v, onclick: () => { o.mode = v; sync(); preview(); } }, t)));
+    const posBox = h('div', {}, h('div', { class: 'row' }, grid, h('small', { class: 'muted' }, 'Elige una posición o ajústala con los deslizadores.')),
+      slider('Horizontal', 'px', 0, 1, 0.01), slider('Vertical', 'py', 0, 1, 0.01));
+    const tileBox = h('div', {}, slider('Veces en horizontal (columnas)', 'cols', 1, 12), slider('Veces en vertical (filas)', 'rows', 1, 20),
+      h('label', { class: 'inline' }, bind(h('input', { type: 'checkbox', checked: o.stagger }), 'stagger'), 'Alternar filas (al tresbolillo)'));
+    const range = bind(h('input', { placeholder: 'p. ej. 1-3, 5', value: o.range }), 'range');
+    const scope = bind(h('select', {}, [['all', 'Todas las páginas'], ['current', 'Solo la página actual'], ['range', 'Un rango de páginas']].map(([v, t]) => h('option', { value: v, selected: o.scope === v }, t))), 'scope');
+    const layer = bind(h('select', {}, [['over', 'Encima del contenido'], ['under', 'Detrás del contenido (solo si la página no tiene fondo)']].map(([v, t]) => h('option', { value: v, selected: o.layer === v }, t))), 'layer');
+    const sync = () => {
+      $$('button', mode).forEach(b => b.classList.toggle('on', b.dataset.v === o.mode));
+      posBox.hidden = o.mode !== 'single'; tileBox.hidden = o.mode !== 'tile'; range.hidden = o.scope !== 'range';
+      $$('.wm-pos', grid).forEach((b, i) => b.classList.toggle('on', Math.abs(o.px - [0, 0.5, 1][i % 3]) < 0.02 && Math.abs(o.py - [0, 0.5, 1][Math.floor(i / 3)]) < 0.02));
+      for (const [k, r, out, unit] of outs) { r.value = o[k]; out.textContent = (+o[k] % 1 ? (+o[k]).toFixed(2) : o[k]) + unit; }
+    };
+    const color = bind(h('input', { type: 'color', value: o.color }), 'color');
+    const bold = bind(h('input', { type: 'checkbox', checked: o.bold }), 'bold');
+    const form = h('div', { class: 'wm-form' },
+      h('label', {}, 'Texto', text),
+      slider('Tamaño de letra', 'size', 8, 220), slider('Inclinación', 'angle', -90, 90, 1, '°'),
+      slider('Transparencia', 'transparency', 0, 95, 1, ' %'),
+      h('div', { class: 'row' }, h('label', { class: 'inline' }, 'Color ', color), h('label', { class: 'inline' }, bold, 'Negrita')),
+      h('h3', {}, 'Dónde y cuántas veces'), mode, posBox, tileBox,
+      h('h3', {}, 'Dónde aplicarla'), h('label', {}, 'Páginas', scope, range), h('label', {}, 'Capa', layer));
+    sync(); preview();
+    modal({
+      wide: true, title: 'Poner marca de agua',
+      body: h('div', { class: 'wm-dlg' }, form, h('div', { class: 'wm-side' }, h('div', { class: 'muted' }, `Vista previa · página ${this.viewer.n + 1}`), img)),
+      actions: [{ label: 'Cancelar' }, { label: 'Aplicar marca de agua', primary: true, fn: async () => {
+        if (!o.text.trim()) { toast('Escribe el texto de la marca de agua.', 'err'); return false; }
+        await this.op('add_watermark', { ...o }, 'Aplicando la marca de agua…');
+      } }],
+    });
   },
 
   /* ---- Comentarios (notas con autor y fecha, visibles en Acrobat y otros lectores) ---- */

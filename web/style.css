@@ -664,3 +664,14 @@ button .mi-ic { vertical-align: -3px; margin-right: 2px; color: inherit; }
 .rc-ic { font-size: 22px; } .rc-t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .rc-t b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wn-sec { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin: 6px 2px -2px; }
+
+/* Poner marca de agua */
+.wm-dlg { display: flex; gap: 18px; align-items: flex-start; max-width: 880px; }
+.wm-form { flex: 1; min-width: 300px; max-height: 66vh; overflow: auto; padding-right: 6px; }
+.wm-side { flex: 1; min-width: 240px; position: sticky; top: 0; }
+.wm-prev { width: 100%; max-height: 62vh; object-fit: contain; border: 1px solid var(--line); border-radius: 6px; background: #fff; margin-top: 6px; }
+.wm-form textarea { width: 100%; }
+.wm-grid { display: grid; grid-template-columns: repeat(3, 22px); gap: 3px; margin: 4px 12px 4px 0; }
+.wm-pos { width: 22px; height: 22px; padding: 0 !important; border-radius: 4px; }
+.wm-pos.on { background: var(--accent); border-color: var(--accent); }
+.seg button.on { background: var(--accent); color: var(--accent-ink); }

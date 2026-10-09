@@ -441,6 +441,68 @@ def add_table(doc, pno, rect, cells, size=11, color="#000000", stroke="#000000",
     return f"Tabla de {rows}×{cols}"
 
 
+def _text_width(kw, text, size):
+    try:
+        if "fontfile" in kw:
+            return fitz.Font(fontfile=kw["fontfile"]).text_length(text, size)
+        if "fontbuffer" in kw:
+            return fitz.Font(fontbuffer=kw["fontbuffer"]).text_length(text, size)
+        return fitz.Font(kw["fontname"]).text_length(text, size)
+    except Exception:
+        return fitz.get_text_length(text, "helv", size)
+
+
+def add_watermark(doc, pages, text, size=60, angle=45, opacity=0.3, color="#888888", bold=True, mode="single",
+                  px=0.5, py=0.5, cols=3, rows=4, stagger=False, overlay=True, font="base:helv"):
+    """Marca de agua de texto en las páginas `pages` (índices). mode="single": una vez, centrada en
+    (px, py) (fracciones de la página); mode="tile": mosaico de `cols`×`rows` repeticiones.
+    `angle` en grados (antihorario, como se ve); `opacity` 0-1. Admite varias líneas y {fecha}, {hora}."""
+    import datetime
+    now = datetime.datetime.now()
+    text = str(text).replace("{fecha}", now.strftime("%d/%m/%Y")).replace("{hora}", now.strftime("%H:%M")).strip("\n")
+    if not text.strip():
+        raise ValueError("Escribe el texto de la marca de agua.")
+    size = max(4.0, float(size))
+    opacity = min(1.0, max(0.02, float(opacity)))
+    lines = text.split("\n")
+    for pno in pages:
+        page = doc[pno]
+        view = fitz.Rect(0, 0, *(fitz.Rect(page.rect).br * 1))  # tamaño visible (ya con la rotación de página)
+        W, H = view.width, view.height
+        kw, _ = resolve_font(doc, page, "", 16 if bold else 0, "".join(lines), font)
+        kw = _kw(page, kw)
+        widths = [_text_width(kw, ln, size) for ln in lines]
+        lh = size * 1.2
+        if mode == "tile":
+            cols_, rows_ = max(1, int(cols)), max(1, int(rows))
+            centers = []
+            for r in range(rows_):
+                odd = stagger and r % 2  # al tresbolillo: las filas impares van desplazadas media celda
+                for c in range(cols_ + 1 if odd else cols_):
+                    centers.append(((c if odd else c + 0.5) / cols_ * W, (r + 0.5) / rows_ * H))
+        else:
+            centers = [(float(px) * W, float(py) * H)]
+        for cx, cy in centers:
+            pivot = point_from_view(page, cx, cy)
+            top = cy - len(lines) * lh / 2
+            for k, ln in enumerate(lines):
+                p = point_from_view(page, cx - widths[k] / 2, top + k * lh + size * 0.95)
+                page.insert_text(p, ln, fontsize=size, color=rgb(color), fill_opacity=opacity, stroke_opacity=opacity,
+                                 rotate=page.rotation, overlay=bool(overlay), **kw,
+                                 morph=(pivot, fitz.Matrix(float(angle))) if angle else None)
+    return f"Marca de agua en {len(pages)} página(s)"
+
+
+def watermark_preview(doc, pno, **opts):
+    """PNG de una página con la marca de agua aplicada a una copia (vista previa)."""
+    tmp = fitz.open()
+    tmp.insert_pdf(doc, from_page=pno, to_page=pno)
+    add_watermark(tmp, [0], **opts)
+    pix = tmp[0].get_pixmap(dpi=96, alpha=False)
+    tmp.close()
+    return pix.tobytes("png")
+
+
 # --------------------------------------------------------------------------
 # Imágenes
 # --------------------------------------------------------------------------

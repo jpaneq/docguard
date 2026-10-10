@@ -681,3 +681,21 @@ body[data-view=edit] .wm-form textarea { width: 100%; }
 .seg button.on { background: var(--accent); color: var(--accent-ink); }
 .wm-val { float: right; display: inline-flex; align-items: center; gap: 3px; color: var(--muted); }
 .wm-numin { width: 66px !important; text-align: right; padding: 1px 4px !important; border-radius: 5px !important; }
+
+/* Regla de Editar (ruler.js): franja translúcida con mm/cm, transportador con el ángulo y trazado por sus bordes */
+.ruler { position: absolute; z-index: 30; transform-origin: 50% 50%; cursor: move; user-select: none; filter: drop-shadow(0 2px 6px rgba(0, 0, 0, .25)); }
+.ruler-svg { display: block; overflow: visible; }
+.ruler-svg .rb { fill: rgba(232, 234, 238, .78); stroke: rgba(60, 64, 72, .55); stroke-width: 1; }
+.ruler-svg .tk { stroke: #3a3f48; stroke-width: 1; }
+.ruler-svg .tk-cm { stroke-width: 1.4; }
+.ruler-svg .tl { font: 600 11px system-ui, sans-serif; fill: #3a3f48; text-anchor: middle; }
+.ruler-dial { position: absolute; left: 50%; top: 50%; width: 60px; height: 60px; cursor: grab; display: grid; place-items: center; }
+.ruler-dial svg { position: absolute; inset: 0; }
+.ruler-dial .dc { fill: rgba(250, 251, 252, .92); stroke: rgba(60, 64, 72, .5); }
+.ruler-dial .dt { stroke: #6b7280; stroke-width: 1; }
+.ruler-dial .dr { stroke: #e03131; stroke-width: 2.2; stroke-linecap: round; }
+.ruler-dial b { position: relative; font: 700 14px system-ui, sans-serif; color: #1f2329; }
+.ruler-guide { position: absolute; pointer-events: none; z-index: 29; overflow: visible; }
+.ruler-guide .rg-len { font: 600 12px system-ui, sans-serif; fill: #1a4fd6; paint-order: stroke; stroke: #fff; stroke-width: 3px; }
+.viewer.ruler-edge, .viewer.ruler-edge .ov { cursor: crosshair !important; }
+.viewer.zooming .ruler, .viewer.zooming .ruler-guide { visibility: hidden; }

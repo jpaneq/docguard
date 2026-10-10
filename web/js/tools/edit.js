@@ -43,6 +43,7 @@ const ICON = {
   margin: '<rect x="4" y="2.5" width="12" height="15" rx="1"/><path d="M13.5 5c-1 2 1 3 0 5s1 3 0 5"/>',
   pages: '<rect x="2.5" y="3" width="5" height="6.5" rx="1"/><rect x="2.5" y="11" width="5" height="6.5" rx="1"/><path d="M10 4.5h7.5M10 8h5M10 12.5h7.5M10 16h5"/>',
   flatten: '<path d="M3 7l7-4 7 4-7 4z"/><path d="M3 11l7 4 7-4"/>',
+  ruler: '<path d="M2.500 13.500l11-11 4 4-11 11z"/><path d="M6 10l1.500 1.500M8.500 7.500L10 9M11 5l1.500 1.500"/>',
   unwm: '<path d="M10 2.8c2.9 3.3 5 5.800 5 8.500a5 5 0 01-10 0c0-2.700 2.100-5.200 5-8.500z"/><path d="M3.500 3.500l13 13"/>',
 };
 
@@ -87,6 +88,8 @@ const Edit = {
     act('paste', () => this.pasteAny());
     act('delete', () => this.deleteSel());
     act('ocr', () => this.ocrDialog());
+    act('ruler', () => Ruler.toggle());
+    Ruler.attach(this);
     const find = $('[data-k=find]', this.root);
     find.addEventListener('keydown', e => {
       e.stopPropagation();

@@ -221,6 +221,8 @@ Cada módulo se puede trabajar por separado. El servidor expone cada función co
 
 - `v1.41`: marcar casillas y botones de opción en formularios cuyos botones no tienen estados de apariencia (antes daba «pdf_set_field_value, argument 3 of type 'char const *'»): `editor._on_value` obtiene siempre un nombre de estado válido.
 
+- `v1.42`: regla en Editar (`web/js/tools/ruler.js`): franja con mm/cm a escala real que sigue al documento, giro grado a grado (rueda, ← / →, arrastrar el transportador) o escribiendo el ángulo, y trazado de líneas pegadas a sus bordes con la medida en cm.
+
 ## Publicar una versión nueva
 1. Cambia `VERSION` en `core.py` (por ejemplo `1.18`).
 2. Crea la etiqueta igual y súbela: `git tag v1.18 && git push origin main --tags`.

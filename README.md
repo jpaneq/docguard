@@ -223,6 +223,8 @@ Cada módulo se puede trabajar por separado. El servidor expone cada función co
 
 - `v1.42`: regla en Editar (`web/js/tools/ruler.js`): franja con mm/cm a escala real que sigue al documento, giro grado a grado (rueda, ← / →, arrastrar el transportador) o escribiendo el ángulo, y trazado de líneas pegadas a sus bordes con la medida en cm.
 
+- `v1.43`: buscar dentro del documento abierto en el Visor (⌘F o la lupa de la barra flotante; Intro / Mayús+Intro entre coincidencias, Esc cierra). Antes el buscador solo estaba en la lista, tapada por el lector.
+
 ## Publicar una versión nueva
 1. Cambia `VERSION` en `core.py` (por ejemplo `1.18`).
 2. Crea la etiqueta igual y súbela: `git tag v1.18 && git push origin main --tags`.

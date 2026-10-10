@@ -24,9 +24,24 @@ const Library = {
       if (e.key === 'Escape') { term.value = ''; this.search(''); }
     });
     $('[data-k=only]', this.root).onchange = () => this.render();
+    // Buscador dentro del documento abierto: Intro siguiente, Mayús+Intro anterior, Esc borra y cierra
+    const rterm = $('[data-k=rterm]', this.root);
+    rterm.addEventListener('keydown', async e => {
+      e.stopPropagation();
+      if (e.key === 'Escape') { e.preventDefault(); return this.closeFind(); }
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const t = rterm.value.trim();
+      if (!t) return this.closeFind();
+      if (t !== this.term) { term.value = t; await this.search(t); if (this.hits?.length) this.step(1); }
+      else this.step(e.shiftKey ? -1 : 1);
+    });
     document.addEventListener('keydown', e => {
       if (!this.root.classList.contains('active')) return;
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') { e.preventDefault(); term.focus(); term.select(); }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        if (!$('.reader', this.root).hidden) this.openFind(); else { term.focus(); term.select(); }
+      }
       if (e.key === 'Escape' && !$('.reader', this.root).hidden) this.closeReader();
       if (!$('.reader', this.root).hidden && e.key === 'Enter' && document.activeElement === document.body) this.step(e.shiftKey ? -1 : 1);
       // ⌘Z / ⇧⌘Z en el lector: deshacer / rehacer (p. ej. un giro)
@@ -43,6 +58,7 @@ const Library = {
     // arriba del lector solo aparece al buscar (coincidencias y ▲ ▼)
     const ib = (ic, title, fn) => h('button', { class: 'vb-ic', title, innerHTML: uiIcon(ic, 16), onclick: fn });
     this.viewer.bar.append(h('span', { class: 'vsep' }),
+      ib('search', 'Buscar en el documento (⌘F)', () => this.openFind()),
       ib('rotl', 'Girar a la izquierda (todas las páginas; ⌘Z para deshacer)', () => this.rotate(-90)),
       ib('rotr', 'Girar a la derecha (todas las páginas; ⌘Z para deshacer)', () => this.rotate(90)),
       h('span', { class: 'vsep' }),
@@ -161,7 +177,19 @@ const Library = {
       if (k >= 0) this.showHit(k); else this.drawHits();
     });
   },
-  closeReader() { $('.reader', this.root).hidden = true; this.reading = null; updateTitle(); },
+  closeReader() { this.closeFind(false); $('.reader', this.root).hidden = true; this.reading = null; updateTitle(); },
+  openFind() {
+    const r = $('.reader', this.root), inp = $('[data-k=rterm]', this.root);
+    r.classList.add('finding');
+    if (this.term) inp.value = this.term;
+    inp.focus(); inp.select();
+  },
+  closeFind(clear = true) {
+    const r = $('.reader', this.root), inp = $('[data-k=rterm]', this.root);
+    r.classList.remove('finding');
+    inp.blur();
+    if (clear && this.term) { inp.value = ''; $('[data-k=term]', this.root).value = ''; this.search(''); }
+  },
   /** Franja con el estado de cada firma digital: verde si todo está bien, naranja si hay avisos, rojo si no vale.
    *  Primero se verifica sin conexión (rápido) y luego se consulta en línea si el certificado está revocado. */
   async showSignatures(d) {
@@ -192,7 +220,7 @@ const Library = {
     const hd = this.reading && this.hitsOf(this.reading.id);
     this.hits = (hd?.pages || []).flatMap(p => p.rects.map(r => ({ n: p.n, r })));
     this.hitIdx = -1;
-    $('.reader-count', this.root).textContent = this.hits.length ? `${this.hits.length} coincidencia(s)` : '';
+    $('.reader-count', this.root).textContent = this.hits.length ? `${this.hits.length} coincidencia(s)` : (this.term ? 'Sin coincidencias' : '');
     $('.reader', this.root).classList.toggle('has-hits', this.hits.length > 0);
   },
   showHit(k) {

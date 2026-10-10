@@ -76,8 +76,9 @@ main { flex: 1; min-width: 0; position: relative; }
 .vbar .vb-ic { display: flex; align-items: center; justify-content: center; padding: 5px 8px; }
 /* Lector del Visor: la barra de arriba solo con una búsqueda (recuento y ▲ ▼); lo demás está en la barra flotante */
 #tool-library .reader-bar { display: none; }
-#tool-library .reader.has-hits .reader-bar { display: flex; }
-#tool-library .reader-bar > :not(.reader-count):not([data-act=rprev]):not([data-act=rnext]):not(.grow) { display: none; }
+#tool-library .reader.has-hits .reader-bar, #tool-library .reader.finding .reader-bar { display: flex; }
+#tool-library .reader-bar > :not(.reader-count):not(.reader-find):not([data-act=rprev]):not([data-act=rnext]):not(.grow) { display: none; }
+#tool-library .reader-find input { width: 260px; }
 .drag-box { position: absolute; border: 2px dashed var(--accent); background: rgba(37, 99, 217, .08); pointer-events: none; }
 .dropping { outline: 3px dashed var(--accent); outline-offset: -8px; }
 

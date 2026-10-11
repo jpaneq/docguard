@@ -24,6 +24,7 @@ const ICON = {
   trash: '<path d="M3.5 5.5h13M8 5.5V3.5h4v2M5.5 5.5l.8 11.5h7.4l.8-11.5M8.5 8.5v6M11.5 8.5v6"/>',
   undo: '<path d="M7 5L3 9l4 4"/><path d="M3 9h9.5a4.5 4.5 0 010 9H9"/>',
   redo: '<path d="M13 5l4 4-4 4"/><path d="M17 9H7.5a4.5 4.5 0 000 9H11"/>',
+  txt: '<path d="M5 3.5h7l3.5 3.5v9.5H5z"/><path d="M12 3.5V7h3.5"/><path d="M7.5 10.5h5M7.5 13h3.5"/>',
   ocr: '<path d="M3 6.5V3h3.5M13.5 3H17v3.5M17 13.5V17h-3.5M6.5 17H3v-3.5"/><path d="M6.5 7.5h7M6.5 10h7M6.5 12.5h4.5"/>',
   rect: '<rect x="3" y="5" width="14" height="10" rx=".5"/>',
   ellipse: '<ellipse cx="10" cy="10" rx="7.5" ry="5.5"/>',
@@ -88,6 +89,7 @@ const Edit = {
     act('paste', () => this.pasteAny());
     act('delete', () => this.deleteSel());
     act('ocr', () => this.ocrDialog());
+    act('totxt', () => this.txtDialog());
     act('ruler', () => Ruler.toggle());
     Ruler.attach(this);
     const find = $('[data-k=find]', this.root);
@@ -1434,10 +1436,31 @@ const Edit = {
               busyText(`Reconociendo texto… página ${pages[k] + 1} (${k + 1} de ${pages.length})`);
               await api('edit/ocr', { id: this.info.id, n: pages[k], pages: [pages[k]], mode: mode.value });
             }
-            toast('Texto reconocido. ' + (mode.value === 'editable' ? 'Ya puedes editarlo.' : 'Ya se puede seleccionar y buscar.'), 'ok');
+            toast('Texto reconocido. ' + (mode.value === 'editable' ? 'Ya puedes editarlo.' : 'Ya se puede seleccionar y buscar.'), 'ok',
+              [{ label: 'Exportar a TXT…', fn: () => this.txtDialog() }], 12000);
           } catch (e) { toast(e.message, 'err'); } finally { busy(false); }
           this.setTool('select');
           this.refresh(true);
+        },
+      }],
+    });
+  },
+  /** Guarda el texto del documento (con las ediciones y el OCR hechos) en un archivo .txt. */
+  txtDialog() {
+    if (!this.info) return toast('Abre primero un documento.', 'err');
+    const ocr = h('select', {},
+      h('option', { value: 'auto' }, 'Reconocer solo las páginas escaneadas (sin texto)'),
+      h('option', { value: 'todas' }, 'Reconocer todas las páginas'),
+      h('option', { value: 'no' }, 'No reconocer: solo el texto que ya tiene'));
+    const pages = h('input', { type: 'checkbox' });
+    modal({
+      title: 'Exportar texto (.txt)',
+      body: h('div', {}, h('p', { class: 'muted' }, 'Guarda el texto del documento en un archivo .txt. Si es un escaneo se reconoce con OCR en tu equipo (sin enviar nada). Si ya lo reconociste con «Reconocer texto (OCR)», se usa ese texto.'),
+        h('label', {}, 'Reconocimiento (OCR)', ocr),
+        h('label', { class: 'inline' }, pages, ' Indicar el número de cada página')),
+      actions: [{ label: 'Cancelar' }, {
+        label: 'Exportar', primary: true, fn: async () => {
+          saveResult(await run('Exportando el texto… (puede tardar si hay que reconocerlo)', () => api('totxt', { ids: [this.info.id], ocr: ocr.value, pages: pages.checked })));
         },
       }],
     });

@@ -1,5 +1,7 @@
 'use strict';
-// Al abrirse, DocGuard mira si hay una versión nueva publicada y ofrece instalarla (nunca solo).
+// Al abrirse (y cada hora) DocGuard mira si hay una versión nueva publicada en GitHub. Con la
+// actualización automática (por defecto) la descarga sola y se instala al cerrar DocGuard; si no,
+// ofrece instalarla.
 
 /** Notas de la versión (novedades/X.Y.md, publicadas en la release) como tarjetas: «# Titular», texto y «- 🔎 **Título** — detalle». */
 function notesView(md) {
@@ -29,16 +31,39 @@ const Update = {
       await new Promise(res => { window.addEventListener('pywebviewready', res, { once: true }); setTimeout(res, 3000); });
       if (!window.pywebview) return;  // en el navegador no se actualiza
     }
-    try {  // una vez cada pocas horas aunque haya varias ventanas
+    const st = await api('update/auto').catch(() => null);
+    if (st?.enabled && st.can_install) { this.watch(); return; }
+    try {  // sin actualización automática: aviso una vez cada pocas horas aunque haya varias ventanas
       if (Date.now() - (+localStorage.getItem('dg_update_seen') || 0) < 6 * 3600e3) return;
     } catch (e) { /* sin almacenamiento */ }
     setTimeout(() => this.check(false), 4000);
+  },
+  /** Actualización automática: cuando la versión nueva ya está descargada, avisa (una vez por versión). */
+  watch() {
+    const tick = async () => {
+      const st = await api('update/auto').catch(() => null);
+      if (!st?.ready || this._told === st.ready.version) return;
+      this._told = st.ready.version;
+      toast(`DocGuard ${st.ready.version} ya está descargado: se instalará al cerrar DocGuard.`, 'ok', [
+        { label: 'Reiniciar ahora', fn: () => window.pywebview.api.restart_to_update() },
+        { label: 'Novedades', fn: () => modal({ wide: true, title: `DocGuard ${st.ready.version} · novedades`, body: notesView(st.ready.notes), actions: [{ label: 'Cerrar', primary: true }] }) },
+      ], 20000);
+    };
+    setTimeout(tick, 5000);
+    setInterval(tick, 60000);
   },
   async check(manual = true) {
     const r = await (manual ? run('Buscando actualizaciones…', () => api('update/check')) : api('update/check').catch(() => null));
     if (!r) return;
     try { localStorage.setItem('dg_update_seen', Date.now()); } catch (e) { /* sin almacenamiento */ }
-    if (!r.available) { if (manual) toast(r.error ? `No se ha podido consultar (¿sin internet?): ${String(r.error).slice(0, 160)}` : `Tienes la última versión (${r.current}).`, r.error ? 'err' : 'ok'); return; }
+    if (!r.available) {
+      if (!manual) return;
+      const st = await api('update/auto').catch(() => null);
+      const sw = st?.can_install ? [{ label: st.enabled ? 'Desactivar actualización automática' : 'Activar actualización automática', fn: () => this.setAuto(!st.enabled) }] : [];
+      toast(r.error ? `No se ha podido consultar (¿sin internet?): ${String(r.error).slice(0, 160)}`
+        : `Tienes la última versión (${r.current}).${st?.enabled ? ' Las nuevas se instalan solas.' : ''}`, r.error ? 'err' : 'ok', sw, 8000);
+      return;
+    }
     toast(`Hay una versión nueva de DocGuard: ${r.version} (tienes la ${r.current}).`, 'ok', [{ label: 'Ver y actualizar…', fn: () => this.offer(r) }], 15000);
   },
   offer(r) {
@@ -51,6 +76,11 @@ const Update = {
         r.can_install ? null : h('p', { class: 'bad' }, 'Estás ejecutando DocGuard desde el código: actualízalo con git pull.')),
       actions: [{ label: 'Más tarde' }, ...(r.can_install ? [{ label: 'Descargar y reiniciar', primary: true, fn: () => this.install(r) }] : [])],
     });
+  },
+  /** Interruptor de la actualización automática (en «Buscar actualizaciones» cuando ya está al día). */
+  async setAuto(enable) {
+    await api('update/auto', { enable });
+    toast(enable ? 'Las actualizaciones se descargarán solas y se instalarán al cerrar DocGuard.' : 'DocGuard avisará de las versiones nuevas antes de instalarlas.', 'ok');
   },
   async install(r) {
     const timer = setInterval(async () => {

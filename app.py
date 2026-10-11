@@ -785,7 +785,7 @@ def main():
                     updater.close_others()
                 except Exception:
                     pass
-                updater.apply_on_exit()
+                updater.apply_on_exit(reopen=False)  # se cerró a propósito: se instala sin volver a abrirlo
             return
         except Exception as ex:  # sin ventana nativa: se usa el navegador
             print("Ventana nativa no disponible, se abre el navegador:", ex)

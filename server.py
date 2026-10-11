@@ -40,7 +40,7 @@ import status_icons
 import tracking
 
 TOKEN = secrets.token_urlsafe(18)
-NO_LOCK = {"update/check", "update/download", "update/progress", "version", "verify"}
+NO_LOCK = {"update/auto", "update/check", "update/download", "update/progress", "version", "verify"}
 LOCK = threading.RLock()  # PyMuPDF no es seguro entre hilos: una operación a la vez
 DOCS = {}
 RESULTS = {}
@@ -289,6 +289,14 @@ def op_external_open(req):
         raise ValueError("no se puede abrir")
     threading.Thread(target=EXTERNAL_OPEN, args=(path,), daemon=True).start()
     return {}
+
+
+def op_update_auto(req):
+    import records
+    import updater
+    if "enable" in req:
+        records.save_settings(actualizar_solo=bool(req["enable"]))
+    return updater.auto_start()
 
 
 def op_update_progress(req):
@@ -1746,7 +1754,7 @@ OPS = {
     "sigimgs": op_sigimgs, "sigimg/save": op_sigimg_save, "sigimg/delete": op_sigimg_delete,
     "sigimg/place": op_place_sigimg, "sigimg/margin": op_sign_margin, "edit/copy": op_copy, "edit/copy_spans": op_copy_spans, "certinfo": op_certinfo, "sign": op_sign, "sign/test": op_sign_test, "sign/batch": op_sign_batch,
     "track/add": op_track_add, "track/check": op_track_check, "track/list": op_track_list, "track/delete": op_track_delete,
-    "p11/modules": op_p11_modules, "p11/list": op_p11_list, "p11/login": op_p11_login, "verify": op_verify, "external/open": op_external_open, "update/progress": op_update_progress, "unlock": op_unlock,
+    "p11/modules": op_p11_modules, "p11/list": op_p11_list, "p11/login": op_p11_login, "verify": op_verify, "external/open": op_external_open, "update/progress": op_update_progress, "update/auto": op_update_auto, "unlock": op_unlock,
 }
 for _name in EDIT_OPS:
     OPS["edit/" + _name] = (lambda nm: lambda req: op_edit(req, nm))(_name)

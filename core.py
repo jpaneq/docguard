@@ -395,10 +395,15 @@ def pdf_to_text(src, ocr="auto", mark_pages=False):
     (casi sin texto): se reconoce con OCR. ocr: 'auto' (solo las escaneadas), 'todas' o 'no'.
     Devuelve (texto, {"paginas", "ocr" (páginas reconocidas), "vacias"})."""
     import re
-    doc = fitz.open(stream=bytes(src), filetype="pdf") if isinstance(src, (bytes, bytearray)) else fitz.open(src)
+    try:
+        doc = fitz.open(stream=bytes(src), filetype="pdf") if isinstance(src, (bytes, bytearray)) else fitz.open(src)
+    except Exception:
+        raise ValueError("el archivo está dañado o no es un PDF válido")
     with doc:
         if doc.needs_pass:
-            raise ValueError("el documento tiene contraseña")
+            raise ValueError("tiene contraseña: ábrelo con su contraseña o quítasela en «Contraseña»")
+        if not len(doc):
+            raise ValueError("el archivo está dañado o no tiene páginas")
         can_ocr = ocr != "no"
         if can_ocr and not ocr_available():
             if ocr == "todas":

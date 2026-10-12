@@ -11,6 +11,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import secrets
 import shutil
 import sys
@@ -873,7 +874,7 @@ def op_scan_export(req):
         if not text.strip():
             raise ValueError("no se ha reconocido texto en las imágenes")
         res = store_result([(base + ".txt", text.encode("utf-8"))])
-        res["notes"] = [f"{len(pages)} imagen(es) → {len(text.split())} palabras reconocidas"]
+        res["notes"] = [f"{len(pages)} imagen(es) → {_words(text)} palabras reconocidas"]
         return res
     files = []
     for k, (img, _kind) in enumerate(pages):
@@ -1052,6 +1053,11 @@ def op_toimages(req):
     return batch(req, f)
 
 
+def _words(text):
+    """Palabras del texto exportado, sin contar las marcas «--- Página N ---»."""
+    return len(re.sub(r"(?m)^--- Página \d+ ---$", "", text).split())
+
+
 def op_totxt(req):
     def f(d, path, out):
         if core.ext_of(path) not in (".pdf",) + tuple(core.IMAGE_EXTS):
@@ -1062,7 +1068,7 @@ def op_totxt(req):
         with open(os.path.join(out, d.base + ".txt"), "w", encoding="utf-8", newline="") as fh:
             fh.write(text)
         ocr_note = f", {info['ocr']} con OCR" if info["ocr"] else ""
-        return f"{d.name}: {info['paginas']} página(s){ocr_note}, {len(text.split())} palabras"
+        return f"{d.name}: {info['paginas']} página(s){ocr_note}, {_words(text)} palabras"
     return batch(req, f)
 
 

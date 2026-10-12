@@ -122,8 +122,9 @@ def download(info):
     return {"ready": True, "version": info.get("version")}
 
 
-def apply_on_exit():
-    """Lanza un pequeño script que espera a que DocGuard se cierre, cambia el programa y lo abre."""
+def apply_on_exit(reopen=True):
+    """Lanza un pequeño script que espera a que DocGuard se cierre, cambia el programa y (si reopen)
+    lo vuelve a abrir. Al cerrar DocGuard con una versión ya descargada se instala sin reabrirlo."""
     new, old = STATE.get("new"), installed()
     if not new or not old:
         return False
@@ -146,7 +147,7 @@ mkdir -p "{backup_dir}"
 rm -rf "{backup}"
 mv "{old}" "{backup}" && mv "{new}" "{old}" || mv "{backup}" "{old}"
 xattr -dr com.apple.quarantine "{old}" 2>/dev/null
-open "{old}"
+{'open "' + old + '"' if reopen else ''}
 ''')
         os.chmod(script, 0o755)
         subprocess.Popen(["/bin/sh", script], start_new_session=True)
@@ -180,11 +181,52 @@ exit /b 1
 :nuevo
 move "{new}" "{old}" >> "{log}" 2>&1 || (echo Fallo al instalar; se restaura >> "{log}" & move "{backup}" "{old}")
 echo Hecho >> "{log}"
-start "" "{exe}"
+{'start "" "' + exe + '"' if reopen else ''}
 ''')
         subprocess.Popen(["cmd", "/c", script], cwd=tmp, creationflags=0x08000000)  # sin ventana
     STATE["applied"] = True
     return True
+
+
+# ---- Actualización automática ----
+# Cada cambio que se publica en GitHub (una versión nueva) se descarga solo en segundo plano y se
+# instala al cerrar DocGuard (o al momento con «Reiniciar ahora»). Se comprueba al abrir y cada hora.
+
+AUTO = {"running": False, "ready": None, "error": None, "last": 0.0}
+
+
+def auto_enabled():
+    import records
+    return records.settings().get("actualizar_solo", True)
+
+
+def _auto_loop():
+    import time
+    while True:
+        try:
+            if auto_enabled() and installed() and not STATE.get("new"):
+                info = check()
+                AUTO["last"] = time.time()
+                if info.get("available"):
+                    AUTO["downloading"] = info["version"]
+                    download(info)
+                    AUTO["ready"] = {"version": info["version"], "notes": info.get("notes", "")}
+                AUTO["error"] = info.get("error")
+        except Exception as ex:
+            AUTO["error"] = str(ex)
+        finally:
+            AUTO.pop("downloading", None)
+        time.sleep(3600)
+
+
+def auto_start():
+    """Arranca (una vez) la comprobación periódica; devuelve el estado para la interfaz."""
+    if not AUTO["running"]:
+        import threading
+        AUTO["running"] = True
+        threading.Thread(target=_auto_loop, daemon=True).start()
+    return {"enabled": auto_enabled(), "can_install": bool(installed()), "ready": AUTO["ready"],
+            "downloading": AUTO.get("downloading"), "current": core.VERSION}
 
 
 # ---- Varias copias de DocGuard abiertas (procesos distintos) ----

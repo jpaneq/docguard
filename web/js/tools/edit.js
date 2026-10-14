@@ -98,6 +98,7 @@ const Edit = {
     });
     act('findnext', () => this.findStep(1));
     act('findprev', () => this.findStep(-1));
+    act('share', () => shareDoc(this.info, $('[data-act=share]', this.root)));
     act('toword', async () => saveResult(await run('Convirtiendo a Word…', () => api('todocx', { ids: [this.info.id], mode: 'fiel' }))));
     act('export', async () => {
       const saved = await saveResult(await run('Preparando…', () => api('edit/export', { id: this.info.id })));
@@ -128,6 +129,7 @@ const Edit = {
     $('.doc-name', this.root).textContent = info.name;
     $('[data-act=export]', this.root).disabled = false;
     $('[data-act=toword]', this.root).disabled = false;
+    $('[data-act=share]', this.root).disabled = false;
     this.viewer.load(info);
     this.outline = null;
     if (!this.side.hidden) this.renderSide();

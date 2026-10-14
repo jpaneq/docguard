@@ -46,6 +46,7 @@ def _windows_icons():
             pass
 
 
+_SHARE_PICKERS = []
 APP_URL = None  # dirección de la interfaz (con su clave): la comparten todas las ventanas
 
 
@@ -161,7 +162,13 @@ class Api:
         save_t = dialogs.SAVE if dialogs else webview.SAVE_DIALOG
         folder_t = dialogs.FOLDER if dialogs else webview.FOLDER_DIALOG
         if len(files) == 1:
-            r = win.create_file_dialog(save_t, save_filename=files[0][0])
+            ext = os.path.splitext(files[0][0])[1].lower()
+            kinds = {".pdf": "PDF", ".docx": "Word", ".txt": "Texto", ".zip": "ZIP", ".png": "PNG", ".jpg": "JPEG"}
+            try:  # el diálogo solo deja guardar con la extensión correcta
+                r = win.create_file_dialog(save_t, save_filename=files[0][0],
+                                           file_types=(f"{kinds.get(ext, ext.lstrip('.').upper())} (*{ext})",) if ext else ())
+            except Exception:
+                r = win.create_file_dialog(save_t, save_filename=files[0][0])
             folder = False
         else:
             r = win.create_file_dialog(folder_t)
@@ -219,6 +226,46 @@ class Api:
         """Windows: activa las miniaturas para todo el equipo (pide permiso de administrador una vez)."""
         import status_icons
         return status_icons.windows_register_machine(bool(enable))
+
+    def share(self, did, x=0, y=0):
+        """Compartir el documento abierto (con sus cambios). Mac: la hoja del sistema (AirDrop, Mail,
+        Mensajes, Notas…) junto al botón pulsado (x, y en la ventana). Windows: devuelve la ruta y la
+        interfaz ofrece correo, copiar el archivo o mostrarlo en el Explorador."""
+        import tempfile
+
+        import webview
+        d = server.DOCS.get(did)
+        if not d:
+            return None
+        with server.LOCK:
+            data = d.pdf_bytes() if d.doc else d.orig
+        name = (os.path.splitext(d.name)[0] + ".pdf") if d.doc else d.name
+        folder = tempfile.mkdtemp(prefix="docguard_compartir_")
+        path = os.path.join(folder, name)
+        with open(path, "wb") as f:
+            f.write(data)
+        if sys.platform != "darwin":
+            return {"path": path, "how": "menu"}
+        win = (webview.active_window() if hasattr(webview, "active_window") else None) or webview.windows[0]
+
+        def show():
+            from AppKit import NSURL, NSMakeRect, NSMinYEdge, NSSharingServicePicker
+            view = win.native.contentView()
+            h = view.bounds().size.height
+            picker = NSSharingServicePicker.alloc().initWithItems_([NSURL.fileURLWithPath_(path)])
+            _SHARE_PICKERS[:] = [picker]  # que no se libere mientras está abierta
+            picker.showRelativeToRect_ofView_preferredEdge_(NSMakeRect(float(x), h - float(y), 1, 1), view, NSMinYEdge)
+        from PyObjCTools import AppHelper
+        AppHelper.callAfter(show)
+        return {"path": path, "how": "picker"}
+
+    def copy_file(self, path):
+        """Windows: copia el archivo al portapapeles (para pegarlo en WhatsApp, Teams, una carpeta…)."""
+        if sys.platform == "win32":
+            r = subprocess.run(["powershell", "-NoProfile", "-Command", "Set-Clipboard -LiteralPath $env:DG_FILE"],
+                               env=dict(os.environ, DG_FILE=path), capture_output=True, creationflags=0x08000000)
+            return r.returncode == 0
+        return False
 
     def email(self, path):
         """Abre un correo nuevo con el archivo adjunto (Mail en macOS, Outlook en Windows)."""

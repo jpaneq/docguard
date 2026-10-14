@@ -23,6 +23,7 @@ const TOOL_ICONS = {
 const UI_ICONS = {
   home: '<path d="M4 11l8-6.500 8 6.500"/><path d="M6 9.800V20h4.200v-5.500h3.600V20H18V9.800"/>',
   tools: '<rect x="4" y="4" width="6.500" height="6.500" rx="1.500"/><rect x="13.500" y="4" width="6.500" height="6.500" rx="1.500"/><rect x="4" y="13.500" width="6.500" height="6.500" rx="1.500"/><rect x="13.500" y="13.500" width="6.500" height="6.500" rx="1.500"/>',
+  share: '<path d="M12 3.5v11"/><path d="M8 7.5l4-4 4 4"/><path d="M8.5 10.5H6v9.500h12V10.5h-2.500"/>',
   search: '<circle cx="10.500" cy="10.500" r="6"/><path d="M15 15l5 5"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   close: '<path d="M6 6l12 12M18 6L6 18"/>',
@@ -342,3 +343,23 @@ const Shell = {
     api('ui', {}).then(ui => { if (ui.theme && ui.theme !== this.theme) apply(ui.theme, false); }).catch(() => {});
   },
 };
+
+/** Compartir el documento (AirDrop, Mail, Mensajes… en Mac; correo o copiar el archivo en Windows). */
+async function shareDoc(info, btn) {
+  if (!info?.id) return toast('Abre primero un documento.', 'err');
+  const apiN = window.pywebview?.api;
+  if (!apiN?.share) return toast('Compartir solo está disponible en el programa de escritorio.', '');
+  const r = btn?.getBoundingClientRect();
+  const res = await apiN.share(info.id, r ? r.left + r.width / 2 : 0, r ? r.bottom : 0);
+  if (!res || res.how !== 'menu') return;
+  modal({
+    title: 'Compartir «' + res.path.split(/[\\/]/).pop() + '»',
+    body: h('p', { class: 'muted' }, 'Se comparte tal como está ahora, con los cambios. Tu archivo original no se modifica.'),
+    actions: [
+      { label: 'Correo…', fn: async () => { const how = await apiN.email(res.path); if (how === 'reveal') toast('No se encontró Outlook: adjunta el archivo desde la carpeta que se ha abierto.', '', [], 8000); } },
+      { label: 'Copiar el archivo', fn: async () => { toast((await apiN.copy_file(res.path)) ? 'Copiado: pégalo (Ctrl+V) en WhatsApp, Teams, un correo o una carpeta.' : 'No se ha podido copiar.', 'ok', [], 8000); } },
+      { label: 'Mostrar en el Explorador', fn: () => apiN.reveal(res.path) },
+      { label: 'Cerrar', primary: true },
+    ],
+  });
+}

@@ -1779,9 +1779,27 @@ def save_result_to(rid, target, is_folder):
                 f.write(data)
             paths.append(p)
         return paths
+    target = fix_extension(target, files[0][0] if len(files) == 1 else "resultado.zip")
     with open(target, "wb") as f:
         f.write(files[0][1] if len(files) == 1 else zip_files(files))
     return [target]
+
+
+def fix_extension(target, suggested):
+    """El nombre elegido al guardar lleva siempre la extensión del archivo («contrato» o «contrato.pdf.»
+    → «contrato.pdf»). Si así se pisaría otro archivo que no se ha confirmado, se añade « (2)»."""
+    ext = os.path.splitext(suggested)[1].lower()
+    if not ext:
+        return target
+    base = target.rstrip(" .")
+    if base.lower().endswith(ext):
+        return base
+    fixed = base + ext
+    n = 2
+    while os.path.exists(fixed):
+        fixed = f"{base} ({n}){ext}"
+        n += 1
+    return fixed
 
 
 # --------------------------------------------------------------------------

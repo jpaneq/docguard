@@ -44,6 +44,7 @@ const ICON = {
   pages: '<rect x="2.5" y="3" width="5" height="6.5" rx="1"/><rect x="2.5" y="11" width="5" height="6.5" rx="1"/><path d="M10 4.5h7.5M10 8h5M10 12.5h7.5M10 16h5"/>',
   flatten: '<path d="M3 7l7-4 7 4-7 4z"/><path d="M3 11l7 4 7-4"/>',
   ruler: '<path d="M2.500 13.500l11-11 4 4-11 11z"/><path d="M6 10l1.500 1.500M8.500 7.500L10 9M11 5l1.500 1.500"/>',
+  wand: '<path d="M3 17L12.5 7.5"/><path d="M11 6l3 3"/><path d="M15 2.5v2.5M17.5 5H15M13.2 3.2l1.3 1.3M16.8 6.8l-1.3-1.3"/>',
   unwm: '<path d="M10 2.8c2.9 3.3 5 5.800 5 8.500a5 5 0 01-10 0c0-2.700 2.100-5.200 5-8.500z"/><path d="M3.500 3.500l13 13"/>',
 };
 
@@ -78,6 +79,7 @@ const Edit = {
     this.wordsCache = {};  // palabras por página, para seleccionar texto al resaltar
     this.ann = { kind: 'highlight', color: '#fff200', text: '' };
     this.widgetType = 'text'; this.sig = null; this.fonts = [];
+    this.wand = { tol: 60, gap: 2, seeds: [], n: null, view: null };
     $$('[data-t]', this.root).forEach(b => b.onclick = () => this.setTool(b.dataset.t));
     const act = (a, f) => { $(`[data-act=${a}]`, this.root).onclick = f; };
     act('open', async () => { for (const f of await pickFiles(ACCEPT_DOCS, true)) await this.openFile(f); });
@@ -257,6 +259,7 @@ const Edit = {
     $$('[data-t]', this.root).forEach(b => b.classList.toggle('on', b.dataset.t === t));
     this.clearSel(false);
     if (t === 'image') this.pickImage();
+    if (t !== 'wand') this.wandClear(false);
     this.draw();
   },
   clearSel(redraw = true) {
@@ -328,6 +331,10 @@ const Edit = {
     // campos de formulario: se rellenan directamente
     if (t === 'select' || t === 'form') this.drawWidgets(st);
     if (this.region && this.region.n === v.n) v.box(this.region.r, 'region');
+    if (t === 'wand' && this.wand.view && this.wand.n === v.n) {
+      const b = v.box(this.wand.view.rect, 'wand-sel');
+      b.style.backgroundImage = `url(data:image/png;base64,${this.wand.view.png})`;
+    }
     (this.hits || []).forEach((hit, i) => { if (hit.n === v.n) v.box(hit.r, 'hit' + (i === this.hitIdx ? ' cur' : '')); });
     this.hint({
       select: 'Clic: seleccionar (con ⌘/Ctrl o Mayús: añadir varios) · Doble clic en un texto: escribir (Intro = nueva línea) · Arrastrar: mover (guías de alineación; Alt las desactiva) · Esquina del marco: cambiar el tamaño · Arrastrar en vacío: seleccionar zona · ⌘C/⌘X/⌘V · Supr · Clic derecho: más opciones',
@@ -554,6 +561,28 @@ const Edit = {
       if (this.inline?.isNew) add(h('span', { class: 'grow' }), h('button', { class: 'primary', onmousedown: e => e.preventDefault(), onclick: () => this.commitInline() }, 'Fijar texto'));
       return;
     }
+    if (t === 'wand') {
+      const w = this.wand, has = !!w.view;
+      const slider = (lbl, key, min, max, step, tip) => {
+        const out = h('span', { class: 'muted' }, String(w[key]));
+        const inp = h('input', { type: 'range', min, max, step, value: w[key], title: tip,
+          oninput: () => { w[key] = +inp.value; out.textContent = inp.value; },
+          onchange: () => this.wandUpdate() });
+        return [label(lbl), inp, out];
+      };
+      add(label('Varita mágica'),
+        ...slider('Tolerancia', 'tol', 10, 200, 5, 'Más alta: coge también los grises claros; más baja: solo lo más oscuro'),
+        ...slider('Unir huecos', 'gap', 0, 8, 1, 'Une trazos cercanos separados por huecos pequeños (en puntos)'),
+        h('span', { class: 'sep' }),
+        // los botones están siempre (desactivados sin selección) para que la página no salte al seleccionar
+        h('button', { class: 'primary', disabled: !has, title: 'La saca de la página como imagen suelta que puedes mover, copiar o cambiar de tamaño', onclick: () => this.wandApply('separar') }, 'Separar como imagen'),
+        h('button', { disabled: !has, title: 'Deja el original y pone encima una copia suelta', onclick: () => this.wandApply('copiar') }, 'Copiar'),
+        h('button', { disabled: !has, title: 'La quita de la página (queda del color del papel)', onclick: () => this.wandApply('borrar') }, 'Borrar'),
+        h('button', { disabled: !has, title: 'La guarda entre tus firmas manuscritas, sin el fondo', onclick: () => this.wandSignature() }, 'Guardar como firma'),
+        h('button', { disabled: !has, onclick: () => this.wandClear() }, 'Quitar selección'),
+        h('span', { class: 'muted' }, has ? '⇧ añade · ⌥/Alt quita' : 'Clic en una firma, sello o logo de un escaneo · ⇧ añade · ⌥/Alt quita'));
+      return;
+    }
     if (sel.length) {
       const s0 = sel[0];
       const o = { font: 'auto', size: s0.size, color: s0.color, bold: s0.bold, italic: s0.italic };
@@ -696,7 +725,7 @@ const Edit = {
       return k === 'v' ? this.pasteAny() : this.copyAny(k === 'x');
     }
     if (!mod && !e.altKey) {
-      const tools = { v: 'select', t: 'text', r: 'shape', h: 'annot' };
+      const tools = { v: 'select', t: 'text', r: 'shape', h: 'annot', w: 'wand' };
       if (tools[k]) { e.preventDefault(); return this.setTool(tools[k]); }
     }
     const has = this.selSpans.size || this.sel;
@@ -757,6 +786,7 @@ const Edit = {
     if (this.inline) { this.commitInline(); return; }
     if (this.graph) return this.graphClick(e);
     if (t === 'text') { const [x, y] = v.pt(e); this.newInline(x, y); return; }
+    if (t === 'wand') return this.wandClick(e);
     if (t === 'annot' && ['highlight', 'underline', 'strikeout'].includes(this.ann.kind)) return this.markupDown(e);
     if (t === 'annot' && this.ann.kind === 'note') {
       const [x, y] = v.pt(e);
@@ -818,6 +848,53 @@ const Edit = {
       const r = await run('Colocando firma…', () => api('sigimg/place', { id: this.info.id, n: v.n, sig: this.sig, rect: [x0, y0, x1, y1] }));
       if (r !== undefined) this.refresh(true);
     }
+  },
+  /* ---- varita mágica ---- */
+  async wandClick(e) {
+    const v = this.viewer, w = this.wand;
+    const [x, y] = v.pt(e);
+    const op = e.altKey ? 'sub' : 'add';
+    if (!(e.shiftKey || e.altKey) || w.n !== v.n) w.seeds = [];
+    if (op === 'sub' && !w.seeds.length) return;
+    w.seeds.push({ x, y, op });
+    w.n = v.n;
+    await this.wandUpdate();
+  },
+  async wandUpdate() {
+    const w = this.wand;
+    if (!w.seeds.length || !this.info) return;
+    const r = await run('Seleccionando…', () => api('edit/wand', { id: this.info.id, n: w.n, seeds: w.seeds, tol: w.tol, gap: w.gap }));
+    if (!r) return;
+    if (!r.found) {
+      w.seeds.pop();
+      if (!w.seeds.length) w.view = null;
+      toast(r.reason === 'noimage' ? 'La varita mágica funciona sobre imágenes y páginas escaneadas: aquí no hay ninguna.'
+        : 'Ahí solo hay fondo blanco. Pincha sobre el trazo o sube la tolerancia.', '', [], 5000);
+    } else w.view = r;
+    this.draw();
+  },
+  wandClear(redraw = true) {
+    Object.assign(this.wand, { seeds: [], n: null, view: null });
+    if (redraw) this.draw();
+  },
+  async wandApply(action) {
+    const w = this.wand;
+    if (!w.view) return;
+    const ok = await this.op('wand_apply', { n: w.n, seeds: w.seeds, action, tol: w.tol, gap: w.gap },
+      action === 'borrar' ? 'Borrando…' : 'Separando…');
+    if (!ok) return;
+    this.wandClear(false);
+    if (action === 'borrar') { this.draw(); return toast('Borrada. ⌘Z / Ctrl+Z para deshacer.', 'ok'); }
+    this.setTool('select');
+    toast('Ahora es una imagen suelta: arrástrala para moverla o cópiala (⌘C). ⌘Z / Ctrl+Z para deshacer.', 'ok', [], 6000);
+  },
+  async wandSignature() {
+    const w = this.wand;
+    if (!w.view) return;
+    const r = await run('Guardando la firma…', () => api('edit/wand_signature', { id: this.info.id, n: w.n, seeds: w.seeds, tol: w.tol, gap: w.gap }));
+    if (!r) return;
+    await Sigs.load();
+    toast('Guardada entre tus firmas manuscritas: la tienes en «Firma manuscrita» y en Firma digital.', 'ok', [], 6000);
   },
   async pickImage() {
     const [f] = await pickFiles('image/*');

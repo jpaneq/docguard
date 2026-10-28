@@ -700,3 +700,7 @@ body[data-view=edit] .wm-form textarea { width: 100%; }
 .ruler-guide .rg-len { font: 600 12px system-ui, sans-serif; fill: #1a4fd6; paint-order: stroke; stroke: #fff; stroke-width: 3px; }
 .viewer.ruler-edge, .viewer.ruler-edge .ov { cursor: crosshair !important; }
 .viewer.zooming .ruler, .viewer.zooming .ruler-guide { visibility: hidden; }
+
+/* varita mágica: zona seleccionada (azul translúcido con contorno) */
+.ov .wand-sel { background-size: 100% 100%; background-repeat: no-repeat; pointer-events: none; border: 0; image-rendering: auto; }
+.ov.tool-wand { cursor: crosshair; }

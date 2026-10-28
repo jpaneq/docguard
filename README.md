@@ -225,6 +225,7 @@ Cada módulo se puede trabajar por separado. El servidor expone cada función co
 
 - `v1.43`: buscar dentro del documento abierto en el Visor (⌘F o la lupa de la barra flotante; Intro / Mayús+Intro entre coincidencias, Esc cierra). Antes el buscador solo estaba en la lista, tapada por el lector.
 - `v1.44`: actualización automática: al abrir y cada hora se busca una versión nueva en GitHub, se descarga sola (con su huella SHA-256) y se instala al cerrar DocGuard sin volver a abrirlo, o al momento con «Reiniciar ahora». Se desactiva en «Buscar actualizaciones».
+- `v1.45`: varita mágica en Editar PDF (W): clic en una firma, sello o logo de una imagen o escaneo para seleccionar solo esa zona sin el fondo (Mayús añade, Alt quita; tolerancia y «Unir huecos»). Con la selección: separarla como imagen movible, copiarla, borrarla (se rellena con el color del papel) o guardarla como firma manuscrita.
 
 ## Publicar una versión nueva
 1. Cambia `VERSION` en `core.py` (por ejemplo `1.18`).

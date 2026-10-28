@@ -350,6 +350,85 @@ def native_words(page):
     return [(fitz.Rect(w[:4]), w[4]) for w in page.get_text("words", sort=True)]
 
 
+# --------------------------------------------------------------------------
+# Exportar el texto de un PDF (el que ya tiene o, si es un escaneo, el reconocido con OCR) a .txt
+# --------------------------------------------------------------------------
+
+def _lines_text(lines):
+    """Líneas del OCR [(Rect, texto, palabras)] -> texto en orden de lectura (arriba abajo, izquierda derecha),
+    juntando los trozos que están en la misma línea y dejando una línea en blanco entre párrafos."""
+    ls = sorted(lines, key=lambda l: (l[0].y0 + l[0].y1) / 2)
+    rows = []
+    for l in ls:
+        yc = (l[0].y0 + l[0].y1) / 2
+        if rows and abs(yc - rows[-1]["yc"]) <= 0.55 * min(l[0].height, rows[-1]["h"]):
+            rows[-1]["items"].append(l)
+        else:
+            rows.append({"yc": yc, "h": l[0].height, "items": [l]})
+    out, prev_y1 = [], None
+    for r in rows:
+        items = sorted(r["items"], key=lambda l: l[0].x0)
+        text = items[0][1]
+        for a, b in zip(items, items[1:]):
+            text += (" " if b[0].x0 - a[0].x1 < 1.5 * r["h"] else "    ") + b[1]
+        y0, y1 = min(i[0].y0 for i in items), max(i[0].y1 for i in items)
+        if prev_y1 is not None and y0 - prev_y1 > 0.9 * r["h"]:
+            out.append("")
+        out.append(text)
+        prev_y1 = y1
+    return "\n".join(out)
+
+
+def _clean_text(text):
+    text = text.replace(" ", " ").replace("\x0c", "\n").replace("\r\n", "\n").replace("\r", "\n")
+    lines = [ln.rstrip() for ln in text.split("\n")]
+    out, blank = [], 0
+    for ln in lines:  # como mucho una línea en blanco seguida
+        blank = blank + 1 if not ln else 0
+        if blank <= 1:
+            out.append(ln)
+    return "\n".join(out).strip("\n")
+
+
+def pdf_to_text(src, ocr="auto", mark_pages=False):
+    """Texto de un PDF o de una imagen (ruta o bytes). Páginas con texto: el suyo. Páginas escaneadas
+    (casi sin texto): se reconoce con OCR. ocr: 'auto' (solo las escaneadas), 'todas' o 'no'.
+    Devuelve (texto, {"paginas", "ocr" (páginas reconocidas), "vacias"})."""
+    import re
+    try:
+        doc = fitz.open(stream=bytes(src), filetype="pdf") if isinstance(src, (bytes, bytearray)) else fitz.open(src)
+    except Exception:
+        raise ValueError("el archivo está dañado o no es un PDF válido")
+    with doc:
+        if doc.needs_pass:
+            raise ValueError("tiene contraseña: ábrelo con su contraseña o quítasela en «Contraseña»")
+        if not len(doc):
+            raise ValueError("el archivo está dañado o no tiene páginas")
+        can_ocr = ocr != "no"
+        if can_ocr and not ocr_available():
+            if ocr == "todas":
+                raise ValueError("el reconocimiento de texto (OCR) no está disponible en esta instalación")
+            can_ocr = False
+        parts, n_ocr, blank = [], 0, 0
+        for i, page in enumerate(doc):
+            txt = page.get_text("text", sort=True)
+            scanned = len(re.sub(r"\s", "", txt)) < 20 and (not doc.is_pdf or page.get_images() or page.get_drawings())
+            if can_ocr and (ocr == "todas" or scanned):
+                lines = ocr_page_lines(page)
+                if lines:
+                    txt = _lines_text(lines)
+                    n_ocr += 1
+            txt = _clean_text(txt)
+            if not txt:
+                blank += 1
+            if mark_pages:
+                parts.append(f"--- Página {i + 1} ---" + ("\n" + txt if txt else ""))
+            elif txt:
+                parts.append(txt)
+        text = "\n\n".join(parts)
+        return (text + "\n" if text else ""), {"paginas": len(doc), "ocr": n_ocr, "vacias": blank}
+
+
 def _dni_ok(s):
     s = s.upper()
     num = s[:-1].replace("X", "0").replace("Y", "1").replace("Z", "2")

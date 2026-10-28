@@ -73,6 +73,7 @@
       </div>
       <span class="sep"></span>
       <button data-act="ocr" data-i="ocr" title="Reconocer texto de escaneos (OCR)"></button>
+      <button data-act="totxt" data-i="txt" title="Exportar el texto a un archivo .txt (con OCR si es un escaneo)"></button>
       <span class="sep"></span>
       <div class="findbox"><input data-k="find" placeholder="Buscar… (⌘F)"><span class="findcount"></span>
         <button data-act="findprev" title="Anterior (⇧Intro)">▲</button><button data-act="findnext" title="Siguiente (Intro)">▼</button></div>
@@ -393,6 +394,16 @@
         <input data-k="dpi" type="number" value="200" min="50" max="600" class="num"> ppp
         <button class="primary" data-act="toimages">Convertir…</button>
       </fieldset>
+      <fieldset><legend>PDF → texto (.txt)</legend>
+        <select data-k="txtocr">
+          <option value="auto" selected>OCR solo en las páginas escaneadas (sin texto)</option>
+          <option value="todas">OCR en todas las páginas</option>
+          <option value="no">Sin OCR: solo el texto que ya tiene</option>
+        </select>
+        <label class="inline"><input type="checkbox" data-k="txtpages"> Indicar el número de cada página</label>
+        <button class="primary" data-act="totxt">PDF → TXT…</button>
+        <small>Guarda un .txt por documento. En los escaneos se reconoce el texto con OCR en tu equipo, sin enviar nada. Si ya lo reconociste con «Reconocer texto (OCR)» en Editar PDF, se usa ese texto.</small>
+      </fieldset>
       <fieldset><legend>Word ↔ PDF</legend>
         <select data-k="wmode">
           <option value="fiel">Fiel a la página (mismo tamaño y diseño)</option>
@@ -454,7 +465,7 @@
         <option value="paginas">Una por foto, a tamaño real</option><option value="a4">DNI: anverso y reverso en un A4</option></select></label>
       <label class="inline"><input type="checkbox" data-k="ocr" checked> Reconocer texto (OCR)</label>
       <label class="inline" title="Formato de archivo a largo plazo que piden algunas sedes electrónicas"><input type="checkbox" data-k="pdfa"> PDF/A</label>
-      <label class="inline">Formato <select data-k="fmt"><option value="pdf">PDF</option><option value="png">PNG</option><option value="jpg">JPG</option></select></label>
+      <label class="inline">Formato <select data-k="fmt"><option value="pdf">PDF</option><option value="png">PNG</option><option value="jpg">JPG</option><option value="txt">TXT (texto reconocido)</option></select></label>
       <span class="grow"></span>
       <button class="primary" data-act="export">Digitalizar y guardar…</button>
     </div>

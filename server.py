@@ -11,6 +11,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import secrets
 import shutil
 import sys
@@ -877,6 +878,13 @@ def op_scan_export(req):
         res["notes"] = [f"{len(pages)} imagen(es) en {hojas} hoja(s)" + (" con texto reconocido" if req.get("ocr", True) else "")
                         + (" · PDF/A-2b" if req.get("pdfa") else "")]
         return res
+    if fmt == "txt":  # texto reconocido de las páginas ya limpias
+        text, info = core.pdf_to_text(scan.digitalize(pages, "paginas", True), "no", bool(len(pages) > 1))
+        if not text.strip():
+            raise ValueError("no se ha reconocido texto en las imágenes")
+        res = store_result([(base + ".txt", text.encode("utf-8"))])
+        res["notes"] = [f"{len(pages)} imagen(es) → {_words(text)} palabras reconocidas"]
+        return res
     files = []
     for k, (img, _kind) in enumerate(pages):
         buf = io.BytesIO()
@@ -1051,6 +1059,25 @@ def op_toimages(req):
         if core.ext_of(path) != ".pdf":
             raise ValueError("no es un PDF")
         core.pdf_to_images(path, out, req.get("fmt", "png"), int(req.get("dpi", 200)))
+    return batch(req, f)
+
+
+def _words(text):
+    """Palabras del texto exportado, sin contar las marcas «--- Página N ---»."""
+    return len(re.sub(r"(?m)^--- Página \d+ ---$", "", text).split())
+
+
+def op_totxt(req):
+    def f(d, path, out):
+        if core.ext_of(path) not in (".pdf",) + tuple(core.IMAGE_EXTS):
+            raise ValueError("solo PDFs e imágenes")
+        text, info = core.pdf_to_text(path, req.get("ocr", "auto"), bool(req.get("pages", False)))
+        if not text.strip():
+            raise ValueError("no se ha encontrado texto" + (" (prueba con el OCR activado)" if req.get("ocr") == "no" else ""))
+        with open(os.path.join(out, d.base + ".txt"), "w", encoding="utf-8", newline="") as fh:
+            fh.write(text)
+        ocr_note = f", {info['ocr']} con OCR" if info["ocr"] else ""
+        return f"{d.name}: {info['paginas']} página(s){ocr_note}, {_words(text)} palabras"
     return batch(req, f)
 
 
@@ -1769,7 +1796,7 @@ OPS = {
     "mobile/start": op_mobile_start, "mobile/status": op_mobile_status, "mobile/stop": op_mobile_stop, "sign/fields": op_sig_fields, "sign/fields/add": op_sig_fields_add,
     "todocx": op_todocx, "doctopdf": op_doctopdf, "redact/preview": op_redact_preview,
     "pages/save": op_pages_save, "encrypt": op_encrypt, "decrypt": op_decrypt,
-    "compress": op_compress, "toimages": op_toimages, "topdf": op_topdf, "sanitize": op_sanitize, "merge": op_merge, "merge_pages": op_merge_pages,
+    "compress": op_compress, "totxt": op_totxt, "toimages": op_toimages, "topdf": op_topdf, "sanitize": op_sanitize, "merge": op_merge, "merge_pages": op_merge_pages,
     "edit/state": op_edit_state, "recovery/list": op_recovery_list, "wmark/layer": op_wmark_layer, "recovery/open": op_recovery_open, "recovery/discard": op_recovery_discard, "recovery/clear": op_recovery_clear, "autosave/settings": op_autosave_settings, "comments": op_comments, "edit/words": op_edit_words, "edit/copy_object": op_copy_object, "fonts": op_fonts, "outline": op_outline, "edit/undo": op_undo, "edit/redo": op_redo, "edit/export": op_edit_export,
     "sigimgs": op_sigimgs, "sigimg/save": op_sigimg_save, "sigimg/delete": op_sigimg_delete,
     "sigimg/place": op_place_sigimg, "sigimg/margin": op_sign_margin, "edit/copy": op_copy, "edit/wand": op_wand, "edit/wand_signature": op_wand_signature, "edit/copy_spans": op_copy_spans, "certinfo": op_certinfo, "sign": op_sign, "sign/test": op_sign_test, "sign/batch": op_sign_batch,

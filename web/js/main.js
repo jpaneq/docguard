@@ -59,6 +59,7 @@ function init() {
     doctopdf: f => api('doctopdf', { ids: f.ids }),
     compress: (f, r) => api('compress', { ids: f.ids, level: $('[data-k=level]', r).value }),
     toimages: (f, r) => api('toimages', { ids: f.ids, fmt: $('[data-k=fmt]', r).value, dpi: +$('[data-k=dpi]', r).value }),
+    totxt: (f, r) => api('totxt', { ids: f.ids, ocr: $('[data-k=txtocr]', r).value, pages: $('[data-k=txtpages]', r).checked }),
     topdf: f => api('topdf', { ids: f.ids }),
   });
   TOOLS.sanitize = batchTool('tool-sanitize', '', { clean: f => api('sanitize', { ids: f.ids }) });

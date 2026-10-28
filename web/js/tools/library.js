@@ -59,6 +59,7 @@ const Library = {
     const ib = (ic, title, fn) => h('button', { class: 'vb-ic', title, innerHTML: uiIcon(ic, 16), onclick: fn });
     this.viewer.bar.append(h('span', { class: 'vsep' }),
       ib('search', 'Buscar en el documento (⌘F)', () => this.openFind()),
+      ib('share', 'Compartir (AirDrop, correo, Mensajes…)', e => shareDoc(this.reading, e.currentTarget)),
       ib('rotl', 'Girar a la izquierda (todas las páginas; ⌘Z para deshacer)', () => this.rotate(-90)),
       ib('rotr', 'Girar a la derecha (todas las páginas; ⌘Z para deshacer)', () => this.rotate(90)),
       h('span', { class: 'vsep' }),

@@ -43,6 +43,28 @@ def _to_page(info, x, y, w, h):
     return fitz.Point(x / w, y / h) * fitz.Matrix(info["transform"])
 
 
+def _orient(info, page):
+    """Cómo pasar los píxeles de la imagen a como se ven en pantalla (la imagen puede estar girada o
+    volteada en la página, o la página girada): (intercambiar ejes, voltear horizontal, voltear vertical)."""
+    m = fitz.Matrix(info["transform"]) * page.rotation_matrix
+    vx, vy = (m.a, m.b), (m.c, m.d)  # hacia dónde van, en la vista, las columnas y las filas de píxeles
+    if abs(vx[1]) > abs(vx[0]):
+        return True, vy[0] < 0, vx[1] < 0
+    return False, vx[0] < 0, vy[1] < 0
+
+
+def _upright(a, o):
+    """Array de píxeles (alto, ancho, ...) orientado como en pantalla."""
+    swap, fx, fy = o
+    if swap:
+        a = a.swapaxes(0, 1)
+    if fx:
+        a = a[:, ::-1]
+    if fy:
+        a = a[::-1]
+    return np.ascontiguousarray(a)
+
+
 def _ink(img):
     """Cuánto se aleja cada píxel del blanco (0 = blanco, 255 = color pleno), por su canal más oscuro."""
     a = np.asarray(img, dtype=np.int16)
@@ -114,7 +136,7 @@ def selection(doc, pno, view_pt, seeds, tol=60, gap=2, area=None):
         clip = np.zeros((h, w), bool)
         clip[box[1]:box[3], box[0]:box[2]] = True
     mask = np.zeros((h, w), bool)
-    if clip is not None and not any(s.get("op") == "add" for s in seeds):
+    if clip is not None and not any(s.get("op") == "add" for s in seeds):  # (recortar, quitar y goma solo restan)
         mask = (ink > int(tol)) & clip  # sin clics: toda la tinta del recuadro
     for s in seeds:
         if s.get("op") in ("crop", "cut"):  # recortar (deja solo lo de dentro) o quitar una zona rectangular
@@ -123,6 +145,17 @@ def selection(doc, pno, view_pt, seeds, tol=60, gap=2, area=None):
             if b:
                 keep[b[1]:b[3], b[0]:b[2]] = True
             mask &= keep if s["op"] == "crop" else ~keep
+            continue
+        if s.get("op") == "erase":  # goma: trazo pintado encima en la lupa
+            er = Image.new("L", (w, h), 0)
+            dr = ImageDraw.Draw(er)
+            rad = max(1, float(s.get("r", 4)) * w / bw)
+            pts = [_to_px(info, editor.point_from_view(page, x, y), w, h) for x, y in s.get("pts", [])]
+            for a, b in zip(pts, pts[1:]):
+                dr.line([a, b], fill=255, width=int(round(2 * rad)))
+            for x, y in pts:
+                dr.ellipse([x - rad, y - rad, x + rad, y + rad], fill=255)
+            mask &= ~(np.asarray(er) > 0)
             continue
         px = _to_px(info, editor.point_from_view(page, s["x"], s["y"]), w, h)
         comp = _component(ink, px, int(tol), gap_px, reach=max(12, round(6 * w / bw)))
@@ -165,7 +198,8 @@ def lupa(doc, pno, area, seeds, tol=60, gap=2, rot=0):
     if box is None:
         return {"found": False, "reason": "noimage"}
     x0, y0, x1, y1 = box
-    base = img.crop(box)
+    o = _orient(info, doc[pno])
+    base = Image.fromarray(_upright(np.asarray(img.crop(box)), o))
     # lo no seleccionado queda tapado por un velo claro; lo seleccionado, teñido y con contorno
     over = np.full((y1 - y0, x1 - x0, 4), (255, 255, 255, 190), np.uint8)
     pixels = 0
@@ -178,14 +212,14 @@ def lupa(doc, pno, area, seeds, tol=60, gap=2, rot=0):
         ring = (np.asarray(m8.filter(ImageFilter.MaxFilter(5))) > 0) & ~crop
         over[ring] = (255, 140, 0, 255)
         if pixels:
-            cut = _b64png(Image.open(io.BytesIO(cutout_png(img, mask, _ink(img), int(tol), rot)[0])))
-    o = Image.fromarray(over, "RGBA")
+            cut = _b64png(Image.open(io.BytesIO(cutout_png(img, mask, _ink(img), int(tol), rot, o)[0])))
+    ov = Image.fromarray(_upright(over, o), "RGBA")
     if max(base.size) > 1400:
         base.thumbnail((1400, 1400))
-        o = o.resize(base.size)
+        ov = ov.resize(base.size)
     # parte del recuadro (en la vista) que cubre realmente la imagen, para situar los clics
     view = editor.to_view(doc[pno], _page_rect(info, box, w, h))
-    return {"found": pixels > 0, "reason": "blank", "base": _b64png(base), "over": _b64png(o), "view": view,
+    return {"found": pixels > 0, "reason": "blank", "base": _b64png(base), "over": _b64png(ov), "view": view,
             "pixels": pixels, "cut": cut}
 
 
@@ -217,7 +251,7 @@ def preview(doc, pno, view_pt, seeds, tol=60, gap=2):
             "pixels": int(mask.sum())}
 
 
-def cutout_png(img, mask, ink, tol, rot=0):
+def cutout_png(img, mask, ink, tol, rot=0, orient=(False, False, False)):
     """La zona seleccionada como PNG con fondo transparente (bordes suaves según la tinta)."""
     box = _bbox(mask)
     rgb = np.asarray(img)[box[1]:box[3], box[0]:box[2]]
@@ -226,7 +260,7 @@ def cutout_png(img, mask, ink, tol, rot=0):
     lo = max(4, tol // 3)
     alpha = np.clip((k - lo) / max(1, (tol + 40) - lo), 0, 1) * 255
     alpha[~m] = 0
-    out = Image.fromarray(np.dstack([rgb, alpha.astype(np.uint8)]), "RGBA")
+    out = Image.fromarray(_upright(np.dstack([rgb, alpha.astype(np.uint8)]), orient), "RGBA")
     if rot % 360:
         out = out.rotate(-(rot % 360), expand=True)  # rot en grados, en el sentido de las agujas del reloj
     buf = io.BytesIO()
@@ -252,7 +286,7 @@ def apply(doc, pno, view_pt, seeds, action, tol=60, gap=2, area=None, rot=0):
     page = doc[pno]
     w, h = img.size
     ink = _ink(img)
-    png, box = cutout_png(img, mask, ink, int(tol), rot)
+    png, box = cutout_png(img, mask, ink, int(tol), rot, _orient(info, page))
     if action in ("separar", "borrar"):
         clean = np.asarray(img).copy()
         # se rellena (con un borde de 1 px, para no dejar el halo del antialias) con el color del papel
@@ -266,7 +300,9 @@ def apply(doc, pno, view_pt, seeds, action, tol=60, gap=2, area=None, rot=0):
         Image.fromarray(clean, "RGB").save(buf, "PNG")
         page.replace_image(info["xref"], stream=buf.getvalue())
     if action in ("separar", "copiar"):
-        page.insert_image(_rot_rect(_page_rect(info, box, w, h), rot), stream=png, keep_proportion=False)
+        # el PNG ya va derecho como se ve en pantalla; en una página girada hay que girarlo con ella
+        page.insert_image(_rot_rect(_page_rect(info, box, w, h), rot), stream=png, keep_proportion=False,
+                          rotate=page.rotation)
     return {"separar": "Separada como imagen", "copiar": "Copiada como imagen", "borrar": "Borrada"}.get(action, "")
 
 
@@ -276,7 +312,7 @@ def signature_png(doc, pno, view_pt, seeds, tol=60, gap=2, area=None, rot=0):
     if res is None or res[2] is None:
         raise ValueError("no hay nada seleccionado")
     info, img, mask = res
-    return cutout_png(img, mask, _ink(img), int(tol), rot)[0]
+    return cutout_png(img, mask, _ink(img), int(tol), rot, _orient(info, doc[pno]))[0]
 
 
 def clip(doc, pno, view_pt, seeds, tol=60, gap=2, area=None, rot=0):
@@ -285,6 +321,6 @@ def clip(doc, pno, view_pt, seeds, tol=60, gap=2, area=None, rot=0):
     if res is None or res[2] is None:
         raise ValueError("no hay nada seleccionado")
     info, img, mask = res
-    png, box = cutout_png(img, mask, _ink(img), int(tol), rot)
+    png, box = cutout_png(img, mask, _ink(img), int(tol), rot, _orient(info, doc[pno]))
     w, h = img.size
     return png, editor.to_view(doc[pno], _rot_rect(_page_rect(info, box, w, h), rot))

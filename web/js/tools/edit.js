@@ -854,12 +854,14 @@ const Edit = {
     const base = h('img', { class: 'lupa-base', alt: '', draggable: false });
     const over = h('canvas', { class: 'lupa-over' });
     const band = h('div', { class: 'lupa-band', hidden: true });
-    const stage = h('div', { class: 'lupa-stage' }, base, over, band);
+    const trail = h('canvas', { class: 'lupa-trail' });  // el trazo de la goma mientras se pinta
+    const stage = h('div', { class: 'lupa-stage' }, base, over, trail, band);
+    w.brush = w.brush || 14;
     const result = h('img', { class: 'lupa-res', alt: 'Resultado' });
     const info = h('div', { class: 'lupa-info' });
     const btns = [];
     const fit = (bw, bh) => {  // la lupa: el recuadro ampliado hasta llenar la ventana
-      const k = Math.min((Math.min(1150, innerWidth * 0.96) - 290) / bw, (innerHeight - 250) / bh, 8);
+      const k = Math.min((Math.min(1150, innerWidth * 0.96) - 290) / bw, (innerHeight - 310) / bh, 8);
       base.style.width = bw * k + 'px';
       base.style.height = bh * k + 'px';
     };
@@ -882,6 +884,23 @@ const Edit = {
       const b = over.getBoundingClientRect();
       const fr = ev => [Math.min(1, Math.max(0, (ev.clientX - b.left) / b.width)), Math.min(1, Math.max(0, (ev.clientY - b.top) / b.height))];
       const [fx, fy] = fr(e);
+      if (w.mode === 'erase') {  // goma: se pinta encima de lo que se quiere borrar de la selección
+        trail.width = b.width; trail.height = b.height;
+        const c = trail.getContext('2d');
+        Object.assign(c, { strokeStyle: 'rgba(214,40,40,.55)', lineWidth: w.brush * 2, lineCap: 'round', lineJoin: 'round' });
+        const pts = [[fx, fy]];
+        c.beginPath(); c.moveTo(fx * b.width, fy * b.height); c.lineTo(fx * b.width + 0.1, fy * b.height); c.stroke();
+        const mv = ev => { const f = fr(ev); pts.push(f); c.lineTo(f[0] * b.width, f[1] * b.height); c.stroke(); };
+        window.addEventListener('mousemove', mv);
+        window.addEventListener('mouseup', async () => {
+          window.removeEventListener('mousemove', mv);
+          const [x0, , x1] = r.view;
+          w.seeds.push({ op: 'erase', pts: pts.map(([a, bb]) => toView(a, bb)), r: w.brush * (x1 - x0) / b.width });
+          await refresh();
+          c.clearRect(0, 0, trail.width, trail.height);
+        }, { once: true });
+        return;
+      }
       if (w.mode !== 'pick') {  // recortar / quitar zona: se arrastra un recuadro dentro de la lupa
         const paint = f => Object.assign(band.style, { left: Math.min(fx, f[0]) * 100 + '%', top: Math.min(fy, f[1]) * 100 + '%', width: Math.abs(f[0] - fx) * 100 + '%', height: Math.abs(f[1] - fy) * 100 + '%' });
         band.hidden = false; band.className = 'lupa-band ' + w.mode; paint([fx, fy]);
@@ -917,12 +936,24 @@ const Edit = {
     };
     const modes = [['pick', 'Varita', 'Clic en un trazo: lo quita o lo añade (⇧ añade, ⌥/Alt quita)'],
       ['crop', 'Recortar', 'Arrastra un recuadro: se queda solo lo de dentro'],
-      ['cut', 'Quitar zona', 'Arrastra un recuadro: se quita lo de dentro']];
+      ['cut', 'Quitar zona', 'Arrastra un recuadro: se quita lo de dentro'],
+      ['erase', 'Goma', 'Pinta encima de lo que quieras borrar de la selección']];
     const modeBtns = modes.map(([m, l, tip]) => h('button', { class: 'seg' + (m === 'pick' ? ' on' : ''), title: tip, onclick: () => {
-      w.mode = m; modeBtns.forEach((b, i) => b.classList.toggle('on', modes[i][0] === m)); over.style.cursor = m === 'pick' ? 'crosshair' : 'cell';
+      w.mode = m; modeBtns.forEach((b, i) => b.classList.toggle('on', modes[i][0] === m));
+      over.style.cursor = m === 'pick' ? 'crosshair' : m === 'erase' ? brushCursor() : 'cell';
+      brushSl.hidden = m !== 'erase';
       hint.textContent = tip;
     } }, l));
     const hint = h('span', { class: 'muted' }, modes[0][2]);
+    const brushCursor = () => {  // círculo del tamaño de la goma
+      const d = w.brush * 2 + 2;
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${d}" height="${d}"><circle cx="${d / 2}" cy="${d / 2}" r="${w.brush}" fill="rgba(214,40,40,.15)" stroke="#d62828" stroke-width="1.5"/></svg>`;
+      return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${d / 2} ${d / 2}, crosshair`;
+    };
+    const brushOut = h('span', { class: 'muted' }, String(w.brush));
+    const brushInp = h('input', { type: 'range', min: 3, max: 60, step: 1, value: w.brush, title: 'Tamaño de la goma',
+      oninput: () => { w.brush = +brushInp.value; brushOut.textContent = brushInp.value; over.style.cursor = brushCursor(); } });
+    const brushSl = h('label', { class: 'lupa-sl', hidden: true }, 'Tamaño goma', brushInp, brushOut);
     const rotate = d => { w.rot = ((w.rot || 0) + d + 360) % 360; refresh(); };
     let close;
     const act = (label, fn, cls = '') => {
@@ -931,7 +962,7 @@ const Edit = {
     };
     const body = h('div', { class: 'lupa' },
       h('div', { class: 'lupa-ctl' },
-        h('div', { class: 'lupa-seg' }, ...modeBtns),
+        h('div', { class: 'lupa-seg' }, ...modeBtns), brushSl,
         slider('Tolerancia', 'tol', 10, 200, 5, 'Más alta: coge también los grises claros; más baja: solo lo más oscuro'),
         slider('Unir huecos', 'gap', 0, 8, 1, 'Al pinchar, une trazos cercanos separados por huecos pequeños (en puntos)'),
         h('button', { title: 'Deshacer el último ajuste', onclick: () => { if (w.seeds.length) { w.seeds.pop(); refresh(); } } }, 'Deshacer'),

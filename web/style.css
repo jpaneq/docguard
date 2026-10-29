@@ -734,3 +734,5 @@ body[data-view=edit] .wm-form textarea { width: 100%; }
 .lupa-band { position: absolute; pointer-events: none; border: 2px dashed #2563eb; background: rgba(37, 99, 235, .08); }
 .lupa-band.cut { border-color: #d62828; background: rgba(214, 40, 40, .12); }
 .lupa-info { font-size: 13px; }
+.lupa-trail { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.lupa-sl[hidden] { display: none; }

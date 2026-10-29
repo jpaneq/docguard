@@ -294,6 +294,12 @@ const Edit = {
         const on = this.sel?.type === 'image' && this.sel.id === im.xref;
         const d = v.box(im.bbox, 'img' + (on ? ' sel' : ''));
         d.title = 'Imagen — arrastra para moverla, esquina para redimensionar, Supr para borrar';
+        d.addEventListener('mousedown', e => {  // doble clic: abre la imagen en la lupa de la varita
+          if (e.button !== 0) return;
+          const c = this._imgClick;
+          this._imgClick = { x: im.xref, t: Date.now() };
+          if (c && c.x === im.xref && Date.now() - c.t < 450) { e.stopImmediatePropagation(); e.preventDefault(); this._imgClick = null; this.wandOpenImage(im); }
+        }, true);
         d.addEventListener('mousedown', e => { if (e.button === 0 && !on) { e.stopPropagation(); this.select('image', im.xref); } });
         if (on) v.transformable(d, im.bbox, r => this.op('move_image', { xref: im.xref, rect: r }, 'Moviendo…', false));
         d.addEventListener('contextmenu', e => { this.select('image', im.xref); this.contextMenu(e); });
@@ -848,29 +854,69 @@ const Edit = {
     const w = this.wand;
     return { n: w.n, area: w.area, seeds: w.seeds, tol: w.tol, gap: w.gap, rot: w.rot || 0 };
   },
-  wandLupa(r) {
+  /** Doble clic en una imagen suelta (p. ej. lo pegado de la varita): se vuelve a abrir en la lupa. */
+  async wandOpenImage(im) {
+    Object.assign(this.wand, { n: this.viewer.n, area: im.bbox.slice(), seeds: [], xref: im.xref });
+    const r = await this.wandFetch();
+    if (r?.base) this.wandLupa(r, true);
+  },
+  wandLupa(r, onImage = false) {
     const w = this.wand;
-    w.rot = 0; w.mode = 'pick';
+    w.rot = 0; w.mode = 'pick'; w.redo = []; w.zoom = 1;
+    w.brush = w.brush || 14;
     const base = h('img', { class: 'lupa-base', alt: '', draggable: false });
     const over = h('canvas', { class: 'lupa-over' });
     const band = h('div', { class: 'lupa-band', hidden: true });
-    const trail = h('canvas', { class: 'lupa-trail' });  // el trazo de la goma mientras se pinta
+    const trail = h('canvas', { class: 'lupa-trail' });  // el trazo de la goma o el pincel mientras se pinta
     const stage = h('div', { class: 'lupa-stage' }, base, over, trail, band);
-    w.brush = w.brush || 14;
+    const scroller = h('div', { class: 'lupa-scroll' }, stage);
     const result = h('img', { class: 'lupa-res', alt: 'Resultado' });
     const info = h('div', { class: 'lupa-info' });
+    const zoomOut = h('span', { class: 'muted lupa-zv' }, '100 %');
     const btns = [];
-    const fit = (bw, bh) => {  // la lupa: el recuadro ampliado hasta llenar la ventana
-      const k = Math.min((Math.min(1150, innerWidth * 0.96) - 290) / bw, (innerHeight - 310) / bh, 8);
-      base.style.width = bw * k + 'px';
-      base.style.height = bh * k + 'px';
+    let fitW = 0, fitH = 0;
+    const layout = () => {  // tamaño de la lupa (ajustado a la ventana) × zoom
+      base.style.width = fitW * w.zoom + 'px';
+      base.style.height = fitH * w.zoom + 'px';
+      scroller.style.width = fitW + 'px';
+      scroller.style.height = fitH + 'px';
+      zoomOut.textContent = Math.round(w.zoom * 100) + ' %';
+      base.classList.toggle('pix', w.zoom > 2);
     };
+    const fit = (bw, bh) => {
+      const k = Math.min((Math.min(1150, innerWidth * 0.96) - 290) / bw, (innerHeight - 300) / bh, 8);
+      fitW = Math.round(bw * k); fitH = Math.round(bh * k);
+      layout();
+      requestAnimationFrame(() => {  // si aun así no cabe la ventana entera, se encoge la lupa lo que sobre
+        const m = body.closest('.modal');
+        const extra = m ? m.scrollHeight - m.clientHeight : 0;
+        if (extra > 0) { const k2 = Math.max(0.2, (fitH - extra - 4) / fitH); fitW = Math.round(fitW * k2); fitH = Math.round(fitH * k2); layout(); }
+      });
+    };
+    const setZoom = (z, cx = 0.5, cy = 0.5) => {  // cx, cy: punto (fracción de lo visible) que se queda quieto
+      const old = w.zoom;
+      w.zoom = Math.min(8, Math.max(1, z));
+      if (w.zoom === old) return;
+      const px = scroller.scrollLeft + cx * fitW, py = scroller.scrollTop + cy * fitH;
+      layout();
+      scroller.scrollLeft = px * w.zoom / old - cx * fitW;
+      scroller.scrollTop = py * w.zoom / old - cy * fitH;
+    };
+    scroller.addEventListener('wheel', e => {
+      if (!(e.ctrlKey || e.metaKey)) return;  // la rueda sola desplaza; con ⌘/Ctrl (o pellizco) hace zoom
+      e.preventDefault();
+      const b = scroller.getBoundingClientRect();
+      setZoom(w.zoom * Math.exp(-e.deltaY / 200), (e.clientX - b.left) / fitW, (e.clientY - b.top) / fitH);
+    }, { passive: false });
     const show = res => {
       r = res;
       base.src = 'data:image/png;base64,' + r.base;
       const oi = new Image();
       oi.onload = () => {
-        fit(oi.width, oi.height); over.width = oi.width; over.height = oi.height; const c = over.getContext('2d'); c.clearRect(0, 0, oi.width, oi.height); c.drawImage(oi, 0, 0); };
+        if (!fitW) fit(oi.width, oi.height);
+        over.width = oi.width; over.height = oi.height;
+        const c = over.getContext('2d'); c.clearRect(0, 0, oi.width, oi.height); c.drawImage(oi, 0, 0);
+      };
       oi.src = 'data:image/png;base64,' + r.over;
       result.hidden = !r.cut;
       if (r.cut) result.src = 'data:image/png;base64,' + r.cut;
@@ -879,15 +925,19 @@ const Edit = {
       btns.forEach(b => { b.disabled = !r.found; });
     };
     const refresh = async () => { const res = await this.wandFetch(); if (res) show(res); };
+    const push = async seed => { w.seeds.push(seed); w.redo = []; await refresh(); };
+    const undo = () => { if (!w.seeds.length) return; w.redo.push(w.seeds.pop()); refresh(); };
+    const redo = () => { if (!w.redo.length) return; w.seeds.push(w.redo.pop()); refresh(); };
     const toView = (fx, fy) => { const [x0, y0, x1, y1] = r.view; return [x0 + fx * (x1 - x0), y0 + fy * (y1 - y0)]; };
     over.addEventListener('mousedown', async e => {
+      if (e.button !== 0) return;
       const b = over.getBoundingClientRect();
       const fr = ev => [Math.min(1, Math.max(0, (ev.clientX - b.left) / b.width)), Math.min(1, Math.max(0, (ev.clientY - b.top) / b.height))];
       const [fx, fy] = fr(e);
-      if (w.mode === 'erase') {  // goma: se pinta encima de lo que se quiere borrar de la selección
+      if (w.mode === 'erase' || w.mode === 'paint') {  // goma / pincel: se pinta encima
         trail.width = b.width; trail.height = b.height;
         const c = trail.getContext('2d');
-        Object.assign(c, { strokeStyle: 'rgba(214,40,40,.55)', lineWidth: w.brush * 2, lineCap: 'round', lineJoin: 'round' });
+        Object.assign(c, { strokeStyle: w.mode === 'erase' ? 'rgba(214,40,40,.55)' : 'rgba(22,163,74,.55)', lineWidth: w.brush * 2, lineCap: 'round', lineJoin: 'round' });
         const pts = [[fx, fy]];
         c.beginPath(); c.moveTo(fx * b.width, fy * b.height); c.lineTo(fx * b.width + 0.1, fy * b.height); c.stroke();
         const mv = ev => { const f = fr(ev); pts.push(f); c.lineTo(f[0] * b.width, f[1] * b.height); c.stroke(); };
@@ -895,13 +945,12 @@ const Edit = {
         window.addEventListener('mouseup', async () => {
           window.removeEventListener('mousemove', mv);
           const [x0, , x1] = r.view;
-          w.seeds.push({ op: 'erase', pts: pts.map(([a, bb]) => toView(a, bb)), r: w.brush * (x1 - x0) / b.width });
-          await refresh();
+          await push({ op: w.mode, pts: pts.map(([a, bb]) => toView(a, bb)), r: w.brush * (x1 - x0) / b.width });
           c.clearRect(0, 0, trail.width, trail.height);
         }, { once: true });
         return;
       }
-      if (w.mode !== 'pick') {  // recortar / quitar zona: se arrastra un recuadro dentro de la lupa
+      if (w.mode === 'crop' || w.mode === 'cut') {  // recortar / quitar zona: se arrastra un recuadro dentro de la lupa
         const paint = f => Object.assign(band.style, { left: Math.min(fx, f[0]) * 100 + '%', top: Math.min(fy, f[1]) * 100 + '%', width: Math.abs(f[0] - fx) * 100 + '%', height: Math.abs(f[1] - fy) * 100 + '%' });
         band.hidden = false; band.className = 'lupa-band ' + w.mode; paint([fx, fy]);
         const mv = ev => paint(fr(ev));
@@ -912,20 +961,26 @@ const Edit = {
           const [gx, gy] = fr(ev);
           if (Math.abs(gx - fx) < 0.01 || Math.abs(gy - fy) < 0.01) return;
           const p0 = toView(Math.min(fx, gx), Math.min(fy, gy)), p1 = toView(Math.max(fx, gx), Math.max(fy, gy));
-          w.seeds.push({ op: w.mode, rect: [p0[0], p0[1], p1[0], p1[1]] });
-          await refresh();
+          await push({ op: w.mode, rect: [p0[0], p0[1], p1[0], p1[1]] });
         }, { once: true });
+        return;
+      }
+      const [x, y] = toView(fx, fy);
+      if (w.mode === 'color') {  // pipeta: todo lo de ese color (⌥/Alt lo quita)
+        const before = r.pixels;
+        await push({ x, y, op: e.altKey ? 'color-sub' : 'color' });
+        if (!e.altKey && r.pixels <= before && w.seeds.length > 1) toast('Ese color ya estaba seleccionado.', '', [], 2500);
         return;
       }
       const px = Math.floor(fx * over.width), py = Math.floor(fy * over.height);
       const d = over.getContext('2d').getImageData(px, py, 1, 1).data;
       const onSel = d[3] < 150;  // lo seleccionado lleva un tinte suave; lo demás, el velo opaco
       const op = e.shiftKey ? 'add' : e.altKey ? 'sub' : (onSel ? 'sub' : 'add');
-      const [x, y] = toView(fx, fy);
       w.seeds.push({ x, y, op });
       const res = await this.wandFetch();
-      if (!res) return;
+      if (!res) { w.seeds.pop(); return; }
       if (op === 'add' && res.pixels <= r.pixels) { w.seeds.pop(); toast('Ahí solo hay fondo. Pincha sobre el trazo o sube la tolerancia.', '', [], 3000); return; }
+      w.redo = [];
       show(res);
     });
     const slider = (lbl, key, min, max, step, tip) => {
@@ -935,25 +990,29 @@ const Edit = {
       return h('label', { class: 'lupa-sl' }, lbl, inp, out);
     };
     const modes = [['pick', 'Varita', 'Clic en un trazo: lo quita o lo añade (⇧ añade, ⌥/Alt quita)'],
+      ['color', 'Color', 'Pipeta: clic en un color y se selecciona todo lo de ese color (⌥/Alt lo quita). La tolerancia decide cuánto se parece'],
+      ['paint', 'Pincel', 'Pinta encima para añadir a la selección (solo lo que no es fondo)'],
+      ['erase', 'Goma', 'Pinta encima de lo que quieras borrar de la selección'],
       ['crop', 'Recortar', 'Arrastra un recuadro: se queda solo lo de dentro'],
-      ['cut', 'Quitar zona', 'Arrastra un recuadro: se quita lo de dentro'],
-      ['erase', 'Goma', 'Pinta encima de lo que quieras borrar de la selección']];
-    const modeBtns = modes.map(([m, l, tip]) => h('button', { class: 'seg' + (m === 'pick' ? ' on' : ''), title: tip, onclick: () => {
-      w.mode = m; modeBtns.forEach((b, i) => b.classList.toggle('on', modes[i][0] === m));
-      over.style.cursor = m === 'pick' ? 'crosshair' : m === 'erase' ? brushCursor() : 'cell';
-      brushSl.hidden = m !== 'erase';
-      hint.textContent = tip;
-    } }, l));
-    const hint = h('span', { class: 'muted' }, modes[0][2]);
-    const brushCursor = () => {  // círculo del tamaño de la goma
+      ['cut', 'Quitar zona', 'Arrastra un recuadro: se quita lo de dentro']];
+    const brushCursor = col => {  // círculo del tamaño del pincel o la goma
       const d = w.brush * 2 + 2;
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${d}" height="${d}"><circle cx="${d / 2}" cy="${d / 2}" r="${w.brush}" fill="rgba(214,40,40,.15)" stroke="#d62828" stroke-width="1.5"/></svg>`;
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${d}" height="${d}"><circle cx="${d / 2}" cy="${d / 2}" r="${w.brush}" fill="${col}22" stroke="${col}" stroke-width="1.5"/></svg>`;
       return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${d / 2} ${d / 2}, crosshair`;
     };
+    const pipette = `url("data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22"><path d="M2 20l1-4 9-9 3 3-9 9z" fill="#fff" stroke="#111" stroke-width="1.4"/><path d="M13 5l2-2a2 2 0 013 0l1 1a2 2 0 010 3l-2 2z" fill="#111"/></svg>')}") 2 20, crosshair`;
+    const cursor = () => ({ pick: 'crosshair', color: pipette, paint: brushCursor('#16a34a'), erase: brushCursor('#d62828') }[w.mode] || 'cell');
     const brushOut = h('span', { class: 'muted' }, String(w.brush));
-    const brushInp = h('input', { type: 'range', min: 3, max: 60, step: 1, value: w.brush, title: 'Tamaño de la goma',
-      oninput: () => { w.brush = +brushInp.value; brushOut.textContent = brushInp.value; over.style.cursor = brushCursor(); } });
-    const brushSl = h('label', { class: 'lupa-sl', hidden: true }, 'Tamaño goma', brushInp, brushOut);
+    const brushInp = h('input', { type: 'range', min: 3, max: 60, step: 1, value: w.brush, title: 'Tamaño del pincel y la goma',
+      oninput: () => { w.brush = +brushInp.value; brushOut.textContent = brushInp.value; over.style.cursor = cursor(); } });
+    const brushSl = h('label', { class: 'lupa-sl', hidden: true }, 'Tamaño', brushInp, brushOut);
+    const hint = h('div', { class: 'muted lupa-hint' }, modes[0][2]);
+    const modeBtns = modes.map(([m, l, tip]) => h('button', { class: 'seg' + (m === 'pick' ? ' on' : ''), title: tip, onclick: () => {
+      w.mode = m; modeBtns.forEach((b, i) => b.classList.toggle('on', modes[i][0] === m));
+      over.style.cursor = cursor();
+      brushSl.hidden = !(m === 'erase' || m === 'paint');
+      hint.textContent = tip;
+    } }, l));
     const rotate = d => { w.rot = ((w.rot || 0) + d + 360) % 360; refresh(); };
     let close;
     const act = (label, fn, cls = '') => {
@@ -962,23 +1021,44 @@ const Edit = {
     };
     const body = h('div', { class: 'lupa' },
       h('div', { class: 'lupa-ctl' },
-        h('div', { class: 'lupa-seg' }, ...modeBtns), brushSl,
-        slider('Tolerancia', 'tol', 10, 200, 5, 'Más alta: coge también los grises claros; más baja: solo lo más oscuro'),
-        slider('Unir huecos', 'gap', 0, 8, 1, 'Al pinchar, une trazos cercanos separados por huecos pequeños (en puntos)'),
-        h('button', { title: 'Deshacer el último ajuste', onclick: () => { if (w.seeds.length) { w.seeds.pop(); refresh(); } } }, 'Deshacer'),
-        h('button', { title: 'Volver a toda la tinta del recuadro', onclick: () => { w.seeds = []; w.rot = 0; refresh(); } }, 'Restablecer')),
+        h('div', { class: 'lupa-seg' }, ...modeBtns), brushSl, h('span', { class: 'grow' }),
+        h('button', { title: 'Deshacer (⌘Z / Ctrl+Z)', onclick: undo }, '↶'),
+        h('button', { title: 'Rehacer (⇧⌘Z / Ctrl+Y)', onclick: redo }, '↷'),
+        h('button', { title: 'Volver a toda la tinta del recuadro', onclick: () => { w.redo = []; w.seeds = []; w.rot = 0; refresh(); } }, 'Restablecer')),
+      h('div', { class: 'lupa-ctl' },
+        slider('Tolerancia', 'tol', 10, 200, 5, 'Más alta: coge también los grises claros y colores más distintos; más baja: solo lo más parecido'),
+        slider('Unir huecos', 'gap', 0, 8, 1, 'Con la varita, une trazos cercanos separados por huecos pequeños (en puntos)'),
+        h('span', { class: 'grow' }),
+        h('button', { title: 'Alejar (⌘/Ctrl −)', onclick: () => setZoom(w.zoom / 1.5) }, '−'), zoomOut,
+        h('button', { title: 'Acercar (⌘/Ctrl + rueda, o ⌘/Ctrl +)', onclick: () => setZoom(w.zoom * 1.5) }, '+'),
+        h('button', { title: 'Ver entero (⌘/Ctrl 0)', onclick: () => setZoom(1) }, 'Ajustar')),
       hint,
-      h('div', { class: 'lupa-main' }, h('div', { class: 'lupa-left' }, stage, info),
+      h('div', { class: 'lupa-main' }, h('div', { class: 'lupa-left' }, scroller, info),
         h('div', { class: 'lupa-side' }, h('b', {}, 'Resultado'), h('div', { class: 'lupa-resbox' }, result),
           h('div', { class: 'lupa-rot' },
             h('button', { title: 'Girar 90° a la izquierda', onclick: () => rotate(-90) }, '⟲ 90°'),
             h('button', { title: 'Girar 90° a la derecha', onclick: () => rotate(90) }, '⟳ 90°')),
           act('Copiar como imagen', () => this.wandCopy(), 'primary'),
+          onImage ? act('Dejar solo lo seleccionado', () => this.wandApply('quedar')) : null,
           act('Separar como imagen', () => this.wandApply('separar')),
           act('Duplicar encima', () => this.wandApply('copiar')),
           act('Guardar como firma', () => this.wandSignature()),
-          act('Borrar de la página', () => this.wandApply('borrar'), 'danger'))));
-    close = modal({ wide: true, title: 'Varita mágica', body, actions: [{ label: 'Cerrar' }] });
+          act(onImage ? 'Borrar lo seleccionado' : 'Borrar de la página', () => this.wandApply('borrar'), 'danger'))));
+    // ⌘Z / Ctrl+Z dentro de la lupa deshace sus ajustes, no los cambios del documento
+    const keys = e => {
+      if (!(e.metaKey || e.ctrlKey) || /INPUT|TEXTAREA/.test(e.target?.tagName) && e.target.type !== 'range') return;
+      const k = e.key.toLowerCase();
+      if (k === 'z' && !e.shiftKey) undo();
+      else if ((k === 'z' && e.shiftKey) || k === 'y') redo();
+      else if (k === '+' || k === '=') setZoom(w.zoom * 1.5);
+      else if (k === '-') setZoom(w.zoom / 1.5);
+      else if (k === '0') setZoom(1);
+      else return;
+      e.preventDefault(); e.stopImmediatePropagation();
+    };
+    window.addEventListener('keydown', keys, true);
+    close = modal({ wide: true, title: onImage ? 'Varita mágica · imagen' : 'Varita mágica', body, actions: [{ label: 'Cerrar' }],
+      onclose: () => window.removeEventListener('keydown', keys, true) });
     body.closest('.modal').classList.add('modal-lupa');
     show(r);
   },

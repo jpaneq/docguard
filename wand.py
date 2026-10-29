@@ -33,6 +33,14 @@ def _load(doc, page, info):
     return img
 
 
+def _alpha(doc, page, info):
+    """Transparencia de la imagen (None si es opaca), para no rellenar con papel un recorte flotante."""
+    pix = editor._pixmap(doc, page, info["xref"])
+    if not pix.alpha:
+        return None
+    return np.asarray(Image.frombytes("RGBA", (pix.width, pix.height), pix.samples))[:, :, 3]
+
+
 def _to_px(info, pt, w, h):
     """Punto de la página → píxel de la imagen (según cómo está colocada en la página)."""
     q = pt * ~fitz.Matrix(info["transform"])
@@ -118,7 +126,8 @@ def selection(doc, pno, view_pt, seeds, tol=60, gap=2, area=None):
         p0, p1 = editor.point_from_view(page, area[0], area[1]), editor.point_from_view(page, area[2], area[3])
         r = fitz.Rect(p0, p1).normalize()
         infos = [i for i in page.get_image_info(xrefs=True) if i.get("xref") and fitz.Rect(i["bbox"]).intersects(r)]
-        info = max(infos, key=lambda i: (fitz.Rect(i["bbox"]) & r).get_area()) if infos else None
+        # la que más cubre el recuadro; si empatan (un recorte flotante sobre el escaneo), la de más arriba
+        info = max(enumerate(infos), key=lambda t: (round((fitz.Rect(t[1]["bbox"]) & r).get_area(), 1), t[0]))[1] if infos else None
     else:
         info = _image_at(page, editor.point_from_view(page, *view_pt))
     if not info:
@@ -136,7 +145,7 @@ def selection(doc, pno, view_pt, seeds, tol=60, gap=2, area=None):
         clip = np.zeros((h, w), bool)
         clip[box[1]:box[3], box[0]:box[2]] = True
     mask = np.zeros((h, w), bool)
-    if clip is not None and not any(s.get("op") == "add" for s in seeds):  # (recortar, quitar y goma solo restan)
+    if clip is not None and not any(s.get("op") in ("add", "color") for s in seeds):  # (recortar, quitar y goma solo restan)
         mask = (ink > int(tol)) & clip  # sin clics: toda la tinta del recuadro
     for s in seeds:
         if s.get("op") in ("crop", "cut"):  # recortar (deja solo lo de dentro) o quitar una zona rectangular
@@ -146,7 +155,17 @@ def selection(doc, pno, view_pt, seeds, tol=60, gap=2, area=None):
                 keep[b[1]:b[3], b[0]:b[2]] = True
             mask &= keep if s["op"] == "crop" else ~keep
             continue
-        if s.get("op") == "erase":  # goma: trazo pintado encima en la lupa
+        if s.get("op") in ("color", "color-sub"):  # pipeta: todos los píxeles de un color parecido
+            cx, cy = _to_px(info, editor.point_from_view(page, s["x"], s["y"]), w, h)
+            cx, cy = min(w - 1, max(0, int(cx))), min(h - 1, max(0, int(cy)))
+            arr = np.asarray(img, dtype=np.int16)
+            ref = arr[max(0, cy - 1):cy + 2, max(0, cx - 1):cx + 2].reshape(-1, 3).mean(axis=0)
+            near = np.abs(arr - ref).max(axis=2) <= int(tol) // 2
+            if clip is not None:
+                near &= clip
+            mask = (mask & ~near) if s["op"] == "color-sub" else (mask | near)
+            continue
+        if s.get("op") in ("erase", "paint"):  # goma / pincel: trazo pintado encima en la lupa
             er = Image.new("L", (w, h), 0)
             dr = ImageDraw.Draw(er)
             rad = max(1, float(s.get("r", 4)) * w / bw)
@@ -155,7 +174,11 @@ def selection(doc, pno, view_pt, seeds, tol=60, gap=2, area=None):
                 dr.line([a, b], fill=255, width=int(round(2 * rad)))
             for x, y in pts:
                 dr.ellipse([x - rad, y - rad, x + rad, y + rad], fill=255)
-            mask &= ~(np.asarray(er) > 0)
+            painted = np.asarray(er) > 0
+            if s["op"] == "erase":
+                mask &= ~painted
+            else:  # el pincel añade lo que no es fondo bajo el trazo
+                mask |= painted & (ink > int(tol))
             continue
         px = _to_px(info, editor.point_from_view(page, s["x"], s["y"]), w, h)
         comp = _component(ink, px, int(tol), gap_px, reach=max(12, round(6 * w / bw)))
@@ -295,15 +318,32 @@ def apply(doc, pno, view_pt, seeds, action, tol=60, gap=2, area=None, rot=0):
         wide = np.asarray(m8.filter(ImageFilter.MaxFilter(3))) > 0
         ring = (np.asarray(m8.filter(ImageFilter.MaxFilter(13))) > 0) & ~(np.asarray(m8.filter(ImageFilter.MaxFilter(5))) > 0)
         paper = ring & (ink <= tol)
-        clean[wide] = np.median(clean[paper], axis=0).astype(np.uint8) if paper.sum() > 20 else 255
+        alpha = _alpha(doc, page, info)
         buf = io.BytesIO()
-        Image.fromarray(clean, "RGB").save(buf, "PNG")
+        if alpha is not None:  # recorte flotante: lo borrado queda transparente, no del color del papel
+            a = alpha.copy()
+            a[wide] = 0
+            Image.fromarray(np.dstack([clean, a]), "RGBA").save(buf, "PNG")
+        else:
+            clean[wide] = np.median(clean[paper], axis=0).astype(np.uint8) if paper.sum() > 20 else 255
+            Image.fromarray(clean, "RGB").save(buf, "PNG")
+        page.replace_image(info["xref"], stream=buf.getvalue())
+    if action == "quedar":  # la imagen se queda solo con lo seleccionado (lo demás, transparente)
+        alpha = _alpha(doc, page, info)
+        keep = np.asarray(Image.open(io.BytesIO(cutout_png(img, mask, ink, int(tol))[0])))
+        a = np.zeros((h, w), np.uint8)
+        x0, y0, x1, y1 = box
+        a[y0:y1, x0:x1] = keep[:, :, 3]
+        if alpha is not None:
+            a = np.minimum(a, alpha)
+        buf = io.BytesIO()
+        Image.fromarray(np.dstack([np.asarray(img), a]), "RGBA").save(buf, "PNG")
         page.replace_image(info["xref"], stream=buf.getvalue())
     if action in ("separar", "copiar"):
         # el PNG ya va derecho como se ve en pantalla; en una página girada hay que girarlo con ella
         page.insert_image(_rot_rect(_page_rect(info, box, w, h), rot), stream=png, keep_proportion=False,
                           rotate=page.rotation)
-    return {"separar": "Separada como imagen", "copiar": "Copiada como imagen", "borrar": "Borrada"}.get(action, "")
+    return {"separar": "Separada como imagen", "copiar": "Copiada como imagen", "borrar": "Borrada", "quedar": "Imagen recortada"}.get(action, "")
 
 
 def signature_png(doc, pno, view_pt, seeds, tol=60, gap=2, area=None, rot=0):

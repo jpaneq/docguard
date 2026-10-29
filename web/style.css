@@ -736,3 +736,11 @@ body[data-view=edit] .wm-form textarea { width: 100%; }
 .lupa-info { font-size: 13px; }
 .lupa-trail { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .lupa-sl[hidden] { display: none; }
+.lupa-scroll { box-sizing: content-box; overflow: auto; max-width: 100%; border: 1px solid var(--line, #ccc); background: repeating-conic-gradient(#e6e6e6 0 25%, #fff 0 50%) 0 0 / 16px 16px; }
+.lupa-scroll .lupa-stage { border: 0; display: inline-block; }
+.lupa-base.pix { image-rendering: pixelated; }
+.lupa-zv { min-width: 44px; text-align: center; }
+.lupa-ctl .grow { flex: 1; }
+.lupa-hint { font-size: 12px; margin-top: -2px; }
+.lupa-ctl { flex-wrap: nowrap; }
+.lupa-ctl > * { flex: none; }

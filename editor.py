@@ -548,7 +548,21 @@ def _pixmap(doc, page, xref):
 
 
 def _remove_image(page, xref):
-    """Elimina del todo la imagen (page.delete_image deja un hueco transparente)."""
+    """Elimina del todo la imagen (page.delete_image deja un hueco transparente). Se quita su dibujo
+    del contenido de la página, sin tocar las demás imágenes que tenga debajo o encima (un recorte
+    flotante sobre un escaneo, p. ej.)."""
+    names = [i[7] for i in page.get_images(full=True) if i[0] == xref and i[9] == 0]
+    if names:
+        page.clean_contents()
+        doc = page.parent
+        for cx in page.get_contents():
+            src = doc.xref_stream(cx)
+            new = src
+            for n in names:
+                new = re.sub(rb"/" + re.escape(n.encode()) + rb"\s+Do\b", b"", new)
+            if new != src:
+                doc.update_stream(cx, new)
+                return
     for info in page.get_image_info(xrefs=True):
         if info.get("xref") == xref:
             r = fitz.Rect(info["bbox"])
@@ -566,13 +580,27 @@ def delete_image(doc, pno, xref):
 def move_image(doc, pno, xref, rect):
     page = doc[pno]
     pix = _pixmap(doc, page, xref)
+    info = next((i for i in page.get_image_info(xrefs=True) if i.get("xref") == xref), None)
     _remove_image(page, xref)
+    if info:  # se mantiene como se veía: la imagen puede estar girada o volteada, o la página girada
+        import io
+
+        import numpy as np
+        from PIL import Image
+
+        import wand
+        mode = "RGBA" if pix.alpha else "RGB"
+        a = np.asarray(Image.frombytes(mode, (pix.width, pix.height), pix.samples))
+        buf = io.BytesIO()
+        Image.fromarray(wand._upright(a, wand._orient(info, page)), mode).save(buf, "PNG")
+        page.insert_image(from_view(page, rect), stream=buf.getvalue(), keep_proportion=False, rotate=page.rotation)
+        return
     page.insert_image(from_view(page, rect), pixmap=pix, keep_proportion=False)
 
 
 def insert_image(doc, pno, rect, data):
     page = doc[pno]
-    page.insert_image(from_view(page, rect), stream=data, keep_proportion=True)
+    page.insert_image(from_view(page, rect), stream=data, keep_proportion=True, rotate=page.rotation)
 
 
 # --------------------------------------------------------------------------
@@ -1153,7 +1181,7 @@ def paste_region(doc, pno, clip, x, y, mode="auto"):
     w, h = clip["size"]
     target = from_view(page, [x, y, x + w, y + h])
     if mode == "image" or (mode == "auto" and not clip.get("text")):
-        page.insert_image(target, stream=clip["png"], keep_proportion=False)
+        page.insert_image(target, stream=clip["png"], keep_proportion=False, rotate=page.rotation)
         return "pegado como imagen"
     with fitz.open("pdf", clip["pdf"]) as src:
         page.show_pdf_page(target, src, clip["pno"], clip=fitz.Rect(clip["rect"]))

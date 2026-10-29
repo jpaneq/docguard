@@ -998,6 +998,8 @@ const Edit = {
     if (!ok) return false;
     if (action === 'borrar') { this.draw(); return toast('Borrada. ⌘Z / Ctrl+Z para deshacer.', 'ok'); }
     this.setTool('select');
+    const top = (this.st?.images || []).at(-1);  // la recién puesta es la de más arriba
+    if (top) this.select('image', top.xref);
     toast('Ahora es una imagen suelta: arrástrala para moverla o cópiala (⌘C). ⌘Z / Ctrl+Z para deshacer.', 'ok', [], 6000);
   },
   async wandSignature() {
@@ -1356,6 +1358,13 @@ const Edit = {
     this.saveClip(); this._clipAt = Date.now();
   },
   /** Lo copiado se comparte entre ventanas de DocGuard (el contenido está en el servidor). */
+  /** Selecciona la imagen recién colocada con la esquina en x, y (la de más arriba). */
+  selectImageAt(x, y) {
+    const near = (this.st?.images || []).filter(i => Math.abs(i.bbox[0] - x) < 2 && Math.abs(i.bbox[1] - y) < 2).pop();
+    if (!near) return;
+    if (this.tool !== 'select') this.setTool('select');
+    this.select('image', near.xref);
+  },
   saveClip() {
     try { localStorage.setItem('dg_clip', JSON.stringify({ clipKind: this.clipKind, clipObj: this.clipObj, clipAnchor: this.clipAnchor, clipAsImage: this.clipAsImage, at: Date.now() })); } catch (e) { /* sin almacenamiento */ }
   },
@@ -1388,7 +1397,9 @@ const Edit = {
     }
     if (this.clipKind === 'region' && this.clip) {
       const [x, y] = at || [this.clipAnchor[0] + 20, this.clipAnchor[1] + 20];
-      return this.op('paste', { x, y, mode: asImage || this.clipAsImage ? 'image' : 'auto' }, 'Pegando…');
+      const ok = await this.op('paste', { x, y, mode: asImage || this.clipAsImage ? 'image' : 'auto' }, 'Pegando…');
+      if (ok && (asImage || this.clipAsImage)) this.selectImageAt(x, y);  // queda flotando, lista para moverla
+      return ok;
     }
     try {
       const items = await navigator.clipboard.read();

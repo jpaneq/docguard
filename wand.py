@@ -114,9 +114,16 @@ def selection(doc, pno, view_pt, seeds, tol=60, gap=2, area=None):
         clip = np.zeros((h, w), bool)
         clip[box[1]:box[3], box[0]:box[2]] = True
     mask = np.zeros((h, w), bool)
-    if clip is not None and not any(s.get("op") != "sub" for s in seeds):
+    if clip is not None and not any(s.get("op") == "add" for s in seeds):
         mask = (ink > int(tol)) & clip  # sin clics: toda la tinta del recuadro
     for s in seeds:
+        if s.get("op") in ("crop", "cut"):  # recortar (deja solo lo de dentro) o quitar una zona rectangular
+            b = _area_px(info, page, s["rect"], w, h)
+            keep = np.zeros((h, w), bool)
+            if b:
+                keep[b[1]:b[3], b[0]:b[2]] = True
+            mask &= keep if s["op"] == "crop" else ~keep
+            continue
         px = _to_px(info, editor.point_from_view(page, s["x"], s["y"]), w, h)
         comp = _component(ink, px, int(tol), gap_px, reach=max(12, round(6 * w / bw)))
         if comp is None:
@@ -147,7 +154,7 @@ def _b64png(im):
     return base64.b64encode(buf.getvalue()).decode()
 
 
-def lupa(doc, pno, area, seeds, tol=60, gap=2):
+def lupa(doc, pno, area, seeds, tol=60, gap=2, rot=0):
     """Para la ventana de lupa: el trozo del recuadro ampliado y, encima, la selección (mismo tamaño)."""
     res = selection(doc, pno, None, seeds, tol, gap, area)
     if res is None:
@@ -159,14 +166,19 @@ def lupa(doc, pno, area, seeds, tol=60, gap=2):
         return {"found": False, "reason": "noimage"}
     x0, y0, x1, y1 = box
     base = img.crop(box)
-    over = np.zeros((y1 - y0, x1 - x0, 4), np.uint8)
+    # lo no seleccionado queda tapado por un velo claro; lo seleccionado, teñido y con contorno
+    over = np.full((y1 - y0, x1 - x0, 4), (255, 255, 255, 190), np.uint8)
     pixels = 0
+    cut = None
     if mask is not None:
         crop = mask[y0:y1, x0:x1]
         pixels = int(crop.sum())
-        over[crop] = (37, 99, 235, 140)
-        edge = crop & ~(np.asarray(Image.fromarray((crop * 255).astype(np.uint8)).filter(ImageFilter.MinFilter(3))) > 0)
-        over[edge] = (20, 60, 200, 255)
+        over[crop] = (37, 99, 235, 90)
+        m8 = Image.fromarray((crop * 255).astype(np.uint8))
+        ring = (np.asarray(m8.filter(ImageFilter.MaxFilter(5))) > 0) & ~crop
+        over[ring] = (255, 140, 0, 255)
+        if pixels:
+            cut = _b64png(Image.open(io.BytesIO(cutout_png(img, mask, _ink(img), int(tol), rot)[0])))
     o = Image.fromarray(over, "RGBA")
     if max(base.size) > 1400:
         base.thumbnail((1400, 1400))
@@ -174,7 +186,7 @@ def lupa(doc, pno, area, seeds, tol=60, gap=2):
     # parte del recuadro (en la vista) que cubre realmente la imagen, para situar los clics
     view = editor.to_view(doc[pno], _page_rect(info, box, w, h))
     return {"found": pixels > 0, "reason": "blank", "base": _b64png(base), "over": _b64png(o), "view": view,
-            "pixels": pixels}
+            "pixels": pixels, "cut": cut}
 
 
 def preview(doc, pno, view_pt, seeds, tol=60, gap=2):
@@ -205,7 +217,7 @@ def preview(doc, pno, view_pt, seeds, tol=60, gap=2):
             "pixels": int(mask.sum())}
 
 
-def cutout_png(img, mask, ink, tol):
+def cutout_png(img, mask, ink, tol, rot=0):
     """La zona seleccionada como PNG con fondo transparente (bordes suaves según la tinta)."""
     box = _bbox(mask)
     rgb = np.asarray(img)[box[1]:box[3], box[0]:box[2]]
@@ -214,13 +226,23 @@ def cutout_png(img, mask, ink, tol):
     lo = max(4, tol // 3)
     alpha = np.clip((k - lo) / max(1, (tol + 40) - lo), 0, 1) * 255
     alpha[~m] = 0
-    out = np.dstack([rgb, alpha.astype(np.uint8)])
+    out = Image.fromarray(np.dstack([rgb, alpha.astype(np.uint8)]), "RGBA")
+    if rot % 360:
+        out = out.rotate(-(rot % 360), expand=True)  # rot en grados, en el sentido de las agujas del reloj
     buf = io.BytesIO()
-    Image.fromarray(out, "RGBA").save(buf, "PNG")
+    out.save(buf, "PNG")
     return buf.getvalue(), box
 
 
-def apply(doc, pno, view_pt, seeds, action, tol=60, gap=2, area=None):
+def _rot_rect(r, rot):
+    """El recuadro donde va la imagen girada: mismo centro y, a 90/270°, ancho y alto cambiados."""
+    if rot % 180 == 0:
+        return r
+    c = (r.tl + r.br) / 2
+    return fitz.Rect(c.x - r.height / 2, c.y - r.width / 2, c.x + r.height / 2, c.y + r.width / 2)
+
+
+def apply(doc, pno, view_pt, seeds, action, tol=60, gap=2, area=None, rot=0):
     """action: 'separar' (borrar de la imagen + imagen suelta movible), 'copiar' (imagen suelta
     encima, sin tocar el original) o 'borrar' (queda en blanco)."""
     res = selection(doc, pno, view_pt, seeds, tol, gap, area)
@@ -230,7 +252,7 @@ def apply(doc, pno, view_pt, seeds, action, tol=60, gap=2, area=None):
     page = doc[pno]
     w, h = img.size
     ink = _ink(img)
-    png, box = cutout_png(img, mask, ink, int(tol))
+    png, box = cutout_png(img, mask, ink, int(tol), rot)
     if action in ("separar", "borrar"):
         clean = np.asarray(img).copy()
         # se rellena (con un borde de 1 px, para no dejar el halo del antialias) con el color del papel
@@ -244,25 +266,25 @@ def apply(doc, pno, view_pt, seeds, action, tol=60, gap=2, area=None):
         Image.fromarray(clean, "RGB").save(buf, "PNG")
         page.replace_image(info["xref"], stream=buf.getvalue())
     if action in ("separar", "copiar"):
-        page.insert_image(_page_rect(info, box, w, h), stream=png, keep_proportion=False)
+        page.insert_image(_rot_rect(_page_rect(info, box, w, h), rot), stream=png, keep_proportion=False)
     return {"separar": "Separada como imagen", "copiar": "Copiada como imagen", "borrar": "Borrada"}.get(action, "")
 
 
-def signature_png(doc, pno, view_pt, seeds, tol=60, gap=2, area=None):
+def signature_png(doc, pno, view_pt, seeds, tol=60, gap=2, area=None, rot=0):
     """La selección como PNG con fondo transparente (para las firmas o el portapapeles)."""
     res = selection(doc, pno, view_pt, seeds, tol, gap, area)
     if res is None or res[2] is None:
         raise ValueError("no hay nada seleccionado")
     info, img, mask = res
-    return cutout_png(img, mask, _ink(img), int(tol))[0]
+    return cutout_png(img, mask, _ink(img), int(tol), rot)[0]
 
 
-def clip(doc, pno, view_pt, seeds, tol=60, gap=2, area=None):
+def clip(doc, pno, view_pt, seeds, tol=60, gap=2, area=None, rot=0):
     """La selección para el portapapeles: PNG transparente y su recuadro en la vista."""
     res = selection(doc, pno, view_pt, seeds, tol, gap, area)
     if res is None or res[2] is None:
         raise ValueError("no hay nada seleccionado")
     info, img, mask = res
-    png, box = cutout_png(img, mask, _ink(img), int(tol))
+    png, box = cutout_png(img, mask, _ink(img), int(tol), rot)
     w, h = img.size
-    return png, editor.to_view(doc[pno], _page_rect(info, box, w, h))
+    return png, editor.to_view(doc[pno], _rot_rect(_page_rect(info, box, w, h), rot))

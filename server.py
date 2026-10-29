@@ -1253,7 +1253,8 @@ EDIT_OPS = {
         sorted({p for g in core.parse_ranges(r["ranges"], len(doc)) for p in g}) if r.get("ranges") else None,
         r.get("filename", "")),
     "wand_apply": lambda doc, r: wand.apply(doc, r["n"], _wand_pt(r), r["seeds"], r["action"],
-                                           int(r.get("tol", 60)), float(r.get("gap", 2)), r.get("area")),
+                                           int(r.get("tol", 60)), float(r.get("gap", 2)), r.get("area"),
+                                           int(r.get("rot", 0))),
     "move_spans": lambda doc, r: editor.move_spans(doc, r["n"], r["indices"], float(r["dx"]), float(r["dy"])),
     "scale_spans": lambda doc, r: editor.scale_spans(doc, r["n"], r["indices"], float(r["factor"]), r["anchor"]),
     "format_spans": lambda doc, r: editor.format_spans(doc, r["n"], r["indices"], r.get("font", "auto"), r.get("size"),
@@ -1303,7 +1304,7 @@ CLIPBOARD = {}
 
 
 def _wand_pt(req):
-    s = req.get("seeds") or []
+    s = [x for x in req.get("seeds") or [] if "x" in x]
     return (s[0]["x"], s[0]["y"]) if s else None
 
 
@@ -1311,14 +1312,15 @@ def op_wand_lupa(req):
     """Varita mágica dentro de un recuadro: imagen ampliada del recuadro y la selección encima."""
     d = get_doc(req)
     return wand.lupa(need_pdf(d), int(req["n"]), req["area"], req.get("seeds") or [],
-                     int(req.get("tol", 60)), float(req.get("gap", 2)))
+                     int(req.get("tol", 60)), float(req.get("gap", 2)), int(req.get("rot", 0)))
 
 
 def op_wand_png(req):
     """Varita mágica: la selección como PNG transparente (para copiarla al portapapeles)."""
     d = get_doc(req)
     png, view = wand.clip(need_pdf(d), int(req["n"]), _wand_pt(req), req.get("seeds") or [],
-                          int(req.get("tol", 60)), float(req.get("gap", 2)), req.get("area"))
+                          int(req.get("tol", 60)), float(req.get("gap", 2)), req.get("area"),
+                          int(req.get("rot", 0)))
     CLIPBOARD["clip"] = {"png": png, "size": [view[2] - view[0], view[3] - view[1]], "text": ""}
     return {"png": base64.b64encode(png).decode(), "rect": view}
 
@@ -1335,7 +1337,8 @@ def op_wand_signature(req):
     """Varita mágica: guarda la zona seleccionada entre las firmas manuscritas."""
     d = get_doc(req)
     png = wand.signature_png(need_pdf(d), int(req["n"]), _wand_pt(req), req.get("seeds") or [],
-                             int(req.get("tol", 60)), float(req.get("gap", 2)), req.get("area"))
+                             int(req.get("tol", 60)), float(req.get("gap", 2)), req.get("area"),
+                          int(req.get("rot", 0)))
     return op_sigimg_save({"png": base64.b64encode(png).decode(), "remove_white": False})
 
 

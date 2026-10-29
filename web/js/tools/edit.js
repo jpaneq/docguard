@@ -842,25 +842,27 @@ const Edit = {
     this.wandLupa(r);
   },
   wandFetch() {
-    const w = this.wand;
-    return run('Seleccionando…', () => api('edit/wand_lupa', { id: this.info.id, n: w.n, area: w.area, seeds: w.seeds, tol: w.tol, gap: w.gap }));
+    return run('Seleccionando…', () => api('edit/wand_lupa', { id: this.info.id, ...this.wandReq() }));
   },
   wandReq() {
     const w = this.wand;
-    return { n: w.n, area: w.area, seeds: w.seeds, tol: w.tol, gap: w.gap };
+    return { n: w.n, area: w.area, seeds: w.seeds, tol: w.tol, gap: w.gap, rot: w.rot || 0 };
   },
   wandLupa(r) {
     const w = this.wand;
+    w.rot = 0; w.mode = 'pick';
     const base = h('img', { class: 'lupa-base', alt: '', draggable: false });
+    const over = h('canvas', { class: 'lupa-over' });
+    const band = h('div', { class: 'lupa-band', hidden: true });
+    const stage = h('div', { class: 'lupa-stage' }, base, over, band);
+    const result = h('img', { class: 'lupa-res', alt: 'Resultado' });
+    const info = h('div', { class: 'lupa-info' });
+    const btns = [];
     const fit = (bw, bh) => {  // la lupa: el recuadro ampliado hasta llenar la ventana
-      const k = Math.min(Math.min(900, innerWidth * 0.78) / bw, (innerHeight - 330) / bh, 8);
+      const k = Math.min((Math.min(1150, innerWidth * 0.96) - 290) / bw, (innerHeight - 250) / bh, 8);
       base.style.width = bw * k + 'px';
       base.style.height = bh * k + 'px';
     };
-    const over = h('canvas', { class: 'lupa-over' });
-    const stage = h('div', { class: 'lupa-stage' }, base, over);
-    const info = h('span', { class: 'muted' });
-    const btns = [];
     const show = res => {
       r = res;
       base.src = 'data:image/png;base64,' + r.base;
@@ -868,18 +870,40 @@ const Edit = {
       oi.onload = () => {
         fit(oi.width, oi.height); over.width = oi.width; over.height = oi.height; const c = over.getContext('2d'); c.clearRect(0, 0, oi.width, oi.height); c.drawImage(oi, 0, 0); };
       oi.src = 'data:image/png;base64,' + r.over;
-      info.textContent = r.found ? 'Clic en una zona para quitarla o añadirla · ⇧ siempre añade · ⌥/Alt siempre quita' : 'No hay nada seleccionado: sube la tolerancia o pulsa «Todo el recuadro».';
+      result.hidden = !r.cut;
+      if (r.cut) result.src = 'data:image/png;base64,' + r.cut;
+      info.textContent = r.found ? `Seleccionado: lo que se ve en color, con borde naranja (${r.pixels.toLocaleString()} píxeles). Lo tapado en blanco no se usará.`
+        : 'No hay nada seleccionado: sube la tolerancia o pulsa «Restablecer».';
       btns.forEach(b => { b.disabled = !r.found; });
     };
     const refresh = async () => { const res = await this.wandFetch(); if (res) show(res); };
+    const toView = (fx, fy) => { const [x0, y0, x1, y1] = r.view; return [x0 + fx * (x1 - x0), y0 + fy * (y1 - y0)]; };
     over.addEventListener('mousedown', async e => {
       const b = over.getBoundingClientRect();
-      const fx = (e.clientX - b.left) / b.width, fy = (e.clientY - b.top) / b.height;
+      const fr = ev => [Math.min(1, Math.max(0, (ev.clientX - b.left) / b.width)), Math.min(1, Math.max(0, (ev.clientY - b.top) / b.height))];
+      const [fx, fy] = fr(e);
+      if (w.mode !== 'pick') {  // recortar / quitar zona: se arrastra un recuadro dentro de la lupa
+        const paint = f => Object.assign(band.style, { left: Math.min(fx, f[0]) * 100 + '%', top: Math.min(fy, f[1]) * 100 + '%', width: Math.abs(f[0] - fx) * 100 + '%', height: Math.abs(f[1] - fy) * 100 + '%' });
+        band.hidden = false; band.className = 'lupa-band ' + w.mode; paint([fx, fy]);
+        const mv = ev => paint(fr(ev));
+        window.addEventListener('mousemove', mv);
+        window.addEventListener('mouseup', async ev => {
+          window.removeEventListener('mousemove', mv);
+          band.hidden = true;
+          const [gx, gy] = fr(ev);
+          if (Math.abs(gx - fx) < 0.01 || Math.abs(gy - fy) < 0.01) return;
+          const p0 = toView(Math.min(fx, gx), Math.min(fy, gy)), p1 = toView(Math.max(fx, gx), Math.max(fy, gy));
+          w.seeds.push({ op: w.mode, rect: [p0[0], p0[1], p1[0], p1[1]] });
+          await refresh();
+        }, { once: true });
+        return;
+      }
       const px = Math.floor(fx * over.width), py = Math.floor(fy * over.height);
-      const onSel = over.getContext('2d').getImageData(px, py, 1, 1).data[3] > 0;
+      const d = over.getContext('2d').getImageData(px, py, 1, 1).data;
+      const onSel = d[3] < 150;  // lo seleccionado lleva un tinte suave; lo demás, el velo opaco
       const op = e.shiftKey ? 'add' : e.altKey ? 'sub' : (onSel ? 'sub' : 'add');
-      const [x0, y0, x1, y1] = r.view;
-      w.seeds.push({ x: x0 + fx * (x1 - x0), y: y0 + fy * (y1 - y0), op });
+      const [x, y] = toView(fx, fy);
+      w.seeds.push({ x, y, op });
       const res = await this.wandFetch();
       if (!res) return;
       if (op === 'add' && res.pixels <= r.pixels) { w.seeds.pop(); toast('Ahí solo hay fondo. Pincha sobre el trazo o sube la tolerancia.', '', [], 3000); return; }
@@ -891,24 +915,40 @@ const Edit = {
         oninput: () => { w[key] = +inp.value; out.textContent = inp.value; }, onchange: refresh });
       return h('label', { class: 'lupa-sl' }, lbl, inp, out);
     };
+    const modes = [['pick', 'Varita', 'Clic en un trazo: lo quita o lo añade (⇧ añade, ⌥/Alt quita)'],
+      ['crop', 'Recortar', 'Arrastra un recuadro: se queda solo lo de dentro'],
+      ['cut', 'Quitar zona', 'Arrastra un recuadro: se quita lo de dentro']];
+    const modeBtns = modes.map(([m, l, tip]) => h('button', { class: 'seg' + (m === 'pick' ? ' on' : ''), title: tip, onclick: () => {
+      w.mode = m; modeBtns.forEach((b, i) => b.classList.toggle('on', modes[i][0] === m)); over.style.cursor = m === 'pick' ? 'crosshair' : 'cell';
+      hint.textContent = tip;
+    } }, l));
+    const hint = h('span', { class: 'muted' }, modes[0][2]);
+    const rotate = d => { w.rot = ((w.rot || 0) + d + 360) % 360; refresh(); };
     let close;
-    const act = (label, fn, primary) => {
-      const b = h('button', { class: primary ? 'primary' : '', onclick: async () => { if (await fn() !== false) close(); } }, label);
+    const act = (label, fn, cls = '') => {
+      const b = h('button', { class: cls, onclick: async () => { if (await fn() !== false) close(); } }, label);
       btns.push(b); return b;
     };
     const body = h('div', { class: 'lupa' },
       h('div', { class: 'lupa-ctl' },
+        h('div', { class: 'lupa-seg' }, ...modeBtns),
         slider('Tolerancia', 'tol', 10, 200, 5, 'Más alta: coge también los grises claros; más baja: solo lo más oscuro'),
         slider('Unir huecos', 'gap', 0, 8, 1, 'Al pinchar, une trazos cercanos separados por huecos pequeños (en puntos)'),
-        h('button', { onclick: () => { w.seeds = []; refresh(); } }, 'Todo el recuadro')),
-      stage, info,
-      h('div', { class: 'lupa-acts' },
-        act('Copiar como imagen', () => this.wandCopy(), true),
-        act('Separar como imagen', () => this.wandApply('separar')),
-        act('Duplicar encima', () => this.wandApply('copiar')),
-        act('Borrar', () => this.wandApply('borrar')),
-        act('Guardar como firma', () => this.wandSignature())));
+        h('button', { title: 'Deshacer el último ajuste', onclick: () => { if (w.seeds.length) { w.seeds.pop(); refresh(); } } }, 'Deshacer'),
+        h('button', { title: 'Volver a toda la tinta del recuadro', onclick: () => { w.seeds = []; w.rot = 0; refresh(); } }, 'Restablecer')),
+      hint,
+      h('div', { class: 'lupa-main' }, h('div', { class: 'lupa-left' }, stage, info),
+        h('div', { class: 'lupa-side' }, h('b', {}, 'Resultado'), h('div', { class: 'lupa-resbox' }, result),
+          h('div', { class: 'lupa-rot' },
+            h('button', { title: 'Girar 90° a la izquierda', onclick: () => rotate(-90) }, '⟲ 90°'),
+            h('button', { title: 'Girar 90° a la derecha', onclick: () => rotate(90) }, '⟳ 90°')),
+          act('Copiar como imagen', () => this.wandCopy(), 'primary'),
+          act('Separar como imagen', () => this.wandApply('separar')),
+          act('Duplicar encima', () => this.wandApply('copiar')),
+          act('Guardar como firma', () => this.wandSignature()),
+          act('Borrar de la página', () => this.wandApply('borrar'), 'danger'))));
     close = modal({ wide: true, title: 'Varita mágica', body, actions: [{ label: 'Cerrar' }] });
+    body.closest('.modal').classList.add('modal-lupa');
     show(r);
   },
   async wandCopy() {

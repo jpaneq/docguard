@@ -714,3 +714,23 @@ body[data-view=edit] .wm-form textarea { width: 100%; }
 .lupa-stage { position: relative; align-self: center; line-height: 0; background: repeating-conic-gradient(#e6e6e6 0 25%, #fff 0 50%) 0 0 / 16px 16px; border: 1px solid var(--line, #ccc); }
 .lupa-base { display: block; }
 .lupa-over { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; }
+.modal.modal-lupa { width: min(1150px, 96vw); max-width: 96vw; max-height: 96vh; padding-top: 14px; padding-bottom: 12px; }
+.modal-lupa h2 { margin: 0 0 6px; }
+.modal-lupa .actions { margin-top: 6px; }
+.lupa { gap: 8px; }
+.lupa-main { display: flex; gap: 14px; align-items: flex-start; }
+.lupa-left { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; align-items: center; }
+.lupa-side { display: flex; flex-direction: column; gap: 6px; width: 230px; flex: none; }
+.lupa-side > button { width: 100%; }
+.lupa-resbox { height: 130px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--line, #ccc); background: repeating-conic-gradient(#e6e6e6 0 25%, #fff 0 50%) 0 0 / 12px 12px; }
+.lupa-res { max-width: 100%; max-height: 100%; }
+.lupa-rot { display: flex; gap: 6px; }
+.lupa-rot button { flex: 1; }
+.lupa-seg { display: inline-flex; }
+.lupa-seg .seg { border-radius: 0; }
+.lupa-seg .seg:first-child { border-radius: 6px 0 0 6px; }
+.lupa-seg .seg:last-child { border-radius: 0 6px 6px 0; }
+.lupa-seg .seg.on { background: #2563eb; border-color: #2563eb; color: #fff; }
+.lupa-band { position: absolute; pointer-events: none; border: 2px dashed #2563eb; background: rgba(37, 99, 235, .08); }
+.lupa-band.cut { border-color: #d62828; background: rgba(214, 40, 40, .12); }
+.lupa-info { font-size: 13px; }

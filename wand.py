@@ -77,11 +77,28 @@ def _component(ink, seed, tol, gap, reach=12):
     return (region & fg) | (near & soft)
 
 
-def selection(doc, pno, view_pt, seeds, tol=60, gap=2):
-    """seeds: [{x, y, op: 'add'|'sub'}] en coordenadas de la vista. Devuelve (info, img, máscara) o None."""
+def _area_px(info, page, area, w, h):
+    """Recuadro de la vista → recuadro de píxeles de la imagen (recortado a la imagen)."""
+    a = [editor.point_from_view(page, area[0], area[1]), editor.point_from_view(page, area[2], area[3])]
+    a += [fitz.Point(a[0].x, a[1].y), fitz.Point(a[1].x, a[0].y)]
+    px = [_to_px(info, p, w, h) for p in a]
+    x0, x1 = max(0, int(min(p[0] for p in px))), min(w, int(np.ceil(max(p[0] for p in px))))
+    y0, y1 = max(0, int(min(p[1] for p in px))), min(h, int(np.ceil(max(p[1] for p in px))))
+    return (x0, y0, x1, y1) if x1 > x0 and y1 > y0 else None
+
+
+def selection(doc, pno, view_pt, seeds, tol=60, gap=2, area=None):
+    """seeds: [{x, y, op: 'add'|'sub'}] en coordenadas de la vista. Con area (recuadro de la vista)
+    solo se selecciona dentro de él, y sin semillas se coge toda la tinta del recuadro.
+    Devuelve (info, img, máscara) o None."""
     page = doc[pno]
-    first = editor.point_from_view(page, *view_pt)
-    info = _image_at(page, first)
+    if area:
+        p0, p1 = editor.point_from_view(page, area[0], area[1]), editor.point_from_view(page, area[2], area[3])
+        r = fitz.Rect(p0, p1).normalize()
+        infos = [i for i in page.get_image_info(xrefs=True) if i.get("xref") and fitz.Rect(i["bbox"]).intersects(r)]
+        info = max(infos, key=lambda i: (fitz.Rect(i["bbox"]) & r).get_area()) if infos else None
+    else:
+        info = _image_at(page, editor.point_from_view(page, *view_pt))
     if not info:
         return None
     img = _load(doc, page, info)
@@ -89,13 +106,24 @@ def selection(doc, pno, view_pt, seeds, tol=60, gap=2):
     ink = _ink(img)
     bw = max(1e-6, fitz.Rect(info["bbox"]).width)
     gap_px = max(0, round(float(gap) * w / bw))  # el hueco se da en puntos de la página
+    clip = None
+    if area:
+        box = _area_px(info, page, area, w, h)
+        if box is None:
+            return info, img, None
+        clip = np.zeros((h, w), bool)
+        clip[box[1]:box[3], box[0]:box[2]] = True
     mask = np.zeros((h, w), bool)
+    if clip is not None and not any(s.get("op") != "sub" for s in seeds):
+        mask = (ink > int(tol)) & clip  # sin clics: toda la tinta del recuadro
     for s in seeds:
         px = _to_px(info, editor.point_from_view(page, s["x"], s["y"]), w, h)
         comp = _component(ink, px, int(tol), gap_px, reach=max(12, round(6 * w / bw)))
         if comp is None:
             continue
         mask = (mask & ~comp) if s.get("op") == "sub" else (mask | comp)
+    if clip is not None:
+        mask &= clip
     if not mask.any():
         return info, img, None
     return info, img, mask
@@ -110,6 +138,43 @@ def _page_rect(info, box, w, h):
     x0, y0, x1, y1 = box
     pts = [_to_page(info, x, y, w, h) for x, y in ((x0, y0), (x1, y0), (x0, y1), (x1, y1))]
     return fitz.Rect(min(p.x for p in pts), min(p.y for p in pts), max(p.x for p in pts), max(p.y for p in pts))
+
+
+def _b64png(im):
+    import base64
+    buf = io.BytesIO()
+    im.save(buf, "PNG")
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+def lupa(doc, pno, area, seeds, tol=60, gap=2):
+    """Para la ventana de lupa: el trozo del recuadro ampliado y, encima, la selección (mismo tamaño)."""
+    res = selection(doc, pno, None, seeds, tol, gap, area)
+    if res is None:
+        return {"found": False, "reason": "noimage"}
+    info, img, mask = res
+    w, h = img.size
+    box = _area_px(info, doc[pno], area, w, h)
+    if box is None:
+        return {"found": False, "reason": "noimage"}
+    x0, y0, x1, y1 = box
+    base = img.crop(box)
+    over = np.zeros((y1 - y0, x1 - x0, 4), np.uint8)
+    pixels = 0
+    if mask is not None:
+        crop = mask[y0:y1, x0:x1]
+        pixels = int(crop.sum())
+        over[crop] = (37, 99, 235, 140)
+        edge = crop & ~(np.asarray(Image.fromarray((crop * 255).astype(np.uint8)).filter(ImageFilter.MinFilter(3))) > 0)
+        over[edge] = (20, 60, 200, 255)
+    o = Image.fromarray(over, "RGBA")
+    if max(base.size) > 1400:
+        base.thumbnail((1400, 1400))
+        o = o.resize(base.size)
+    # parte del recuadro (en la vista) que cubre realmente la imagen, para situar los clics
+    view = editor.to_view(doc[pno], _page_rect(info, box, w, h))
+    return {"found": pixels > 0, "reason": "blank", "base": _b64png(base), "over": _b64png(o), "view": view,
+            "pixels": pixels}
 
 
 def preview(doc, pno, view_pt, seeds, tol=60, gap=2):
@@ -155,10 +220,10 @@ def cutout_png(img, mask, ink, tol):
     return buf.getvalue(), box
 
 
-def apply(doc, pno, view_pt, seeds, action, tol=60, gap=2):
+def apply(doc, pno, view_pt, seeds, action, tol=60, gap=2, area=None):
     """action: 'separar' (borrar de la imagen + imagen suelta movible), 'copiar' (imagen suelta
     encima, sin tocar el original) o 'borrar' (queda en blanco)."""
-    res = selection(doc, pno, view_pt, seeds, tol, gap)
+    res = selection(doc, pno, view_pt, seeds, tol, gap, area)
     if res is None or res[2] is None:
         raise ValueError("no hay nada seleccionado")
     info, img, mask = res
@@ -183,10 +248,21 @@ def apply(doc, pno, view_pt, seeds, action, tol=60, gap=2):
     return {"separar": "Separada como imagen", "copiar": "Copiada como imagen", "borrar": "Borrada"}.get(action, "")
 
 
-def signature_png(doc, pno, view_pt, seeds, tol=60, gap=2):
-    """La selección como imagen para guardarla entre las firmas manuscritas."""
-    res = selection(doc, pno, view_pt, seeds, tol, gap)
+def signature_png(doc, pno, view_pt, seeds, tol=60, gap=2, area=None):
+    """La selección como PNG con fondo transparente (para las firmas o el portapapeles)."""
+    res = selection(doc, pno, view_pt, seeds, tol, gap, area)
     if res is None or res[2] is None:
         raise ValueError("no hay nada seleccionado")
     info, img, mask = res
     return cutout_png(img, mask, _ink(img), int(tol))[0]
+
+
+def clip(doc, pno, view_pt, seeds, tol=60, gap=2, area=None):
+    """La selección para el portapapeles: PNG transparente y su recuadro en la vista."""
+    res = selection(doc, pno, view_pt, seeds, tol, gap, area)
+    if res is None or res[2] is None:
+        raise ValueError("no hay nada seleccionado")
+    info, img, mask = res
+    png, box = cutout_png(img, mask, _ink(img), int(tol))
+    w, h = img.size
+    return png, editor.to_view(doc[pno], _page_rect(info, box, w, h))

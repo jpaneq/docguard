@@ -1252,8 +1252,8 @@ EDIT_OPS = {
         int(r.get("start", 1)), bool(r.get("skip_first")),
         sorted({p for g in core.parse_ranges(r["ranges"], len(doc)) for p in g}) if r.get("ranges") else None,
         r.get("filename", "")),
-    "wand_apply": lambda doc, r: wand.apply(doc, r["n"], (r["seeds"][0]["x"], r["seeds"][0]["y"]), r["seeds"], r["action"],
-                                           int(r.get("tol", 60)), float(r.get("gap", 2))),
+    "wand_apply": lambda doc, r: wand.apply(doc, r["n"], _wand_pt(r), r["seeds"], r["action"],
+                                           int(r.get("tol", 60)), float(r.get("gap", 2)), r.get("area")),
     "move_spans": lambda doc, r: editor.move_spans(doc, r["n"], r["indices"], float(r["dx"]), float(r["dy"])),
     "scale_spans": lambda doc, r: editor.scale_spans(doc, r["n"], r["indices"], float(r["factor"]), r["anchor"]),
     "format_spans": lambda doc, r: editor.format_spans(doc, r["n"], r["indices"], r.get("font", "auto"), r.get("size"),
@@ -1302,6 +1302,27 @@ def op_edit(req, name):
 CLIPBOARD = {}
 
 
+def _wand_pt(req):
+    s = req.get("seeds") or []
+    return (s[0]["x"], s[0]["y"]) if s else None
+
+
+def op_wand_lupa(req):
+    """Varita mágica dentro de un recuadro: imagen ampliada del recuadro y la selección encima."""
+    d = get_doc(req)
+    return wand.lupa(need_pdf(d), int(req["n"]), req["area"], req.get("seeds") or [],
+                     int(req.get("tol", 60)), float(req.get("gap", 2)))
+
+
+def op_wand_png(req):
+    """Varita mágica: la selección como PNG transparente (para copiarla al portapapeles)."""
+    d = get_doc(req)
+    png, view = wand.clip(need_pdf(d), int(req["n"]), _wand_pt(req), req.get("seeds") or [],
+                          int(req.get("tol", 60)), float(req.get("gap", 2)), req.get("area"))
+    CLIPBOARD["clip"] = {"png": png, "size": [view[2] - view[0], view[3] - view[1]], "text": ""}
+    return {"png": base64.b64encode(png).decode(), "rect": view}
+
+
 def op_wand(req):
     """Varita mágica: vista previa de la zona seleccionada (no cambia el documento)."""
     d = get_doc(req)
@@ -1313,9 +1334,8 @@ def op_wand(req):
 def op_wand_signature(req):
     """Varita mágica: guarda la zona seleccionada entre las firmas manuscritas."""
     d = get_doc(req)
-    seeds = req["seeds"]
-    png = wand.signature_png(need_pdf(d), int(req["n"]), (seeds[0]["x"], seeds[0]["y"]), seeds,
-                             int(req.get("tol", 60)), float(req.get("gap", 2)))
+    png = wand.signature_png(need_pdf(d), int(req["n"]), _wand_pt(req), req.get("seeds") or [],
+                             int(req.get("tol", 60)), float(req.get("gap", 2)), req.get("area"))
     return op_sigimg_save({"png": base64.b64encode(png).decode(), "remove_white": False})
 
 
@@ -1799,7 +1819,7 @@ OPS = {
     "compress": op_compress, "totxt": op_totxt, "toimages": op_toimages, "topdf": op_topdf, "sanitize": op_sanitize, "merge": op_merge, "merge_pages": op_merge_pages,
     "edit/state": op_edit_state, "recovery/list": op_recovery_list, "wmark/layer": op_wmark_layer, "recovery/open": op_recovery_open, "recovery/discard": op_recovery_discard, "recovery/clear": op_recovery_clear, "autosave/settings": op_autosave_settings, "comments": op_comments, "edit/words": op_edit_words, "edit/copy_object": op_copy_object, "fonts": op_fonts, "outline": op_outline, "edit/undo": op_undo, "edit/redo": op_redo, "edit/export": op_edit_export,
     "sigimgs": op_sigimgs, "sigimg/save": op_sigimg_save, "sigimg/delete": op_sigimg_delete,
-    "sigimg/place": op_place_sigimg, "sigimg/margin": op_sign_margin, "edit/copy": op_copy, "edit/wand": op_wand, "edit/wand_signature": op_wand_signature, "edit/copy_spans": op_copy_spans, "certinfo": op_certinfo, "sign": op_sign, "sign/test": op_sign_test, "sign/batch": op_sign_batch,
+    "sigimg/place": op_place_sigimg, "sigimg/margin": op_sign_margin, "edit/copy": op_copy, "edit/wand": op_wand, "edit/wand_lupa": op_wand_lupa, "edit/wand_png": op_wand_png, "edit/wand_signature": op_wand_signature, "edit/copy_spans": op_copy_spans, "certinfo": op_certinfo, "sign": op_sign, "sign/test": op_sign_test, "sign/batch": op_sign_batch,
     "track/add": op_track_add, "track/check": op_track_check, "track/list": op_track_list, "track/delete": op_track_delete,
     "p11/modules": op_p11_modules, "p11/list": op_p11_list, "p11/login": op_p11_login, "verify": op_verify, "external/open": op_external_open, "update/progress": op_update_progress, "update/auto": op_update_auto, "unlock": op_unlock,
 }

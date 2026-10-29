@@ -80,7 +80,7 @@ const Edit = {
     this.wordsCache = {};  // palabras por página, para seleccionar texto al resaltar
     this.ann = { kind: 'highlight', color: '#fff200', text: '' };
     this.widgetType = 'text'; this.sig = null; this.fonts = [];
-    this.wand = { tol: 60, gap: 2, seeds: [], n: null, view: null };
+    this.wand = { tol: 60, gap: 2, seeds: [], n: null, area: null };
     $$('[data-t]', this.root).forEach(b => b.onclick = () => this.setTool(b.dataset.t));
     const act = (a, f) => { $(`[data-act=${a}]`, this.root).onclick = f; };
     act('open', async () => { for (const f of await pickFiles(ACCEPT_DOCS, true)) await this.openFile(f); });
@@ -263,7 +263,6 @@ const Edit = {
     $$('[data-t]', this.root).forEach(b => b.classList.toggle('on', b.dataset.t === t));
     this.clearSel(false);
     if (t === 'image') this.pickImage();
-    if (t !== 'wand') this.wandClear(false);
     this.draw();
   },
   clearSel(redraw = true) {
@@ -335,10 +334,6 @@ const Edit = {
     // campos de formulario: se rellenan directamente
     if (t === 'select' || t === 'form') this.drawWidgets(st);
     if (this.region && this.region.n === v.n) v.box(this.region.r, 'region');
-    if (t === 'wand' && this.wand.view && this.wand.n === v.n) {
-      const b = v.box(this.wand.view.rect, 'wand-sel');
-      b.style.backgroundImage = `url(data:image/png;base64,${this.wand.view.png})`;
-    }
     (this.hits || []).forEach((hit, i) => { if (hit.n === v.n) v.box(hit.r, 'hit' + (i === this.hitIdx ? ' cur' : '')); });
     this.hint({
       select: 'Clic: seleccionar (con ⌘/Ctrl o Mayús: añadir varios) · Doble clic en un texto: escribir (Intro = nueva línea) · Arrastrar: mover (guías de alineación; Alt las desactiva) · Esquina del marco: cambiar el tamaño · Arrastrar en vacío: seleccionar zona · ⌘C/⌘X/⌘V · Supr · Clic derecho: más opciones',
@@ -566,25 +561,7 @@ const Edit = {
       return;
     }
     if (t === 'wand') {
-      const w = this.wand, has = !!w.view;
-      const slider = (lbl, key, min, max, step, tip) => {
-        const out = h('span', { class: 'muted' }, String(w[key]));
-        const inp = h('input', { type: 'range', min, max, step, value: w[key], title: tip,
-          oninput: () => { w[key] = +inp.value; out.textContent = inp.value; },
-          onchange: () => this.wandUpdate() });
-        return [label(lbl), inp, out];
-      };
-      add(label('Varita mágica'),
-        ...slider('Tolerancia', 'tol', 10, 200, 5, 'Más alta: coge también los grises claros; más baja: solo lo más oscuro'),
-        ...slider('Unir huecos', 'gap', 0, 8, 1, 'Une trazos cercanos separados por huecos pequeños (en puntos)'),
-        h('span', { class: 'sep' }),
-        // los botones están siempre (desactivados sin selección) para que la página no salte al seleccionar
-        h('button', { class: 'primary', disabled: !has, title: 'La saca de la página como imagen suelta que puedes mover, copiar o cambiar de tamaño', onclick: () => this.wandApply('separar') }, 'Separar como imagen'),
-        h('button', { disabled: !has, title: 'Deja el original y pone encima una copia suelta', onclick: () => this.wandApply('copiar') }, 'Copiar'),
-        h('button', { disabled: !has, title: 'La quita de la página (queda del color del papel)', onclick: () => this.wandApply('borrar') }, 'Borrar'),
-        h('button', { disabled: !has, title: 'La guarda entre tus firmas manuscritas, sin el fondo', onclick: () => this.wandSignature() }, 'Guardar como firma'),
-        h('button', { disabled: !has, onclick: () => this.wandClear() }, 'Quitar selección'),
-        h('span', { class: 'muted' }, has ? '⇧ añade · ⌥/Alt quita' : 'Clic en una firma, sello o logo de un escaneo · ⇧ añade · ⌥/Alt quita'));
+      add(label('Varita mágica'), h('span', { class: 'muted' }, 'Arrastra un recuadro alrededor de la firma, sello o logo: se abre una lupa para ajustar la selección.'));
       return;
     }
     if (sel.length) {
@@ -790,7 +767,7 @@ const Edit = {
     if (this.inline) { this.commitInline(); return; }
     if (this.graph) return this.graphClick(e);
     if (t === 'text') { const [x, y] = v.pt(e); this.newInline(x, y); return; }
-    if (t === 'wand') return this.wandClick(e);
+    if (t === 'wand') return this.wandDrag(e);
     if (t === 'annot' && ['highlight', 'underline', 'strikeout'].includes(this.ann.kind)) return this.markupDown(e);
     if (t === 'annot' && this.ann.kind === 'note') {
       const [x, y] = v.pt(e);
@@ -853,50 +830,108 @@ const Edit = {
       if (r !== undefined) this.refresh(true);
     }
   },
-  /* ---- varita mágica ---- */
-  async wandClick(e) {
-    const v = this.viewer, w = this.wand;
-    const [x, y] = v.pt(e);
-    const op = e.altKey ? 'sub' : 'add';
-    if (!(e.shiftKey || e.altKey) || w.n !== v.n) w.seeds = [];
-    if (op === 'sub' && !w.seeds.length) return;
-    w.seeds.push({ x, y, op });
-    w.n = v.n;
-    await this.wandUpdate();
-  },
-  async wandUpdate() {
-    const w = this.wand;
-    if (!w.seeds.length || !this.info) return;
-    const r = await run('Seleccionando…', () => api('edit/wand', { id: this.info.id, n: w.n, seeds: w.seeds, tol: w.tol, gap: w.gap }));
+  /* ---- varita mágica: recuadro + lupa ---- */
+  async wandDrag(e) {
+    const v = this.viewer;
+    const d = await v.drag(e);
+    if (!d.moved) return this.hint('Arrastra un recuadro alrededor de lo que quieras seleccionar.');
+    Object.assign(this.wand, { n: v.n, area: d.rect, seeds: [] });
+    const r = await this.wandFetch();
     if (!r) return;
-    if (!r.found) {
-      w.seeds.pop();
-      if (!w.seeds.length) w.view = null;
-      toast(r.reason === 'noimage' ? 'La varita mágica funciona sobre imágenes y páginas escaneadas: aquí no hay ninguna.'
-        : 'Ahí solo hay fondo blanco. Pincha sobre el trazo o sube la tolerancia.', '', [], 5000);
-    } else w.view = r;
-    this.draw();
+    if (r.reason === 'noimage' && !r.base) return toast('La varita mágica funciona sobre imágenes y páginas escaneadas: en ese recuadro no hay ninguna.', '', [], 5000);
+    this.wandLupa(r);
   },
-  wandClear(redraw = true) {
-    Object.assign(this.wand, { seeds: [], n: null, view: null });
-    if (redraw) this.draw();
+  wandFetch() {
+    const w = this.wand;
+    return run('Seleccionando…', () => api('edit/wand_lupa', { id: this.info.id, n: w.n, area: w.area, seeds: w.seeds, tol: w.tol, gap: w.gap }));
+  },
+  wandReq() {
+    const w = this.wand;
+    return { n: w.n, area: w.area, seeds: w.seeds, tol: w.tol, gap: w.gap };
+  },
+  wandLupa(r) {
+    const w = this.wand;
+    const base = h('img', { class: 'lupa-base', alt: '', draggable: false });
+    const fit = (bw, bh) => {  // la lupa: el recuadro ampliado hasta llenar la ventana
+      const k = Math.min(Math.min(900, innerWidth * 0.78) / bw, (innerHeight - 330) / bh, 8);
+      base.style.width = bw * k + 'px';
+      base.style.height = bh * k + 'px';
+    };
+    const over = h('canvas', { class: 'lupa-over' });
+    const stage = h('div', { class: 'lupa-stage' }, base, over);
+    const info = h('span', { class: 'muted' });
+    const btns = [];
+    const show = res => {
+      r = res;
+      base.src = 'data:image/png;base64,' + r.base;
+      const oi = new Image();
+      oi.onload = () => {
+        fit(oi.width, oi.height); over.width = oi.width; over.height = oi.height; const c = over.getContext('2d'); c.clearRect(0, 0, oi.width, oi.height); c.drawImage(oi, 0, 0); };
+      oi.src = 'data:image/png;base64,' + r.over;
+      info.textContent = r.found ? 'Clic en una zona para quitarla o añadirla · ⇧ siempre añade · ⌥/Alt siempre quita' : 'No hay nada seleccionado: sube la tolerancia o pulsa «Todo el recuadro».';
+      btns.forEach(b => { b.disabled = !r.found; });
+    };
+    const refresh = async () => { const res = await this.wandFetch(); if (res) show(res); };
+    over.addEventListener('mousedown', async e => {
+      const b = over.getBoundingClientRect();
+      const fx = (e.clientX - b.left) / b.width, fy = (e.clientY - b.top) / b.height;
+      const px = Math.floor(fx * over.width), py = Math.floor(fy * over.height);
+      const onSel = over.getContext('2d').getImageData(px, py, 1, 1).data[3] > 0;
+      const op = e.shiftKey ? 'add' : e.altKey ? 'sub' : (onSel ? 'sub' : 'add');
+      const [x0, y0, x1, y1] = r.view;
+      w.seeds.push({ x: x0 + fx * (x1 - x0), y: y0 + fy * (y1 - y0), op });
+      const res = await this.wandFetch();
+      if (!res) return;
+      if (op === 'add' && res.pixels <= r.pixels) { w.seeds.pop(); toast('Ahí solo hay fondo. Pincha sobre el trazo o sube la tolerancia.', '', [], 3000); return; }
+      show(res);
+    });
+    const slider = (lbl, key, min, max, step, tip) => {
+      const out = h('span', { class: 'muted' }, String(w[key]));
+      const inp = h('input', { type: 'range', min, max, step, value: w[key], title: tip,
+        oninput: () => { w[key] = +inp.value; out.textContent = inp.value; }, onchange: refresh });
+      return h('label', { class: 'lupa-sl' }, lbl, inp, out);
+    };
+    let close;
+    const act = (label, fn, primary) => {
+      const b = h('button', { class: primary ? 'primary' : '', onclick: async () => { if (await fn() !== false) close(); } }, label);
+      btns.push(b); return b;
+    };
+    const body = h('div', { class: 'lupa' },
+      h('div', { class: 'lupa-ctl' },
+        slider('Tolerancia', 'tol', 10, 200, 5, 'Más alta: coge también los grises claros; más baja: solo lo más oscuro'),
+        slider('Unir huecos', 'gap', 0, 8, 1, 'Al pinchar, une trazos cercanos separados por huecos pequeños (en puntos)'),
+        h('button', { onclick: () => { w.seeds = []; refresh(); } }, 'Todo el recuadro')),
+      stage, info,
+      h('div', { class: 'lupa-acts' },
+        act('Copiar como imagen', () => this.wandCopy(), true),
+        act('Separar como imagen', () => this.wandApply('separar')),
+        act('Duplicar encima', () => this.wandApply('copiar')),
+        act('Borrar', () => this.wandApply('borrar')),
+        act('Guardar como firma', () => this.wandSignature())));
+    close = modal({ wide: true, title: 'Varita mágica', body, actions: [{ label: 'Cerrar' }] });
+    show(r);
+  },
+  async wandCopy() {
+    const r = await run('Copiando…', () => api('edit/wand_png', { id: this.info.id, ...this.wandReq() }));
+    if (!r) return false;
+    try {
+      const blob = await (await fetch('data:image/png;base64,' + r.png)).blob();
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+    } catch (e) { /* sin portapapeles del sistema: queda el interno */ }
+    this.clip = r; this.clipKind = 'region'; this.clipAsImage = true; this.clipAnchor = r.rect;
+    this.saveClip(); this._clipAt = Date.now();
+    toast('Copiada como imagen con fondo transparente. Pégala con ⌘V aquí o en otra aplicación.', 'ok', [], 4000);
   },
   async wandApply(action) {
-    const w = this.wand;
-    if (!w.view) return;
-    const ok = await this.op('wand_apply', { n: w.n, seeds: w.seeds, action, tol: w.tol, gap: w.gap },
-      action === 'borrar' ? 'Borrando…' : 'Separando…');
-    if (!ok) return;
-    this.wandClear(false);
+    const ok = await this.op('wand_apply', { ...this.wandReq(), action }, action === 'borrar' ? 'Borrando…' : 'Separando…');
+    if (!ok) return false;
     if (action === 'borrar') { this.draw(); return toast('Borrada. ⌘Z / Ctrl+Z para deshacer.', 'ok'); }
     this.setTool('select');
     toast('Ahora es una imagen suelta: arrástrala para moverla o cópiala (⌘C). ⌘Z / Ctrl+Z para deshacer.', 'ok', [], 6000);
   },
   async wandSignature() {
-    const w = this.wand;
-    if (!w.view) return;
-    const r = await run('Guardando la firma…', () => api('edit/wand_signature', { id: this.info.id, n: w.n, seeds: w.seeds, tol: w.tol, gap: w.gap }));
-    if (!r) return;
+    const r = await run('Guardando la firma…', () => api('edit/wand_signature', { id: this.info.id, ...this.wandReq() }));
+    if (!r) return false;
     await Sigs.load();
     toast('Guardada entre tus firmas manuscritas: la tienes en «Firma manuscrita» y en Firma digital.', 'ok', [], 6000);
   },
